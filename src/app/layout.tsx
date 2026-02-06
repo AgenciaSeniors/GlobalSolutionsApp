@@ -3,21 +3,30 @@
  * @module app/layout
  */
 import type { Metadata } from 'next';
-import { DM_Sans, Playfair_Display } from 'next/font/google';
+import { Roboto_Condensed, Open_Sans, Dancing_Script } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/components/providers/AuthProvider';
 import ToastProvider from '@/components/providers/ToastProvider';
 
-const dmSans = DM_Sans({
+const heading = Roboto_Condensed({
   subsets: ['latin'],
-  variable: '--font-dm-sans',
+  variable: '--font-heading',
   display: 'swap',
+  weight: ['400', '700'],
 });
 
-const playfair = Playfair_Display({
+const body = Open_Sans({
   subsets: ['latin'],
-  variable: '--font-playfair',
+  variable: '--font-body',
   display: 'swap',
+  weight: ['400', '600', '700'],
+});
+
+const script = Dancing_Script({
+  subsets: ['latin'],
+  variable: '--font-script',
+  display: 'swap',
+  weight: ['400', '700'],
 });
 
 export const metadata: Metadata = {
@@ -40,8 +49,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className={`${dmSans.variable} ${playfair.variable}`}>
-      <body className="font-sans">
+    <html lang="es" className={`${heading.variable} ${body.variable} ${script.variable}`}>
+      <body className="font-body">
         <AuthProvider>
           {children}
           <ToastProvider />
