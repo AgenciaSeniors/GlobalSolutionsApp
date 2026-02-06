@@ -1,0 +1,132 @@
+/**
+ * @fileoverview Main navigation bar with scroll-aware glass morphism,
+ *               mobile drawer and role-aware links.
+ * @module components/layout/Navbar
+ */
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Menu, X, Plane, Car, Sparkles, Globe } from 'lucide-react';
+import { cn } from '@/lib/utils/cn';
+import { ROUTES } from '@/lib/constants/routes';
+import Button from '@/components/ui/Button';
+
+const NAV_LINKS = [
+  { href: ROUTES.FLIGHTS, label: 'Vuelos', icon: Plane },
+  { href: ROUTES.CARS, label: 'Autos', icon: Car },
+  { href: ROUTES.OFFERS, label: 'Ofertas', icon: Sparkles },
+  { href: ROUTES.ABOUT, label: 'Nosotros', icon: null },
+] as const;
+
+export default function Navbar() {
+  const pathname = usePathname();
+  const [scrolled, setScrolled] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Close drawer on route change
+  useEffect(() => setMobileOpen(false), [pathname]);
+
+  return (
+    <header
+      className={cn(
+        'fixed inset-x-0 top-0 z-50 transition-all duration-300',
+        scrolled
+          ? 'bg-white/90 backdrop-blur-xl border-b border-neutral-200/50 shadow-sm'
+          : 'bg-transparent',
+      )}
+    >
+      <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
+        {/* ── Logo ── */}
+        <Link href={ROUTES.HOME} className="flex items-center gap-2.5">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-brand-900 text-white">
+            <Globe className="h-5 w-5" />
+          </span>
+          <span className="flex flex-col leading-tight">
+            <span className="font-display text-lg font-bold tracking-tight text-brand-950">
+              Global Solutions
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-brand-600">
+              Travel
+            </span>
+          </span>
+        </Link>
+
+        {/* ── Desktop Links ── */}
+        <ul className="hidden items-center gap-1 md:flex">
+          {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+            const active = pathname === href;
+            return (
+              <li key={href}>
+                <Link
+                  href={href}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors',
+                    active
+                      ? 'bg-brand-50 text-brand-600'
+                      : 'text-neutral-600 hover:bg-neutral-100 hover:text-brand-600',
+                  )}
+                >
+                  {Icon && <Icon className="h-4 w-4" />}
+                  {label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* ── Auth Actions ── */}
+        <div className="flex items-center gap-3">
+          <Link href={ROUTES.LOGIN} className="hidden sm:block">
+            <Button size="sm">Iniciar Sesión</Button>
+          </Link>
+
+          {/* Mobile toggle */}
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="rounded-lg p-2 text-neutral-700 hover:bg-neutral-100 md:hidden"
+            aria-label="Abrir menú"
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
+      </nav>
+
+      {/* ── Mobile Drawer ── */}
+      {mobileOpen && (
+        <div className="absolute inset-x-0 top-[72px] border-t border-neutral-200 bg-white p-6 shadow-xl md:hidden animate-fade-in">
+          <ul className="flex flex-col gap-2">
+            {NAV_LINKS.map(({ href, label, icon: Icon }) => (
+              <li key={href}>
+                <Link
+                  href={href}
+                  className={cn(
+                    'flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium transition-colors',
+                    pathname === href
+                      ? 'bg-brand-50 text-brand-600'
+                      : 'text-neutral-700 hover:bg-neutral-50',
+                  )}
+                >
+                  {Icon && <Icon className="h-5 w-5" />}
+                  {label}
+                </Link>
+              </li>
+            ))}
+            <li className="mt-4">
+              <Link href={ROUTES.LOGIN}>
+                <Button className="w-full">Iniciar Sesión</Button>
+              </Link>
+            </li>
+          </ul>
+        </div>
+      )}
+    </header>
+  );
+}

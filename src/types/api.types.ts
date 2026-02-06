@@ -1,0 +1,64 @@
+/**
+ * @fileoverview Shared request / response types for API routes and services.
+ * @module types/api
+ */
+
+/* ------------------------------------------------------------------ */
+/*  GENERIC                                                           */
+/* ------------------------------------------------------------------ */
+
+export interface ApiResponse<T> {
+  data: T | null;
+  error: string | null;
+  status: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  per_page: number;
+  has_more: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/*  FLIGHTS                                                           */
+/* ------------------------------------------------------------------ */
+
+export interface FlightSearchParams {
+  origin: string;
+  destination: string;
+  departure_date: string;
+  return_date?: string;
+  passengers: number;
+}
+
+/* ------------------------------------------------------------------ */
+/*  BOOKINGS                                                          */
+/* ------------------------------------------------------------------ */
+
+export interface CreateBookingPayload {
+  flight_id: string;
+  passengers: PassengerPayload[];
+}
+
+export interface PassengerPayload {
+  first_name: string;
+  last_name: string;
+  date_of_birth: string;
+  nationality: string;
+  passport_number: string;
+  passport_expiry_date: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  PAYMENTS                                                          */
+/* ------------------------------------------------------------------ */
+
+export interface CreatePaymentIntentPayload {
+  booking_id: string;
+}
+
+export interface PaymentIntentResponse {
+  client_secret: string;
+}
