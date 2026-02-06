@@ -1,6 +1,6 @@
 /**
  * @fileoverview Custom hook encapsulating authentication actions
- *               (login, register, logout) with role-based redirect.
+ *               (login, hybrid register, logout) with role-based redirect.
  * @module hooks/useAuth
  */
 'use client';
@@ -11,10 +11,10 @@ import { createClient } from '@/lib/supabase/client';
 import { ROUTES } from '@/lib/constants/routes';
 import type { UserRole } from '@/types/models';
 
-interface RegisterPayload {
+interface RegisterOtpRequestPayload {
   email: string;
-  password: string;
   fullName: string;
+  role?: UserRole; // default client
 }
 
 export function useAuth() {
@@ -32,6 +32,21 @@ export function useAuth() {
     router.push(destination[role]);
   }
 
+  async function fetchRoleAndRedirect(userId: string) {
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      // fallback to client dashboard
+      redirectByRole('client');
+      return;
+    }
+    redirectByRole((profile?.role as UserRole) ?? 'client');
+  }
+
   async function login(email: string, password: string) {
     setIsLoading(true);
     try {
@@ -41,35 +56,62 @@ export function useAuth() {
       });
 
       if (error) throw error;
-
-      // Fetch profile to determine role
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', data.user.id)
-        .single();
-
-      redirectByRole((profile?.role as UserRole) ?? 'client');
+      await fetchRoleAndRedirect(data.user.id);
     } finally {
       setIsLoading(false);
     }
   }
 
-  async function register({ email, password, fullName }: RegisterPayload) {
+  /**
+   * Hybrid auth: Step 1 — send OTP (6 digits) to email.
+   * If the user doesn't exist, Supabase will create it (shouldCreateUser=true).
+   */
+  async function requestRegisterOtp({ email, fullName, role = 'client' }: RegisterOtpRequestPayload) {
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signInWithOtp({
         email,
-        password,
         options: {
-          data: { full_name: fullName, role: 'client' },
+          shouldCreateUser: true,
+          data: { full_name: fullName, role },
         },
       });
-
       if (error) throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
-      // After sign-up the user will receive a confirmation email.
-      router.push(`${ROUTES.LOGIN}?confirmed=pending`);
+  /**
+   * Hybrid auth: Step 2 — verify OTP. On success, a session is created.
+   * Returns the user id to allow subsequent steps.
+   */
+  async function verifyRegisterOtp(email: string, code6: string) {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: code6,
+        type: 'email',
+      });
+      if (error) throw error;
+      if (!data.user) throw new Error('No se pudo verificar el código.');
+      return data.user.id;
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  /**
+   * Hybrid auth: Step 3 — set password after OTP verification.
+   * Keeps the current session.
+   */
+  async function setPassword(password: string) {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      if (data.user) await fetchRoleAndRedirect(data.user.id);
     } finally {
       setIsLoading(false);
     }
@@ -80,5 +122,12 @@ export function useAuth() {
     router.push(ROUTES.HOME);
   }
 
-  return { login, register, logout, isLoading };
+  return {
+    login,
+    requestRegisterOtp,
+    verifyRegisterOtp,
+    setPassword,
+    logout,
+    isLoading,
+  };
 }

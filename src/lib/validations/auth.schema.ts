@@ -9,14 +9,32 @@ export const loginSchema = z.object({
   password: z.string().min(8, 'Mínimo 8 caracteres'),
 });
 
-export const registerSchema = z
+/**
+ * Hybrid register: Step 1 (request OTP)
+ */
+export const registerRequestSchema = z.object({
+  full_name: z
+    .string()
+    .min(2, 'El nombre debe tener al menos 2 caracteres')
+    .max(100),
+  email: z.string().email('Correo electrónico inválido'),
+  phone: z.string().optional(),
+});
+
+/**
+ * Hybrid register: Step 2 (verify OTP)
+ */
+export const otpSchema = z.object({
+  code: z
+    .string()
+    .regex(/^\d{6}$/, 'El código debe ser de 6 dígitos'),
+});
+
+/**
+ * Hybrid register: Step 3 (set password)
+ */
+export const setPasswordSchema = z
   .object({
-    full_name: z
-      .string()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100),
-    email: z.string().email('Correo electrónico inválido'),
-    phone: z.string().optional(),
     password: z
       .string()
       .min(8, 'Mínimo 8 caracteres')
@@ -30,4 +48,6 @@ export const registerSchema = z
   });
 
 export type LoginFormValues = z.infer<typeof loginSchema>;
-export type RegisterFormValues = z.infer<typeof registerSchema>;
+export type RegisterRequestValues = z.infer<typeof registerRequestSchema>;
+export type OtpValues = z.infer<typeof otpSchema>;
+export type SetPasswordValues = z.infer<typeof setPasswordSchema>;
