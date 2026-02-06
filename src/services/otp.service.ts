@@ -4,6 +4,7 @@ export async function requestOtp(email: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   });
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error ?? 'No se pudo enviar el código.');
   return data as { ok: true };
@@ -15,6 +16,7 @@ export async function verifyOtp(email: string, code: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, code }),
   });
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error ?? 'No se pudo verificar el código.');
   return data as { ok: true };
@@ -26,6 +28,7 @@ export async function completeRegister(email: string, fullName: string, password
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, fullName, password }),
   });
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error ?? 'No se pudo completar el registro.');
   return data as { ok: true; userId?: string };

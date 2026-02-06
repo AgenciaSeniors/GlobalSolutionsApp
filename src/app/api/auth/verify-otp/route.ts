@@ -18,6 +18,7 @@ export async function POST(req: Request) {
     if (!email || !code) {
       return NextResponse.json({ error: 'Email y código requeridos' }, { status: 400 });
     }
+
     if (!/^\d{6}$/.test(code)) {
       return NextResponse.json({ error: 'El código debe ser de 6 dígitos' }, { status: 400 });
     }
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
       .from('auth_otps')
       .select('*')
       .eq('email', email)
-      .is('consumed_at', null)
+      .is('used_at', null)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -43,11 +44,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Código inválido' }, { status: 400 });
     }
 
-    // marcar consumido
-    await supabaseAdmin
-      .from('auth_otps')
-      .update({ consumed_at: new Date().toISOString() })
-      .eq('id', data.id);
+    await supabaseAdmin.from('auth_otps').update({ verified_at: new Date().toISOString() }).eq('id', data.id);
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

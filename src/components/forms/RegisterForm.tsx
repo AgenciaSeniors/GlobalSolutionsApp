@@ -1,296 +1,242 @@
 /**
- * @fileoverview Client registration form (hybrid auth: OTP + password).
- * @module components/forms/RegisterForm
+ * @fileoverview Client registration form (OTP 6 dígitos + contraseña).
+ *              NO usa Supabase signInWithOtp; el OTP lo envía nuestro backend.
  */
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Shield, Mail, KeyRound } from 'lucide-react';
+import { Shield } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
-import {
-  registerRequestSchema,
-  otpSchema,
-  setPasswordSchema,
-} from '@/lib/validations/auth.schema';
 import { ROUTES } from '@/lib/constants/routes';
-import { useAuth } from '@/hooks/useAuth';
+import { completeRegister, requestOtp, verifyOtp } from '@/services/otp.service';
+import { createClient } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
 
 type Step = 'request' | 'verify' | 'password';
 
-type RequestFields = {
+type FormFields = {
   full_name: string;
   email: string;
-  phone?: string;
-};
-
-type VerifyFields = {
+  phone: string;
   code: string;
-};
-
-type PasswordFields = {
   password: string;
   confirm_password: string;
 };
 
 export default function RegisterForm() {
-  const { requestRegisterOtp, verifyRegisterOtp, setPassword, isLoading } = useAuth();
+  const router = useRouter();
+  const supabase = createClient();
 
   const [step, setStep] = useState<Step>('request');
-
-  const [request, setRequest] = useState<RequestFields>({
+  const [form, setForm] = useState<FormFields>({
     full_name: '',
     email: '',
     phone: '',
-  });
-
-  const [verify, setVerify] = useState<VerifyFields>({ code: '' });
-
-  const [pw, setPw] = useState<PasswordFields>({
+    code: '',
     password: '',
     confirm_password: '',
   });
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  function clearErrors() {
-    setErrors({});
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown((c) => c - 1), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
+
+  const update = (field: keyof FormFields) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setForm((prev) => ({ ...prev, [field]: v }));
+  };
+
+  async function onRequestOtp() {
     setServerError(null);
-  }
 
-  async function submitRequest(e: FormEvent) {
-    e.preventDefault();
-    clearErrors();
+    const email = form.email.trim();
+    if (!email) return setServerError('Correo requerido.');
 
-    const result = registerRequestSchema.safeParse(request);
-    if (!result.success) {
-      const fieldErrors: Record<string, string> = {};
-      result.error.issues.forEach((issue) => {
-        const key = issue.path[0] as string;
-        fieldErrors[key] = issue.message;
-      });
-      setErrors(fieldErrors);
-      return;
-    }
+    if (cooldown > 0) return;
 
+    setIsLoading(true);
     try {
-      await requestRegisterOtp({
-        email: result.data.email,
-        fullName: result.data.full_name,
-      });
+      await requestOtp(email);
+      setCooldown(60);
       setStep('verify');
-    } catch (err: unknown) {
-      setServerError(err instanceof Error ? err.message : 'Error al enviar el código');
+    } catch (err: any) {
+      setServerError(err?.message ?? 'Error al enviar código');
+    } finally {
+      setIsLoading(false);
     }
   }
 
-  async function submitVerify(e: FormEvent) {
-    e.preventDefault();
-    clearErrors();
+  async function onVerifyOtp() {
+    setServerError(null);
 
-    const result = otpSchema.safeParse(verify);
-    if (!result.success) {
-      const fieldErrors: Record<string, string> = {};
-      result.error.issues.forEach((issue) => {
-        const key = issue.path[0] as string;
-        fieldErrors[key] = issue.message;
-      });
-      setErrors(fieldErrors);
-      return;
+    const email = form.email.trim();
+    const code = form.code.trim();
+
+    if (!/^[0-9]{6}$/.test(code)) {
+      return setServerError('El código debe ser de 6 dígitos.');
     }
 
+    setIsLoading(true);
     try {
-      await verifyRegisterOtp(request.email, result.data.code);
+      await verifyOtp(email, code);
       setStep('password');
-    } catch (err: unknown) {
-      setServerError(err instanceof Error ? err.message : 'Código inválido');
+    } catch (err: any) {
+      setServerError(err?.message ?? 'Error al verificar código');
+    } finally {
+      setIsLoading(false);
     }
   }
 
-  async function submitPassword(e: FormEvent) {
-    e.preventDefault();
-    clearErrors();
+  async function onCompleteRegister() {
+    setServerError(null);
 
-    const result = setPasswordSchema.safeParse(pw);
-    if (!result.success) {
-      const fieldErrors: Record<string, string> = {};
-      result.error.issues.forEach((issue) => {
-        const key = issue.path[0] as string;
-        fieldErrors[key] = issue.message;
-      });
-      setErrors(fieldErrors);
-      return;
+    const email = form.email.trim();
+    const fullName = form.full_name.trim();
+
+    if (!fullName) return setServerError('Nombre requerido.');
+
+    if (form.password.length < 8) {
+      return setServerError('La contraseña debe tener al menos 8 caracteres.');
+    }
+    if (form.password !== form.confirm_password) {
+      return setServerError('Las contraseñas no coinciden.');
     }
 
+    setIsLoading(true);
     try {
-      await setPassword(result.data.password);
-      // setPassword already redirects by role on success
-    } catch (err: unknown) {
-      setServerError(err instanceof Error ? err.message : 'Error al guardar la contraseña');
+      await completeRegister(email, fullName, form.password);
+
+      // login automático
+      const { error } = await supabase.auth.signInWithPassword({ email, password: form.password });
+      if (error) throw error;
+
+      router.push(ROUTES.USER_DASHBOARD);
+    } catch (err: any) {
+      setServerError(err?.message ?? 'Error al completar registro');
+    } finally {
+      setIsLoading(false);
     }
   }
-
-  const updateRequest = (field: keyof RequestFields) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setRequest((prev) => ({ ...prev, [field]: e.target.value }));
-
-  const updateVerify = (field: keyof VerifyFields) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setVerify((prev) => ({ ...prev, [field]: e.target.value }));
-
-  const updatePw = (field: keyof PasswordFields) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setPw((prev) => ({ ...prev, [field]: e.target.value }));
 
   return (
     <div className="space-y-4">
       {serverError && (
-        <div
-          className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-accent-red"
-          role="alert"
-        >
+        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-accent-red" role="alert">
           {serverError}
         </div>
       )}
 
       {step === 'request' && (
-        <form onSubmit={submitRequest} className="space-y-4">
-          <div className="rounded-2xl border border-brand-100 bg-white p-4">
-            <div className="flex items-start gap-3">
-              <div className="rounded-xl bg-brand-50 p-2">
-                <Mail className="h-5 w-5 text-brand-700" />
-              </div>
-              <div>
-                <p className="font-semibold text-brand-950">Crear cuenta con código (6 dígitos)</p>
-                <p className="text-sm text-brand-600">
-                  Te enviaremos un código a tu correo para verificarlo.
-                </p>
-              </div>
-            </div>
-          </div>
-
+        <>
           <Input
-            label="Nombre completo"
-            value={request.full_name}
-            onChange={updateRequest('full_name')}
-            error={errors.full_name}
-            placeholder="Ej: Edua Perez"
+            label="Nombre Completo"
+            placeholder="María García"
+            value={form.full_name}
+            onChange={update('full_name')}
+            required
           />
 
           <Input
-            label="Correo electrónico"
-            value={request.email}
-            onChange={updateRequest('email')}
-            error={errors.email}
-            placeholder="tu@correo.com"
+            label="Correo Electrónico"
             type="email"
-            autoComplete="email"
+            placeholder="correo@ejemplo.com"
+            value={form.email}
+            onChange={update('email')}
+            required
           />
 
           <Input
             label="Teléfono (opcional)"
-            value={request.phone ?? ''}
-            onChange={updateRequest('phone')}
-            error={errors.phone}
-            placeholder="+1 ..."
+            type="tel"
+            placeholder="+53 5555 5555"
+            value={form.phone}
+            onChange={update('phone')}
           />
 
-          <Button type="submit" isLoading={isLoading} className="w-full">
-            Enviar código
+          <Button onClick={onRequestOtp} isLoading={isLoading} className="w-full" disabled={cooldown > 0}>
+            {cooldown > 0 ? `Reintenta en ${cooldown}s` : 'Enviar código (6 dígitos)'}
           </Button>
-
-          <p className="text-center text-sm text-brand-600">
-            ¿Ya tienes cuenta?{' '}
-            <Link href={ROUTES.LOGIN} className="font-semibold text-brand-800 hover:underline">
-              Inicia sesión
-            </Link>
-          </p>
-        </form>
+        </>
       )}
 
       {step === 'verify' && (
-        <form onSubmit={submitVerify} className="space-y-4">
-          <div className="rounded-2xl border border-brand-100 bg-white p-4">
-            <div className="flex items-start gap-3">
-              <div className="rounded-xl bg-brand-50 p-2">
-                <Shield className="h-5 w-5 text-brand-700" />
-              </div>
-              <div>
-                <p className="font-semibold text-brand-950">Verifica tu correo</p>
-                <p className="text-sm text-brand-600">
-                  Ingresa el código de 6 dígitos enviado a <span className="font-medium">{request.email}</span>.
-                </p>
-              </div>
-            </div>
-          </div>
-
+        <>
           <Input
             label="Código (6 dígitos)"
-            value={verify.code}
-            onChange={updateVerify('code')}
-            error={errors.code}
-            placeholder="000000"
-            inputMode="numeric"
-            autoComplete="one-time-code"
+            placeholder="123456"
+            value={form.code}
+            onChange={(e) => {
+              const onlyDigits = e.target.value.replace(/\D/g, '').slice(0, 6);
+              setForm((prev) => ({ ...prev, code: onlyDigits }));
+            }}
+            required
           />
 
           <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full"
-              onClick={() => setStep('request')}
-              disabled={isLoading}
-            >
-              Cambiar correo
+            <Button variant="secondary" className="w-full" onClick={() => setStep('request')} disabled={isLoading}>
+              Cambiar email
             </Button>
-            <Button type="submit" isLoading={isLoading} className="w-full">
+            <Button className="w-full" onClick={onVerifyOtp} isLoading={isLoading}>
               Verificar
             </Button>
           </div>
-        </form>
+
+          <Button
+            variant="ghost"
+            className="w-full"
+            onClick={onRequestOtp}
+            disabled={isLoading || cooldown > 0}
+          >
+            {cooldown > 0 ? `Reenviar en ${cooldown}s` : 'Reenviar código'}
+          </Button>
+        </>
       )}
 
       {step === 'password' && (
-        <form onSubmit={submitPassword} className="space-y-4">
-          <div className="rounded-2xl border border-brand-100 bg-white p-4">
-            <div className="flex items-start gap-3">
-              <div className="rounded-xl bg-brand-50 p-2">
-                <KeyRound className="h-5 w-5 text-brand-700" />
-              </div>
-              <div>
-                <p className="font-semibold text-brand-950">Crea tu contraseña</p>
-                <p className="text-sm text-brand-600">
-                  Así podrás iniciar sesión también con contraseña cuando quieras.
-                </p>
-              </div>
-            </div>
-          </div>
-
+        <>
           <Input
             label="Contraseña"
             type="password"
-            value={pw.password}
-            onChange={updatePw('password')}
-            error={errors.password}
-            placeholder="********"
-            autoComplete="new-password"
+            placeholder="Mínimo 8 caracteres"
+            value={form.password}
+            onChange={update('password')}
+            required
           />
 
           <Input
-            label="Confirmar contraseña"
+            label="Confirmar Contraseña"
             type="password"
-            value={pw.confirm_password}
-            onChange={updatePw('confirm_password')}
-            error={errors.confirm_password}
-            placeholder="********"
-            autoComplete="new-password"
+            placeholder="Repetir contraseña"
+            value={form.confirm_password}
+            onChange={update('confirm_password')}
+            required
           />
 
-          <Button type="submit" isLoading={isLoading} className="w-full">
+          <Button onClick={onCompleteRegister} isLoading={isLoading} className="w-full">
             Finalizar registro
           </Button>
-        </form>
+        </>
       )}
+
+      <p className="text-center text-sm text-neutral-600">
+        ¿Ya tienes cuenta?{' '}
+        <Link href={ROUTES.LOGIN} className="font-semibold text-brand-600 hover:underline">
+          Inicia sesión
+        </Link>
+      </p>
+
+      <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">
+        <Shield className="h-3 w-3" />
+        Conexión segura · Datos encriptados con AES-256
+      </p>
     </div>
   );
 }

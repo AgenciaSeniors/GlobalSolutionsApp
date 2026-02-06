@@ -5,7 +5,7 @@ import { Resend } from 'resend';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // SOLO SERVER
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
@@ -15,19 +15,20 @@ function sha256(input: string) {
 }
 
 function random6Digits() {
-  // 100000..999999
   return String(crypto.randomInt(100000, 1000000));
 }
 
 export async function POST(req: Request) {
   try {
     const { email } = await req.json();
+
     if (!email || typeof email !== 'string') {
       return NextResponse.json({ error: 'Email requerido' }, { status: 400 });
     }
 
-    // Rate limit básico: 1 envío cada 60s por email
     const now = new Date();
+
+    // Rate limit: 1 request por 60s por email
     const { data: rl } = await supabaseAdmin
       .from('auth_otp_rate_limits')
       .select('*')
@@ -44,14 +45,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // invalidar códigos anteriores no consumidos
+    // Invalida anteriores no usados
     await supabaseAdmin
       .from('auth_otps')
-      .update({ consumed_at: now.toISOString() })
+      .update({ used_at: now.toISOString() })
       .eq('email', email)
-      .is('consumed_at', null);
+      .is('used_at', null);
 
-    const code = random6Digits(); // ✅ SIEMPRE 6 dígitos
+    const code = random6Digits();
     const expiresAt = new Date(now.getTime() + 10 * 60_000).toISOString();
 
     const { error: insErr } = await supabaseAdmin.from('auth_otps').insert({
@@ -59,9 +60,10 @@ export async function POST(req: Request) {
       code_hash: sha256(code),
       expires_at: expiresAt,
     });
+
     if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
-    // actualizar rate limit
+    // Upsert rate limit
     if (rl) {
       await supabaseAdmin
         .from('auth_otp_rate_limits')

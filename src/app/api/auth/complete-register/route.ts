@@ -17,7 +17,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'La contraseña debe tener al menos 8 caracteres' }, { status: 400 });
     }
 
-    // Busca OTP más reciente NO usado y verificado en los últimos 15 min
     const { data: otpRow } = await supabaseAdmin
       .from('auth_otps')
       .select('*')
@@ -36,8 +35,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Verificación expirada. Solicita un nuevo código.' }, { status: 400 });
     }
 
-    // Crea usuario (o devuelve error si ya existe)
-    // Si ya existe, puedes decidir: permitir setear password o forzar login
     const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -46,11 +43,9 @@ export async function POST(req: Request) {
     });
 
     if (createErr) {
-      // Si el usuario ya existe, devolvemos mensaje claro
       return NextResponse.json({ error: createErr.message }, { status: 400 });
     }
 
-    // Marca OTP como usado (no se reutiliza)
     await supabaseAdmin
       .from('auth_otps')
       .update({ used_at: new Date().toISOString() })
