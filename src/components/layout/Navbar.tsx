@@ -7,8 +7,9 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Plane, Car, Sparkles, Globe } from 'lucide-react';
+import { Menu, X, Plane, Car, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
@@ -54,18 +55,16 @@ export default function Navbar() {
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
-        <Link href={ROUTES.HOME} className="flex items-center gap-2.5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-brand-900 text-white">
-            <Globe className="h-5 w-5" />
-          </span>
-          <span className="flex flex-col leading-tight">
-            <span className="font-display text-lg font-bold tracking-tight text-brand-950">
-              Global Solutions
-            </span>
-            <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-brand-600">
-              Travel
-            </span>
-          </span>
+        <Link href={ROUTES.HOME} className="flex items-center gap-3">
+          <Image
+            src="public/brand/logo.png"
+
+            alt="Global Solutions Travel"
+            width={170}
+            height={48}
+            className="h-10 w-auto"
+            priority
+          />
         </Link>
 
         {/* ── Desktop Links ── */}
