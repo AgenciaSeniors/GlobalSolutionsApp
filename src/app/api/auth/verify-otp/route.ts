@@ -15,14 +15,14 @@ function sha256(input: string) {
 }
 
 function random6Digits() {
-  return String(crypto.randomInt(100000, 1000000)); // ✅ siempre 6 dígitos
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // ✅ NORMALIZA EMAIL (esto arregla 80% de “Código inválido”)
+    // ✅ Normalizar email SIEMPRE (evita mismatches en verify-otp)
     const email = String(body?.email ?? '').trim().toLowerCase();
 
     if (!email) {
@@ -48,17 +48,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // ✅ Invalida OTPs anteriores NO consumidos
-    const { error: invalidateErr } = await supabaseAdmin
+    // ✅ Invalida OTPs anteriores no usados (marca como used_at)
+    await supabaseAdmin
       .from('auth_otps')
-      .update({ consumed_at: now.toISOString() })
+      .update({ used_at: now.toISOString() })
       .eq('email', email)
-      .is('consumed_at', null);
+      .is('used_at', null);
 
-    if (invalidateErr) {
-      return NextResponse.json({ error: invalidateErr.message }, { status: 500 });
-    }
-
+    // ✅ Genera nuevo código y almacena su hash
     const code = random6Digits();
     const expiresAt = new Date(now.getTime() + 10 * 60_000).toISOString();
 
@@ -66,10 +63,13 @@ export async function POST(req: Request) {
       email,
       code_hash: sha256(code),
       expires_at: expiresAt,
-      // consumed_at queda null inicialmente
+      // used_at: null (default)
+      // verified_at: null (default)
     });
 
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+    if (insErr) {
+      return NextResponse.json({ error: insErr.message }, { status: 500 });
+    }
 
     // Upsert rate limit
     if (rl) {
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
 
     const { error: mailErr } = await resend.emails.send({
       from,
-      to: email, // ✅ email normalizado
+      to: email,
       subject: 'Tu código de verificación (6 dígitos)',
       text: `Tu código es: ${code}\n\nExpira en 10 minutos.\n\n— Global Solutions Travel`,
     });

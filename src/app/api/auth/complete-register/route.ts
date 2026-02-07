@@ -8,16 +8,29 @@ const supabaseAdmin = createClient(
 
 export async function POST(req: Request) {
   try {
-    const { email, fullName, password } = await req.json();
+    const body = await req.json();
+
+    // ✅ Normalizar email (consistente con request-otp y verify-otp)
+    const email    = String(body?.email    ?? '').trim().toLowerCase();
+    const fullName = String(body?.fullName ?? '').trim();
+    const password = String(body?.password ?? '');
 
     if (!email || !fullName || !password) {
-      return NextResponse.json({ error: 'Email, nombre y contraseña requeridos' }, { status: 400 });
-    }
-    if (typeof password !== 'string' || password.length < 8) {
-      return NextResponse.json({ error: 'La contraseña debe tener al menos 8 caracteres' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Email, nombre y contraseña requeridos' },
+        { status: 400 },
+      );
     }
 
-    const { data: otpRow } = await supabaseAdmin
+    if (password.length < 8) {
+      return NextResponse.json(
+        { error: 'La contraseña debe tener al menos 8 caracteres' },
+        { status: 400 },
+      );
+    }
+
+    // ✅ Buscar el OTP más reciente verificado y no consumido
+    const { data: otpRow, error: fetchErr } = await supabaseAdmin
       .from('auth_otps')
       .select('*')
       .eq('email', email)
@@ -26,15 +39,27 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle();
 
-    if (!otpRow?.verified_at) {
-      return NextResponse.json({ error: 'Primero verifica el código.' }, { status: 400 });
+    if (fetchErr) {
+      return NextResponse.json({ error: fetchErr.message }, { status: 500 });
     }
 
+    if (!otpRow?.verified_at) {
+      return NextResponse.json(
+        { error: 'Primero verifica el código.' },
+        { status: 400 },
+      );
+    }
+
+    // ✅ Verificar que la verificación no tenga más de 15 minutos
     const verifiedAt = new Date(otpRow.verified_at).getTime();
     if (Date.now() - verifiedAt > 15 * 60_000) {
-      return NextResponse.json({ error: 'Verificación expirada. Solicita un nuevo código.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Verificación expirada. Solicita un nuevo código.' },
+        { status: 400 },
+      );
     }
 
+    // ✅ Crear usuario en Supabase Auth
     const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -46,6 +71,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: createErr.message }, { status: 400 });
     }
 
+    // ✅ Marcar OTP como consumido (used_at) para que no se pueda reutilizar
     await supabaseAdmin
       .from('auth_otps')
       .update({ used_at: new Date().toISOString() })
