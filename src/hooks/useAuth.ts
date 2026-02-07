@@ -1,7 +1,6 @@
-// src/hooks/useAuth.ts
 /**
  * @fileoverview Custom hook encapsulating authentication actions
- *               (login, register, logout) with role-based redirect.
+ * (login, register, logout) with role-based redirect.
  * @module hooks/useAuth
  */
 'use client';
@@ -18,13 +17,6 @@ interface RegisterPayload {
   fullName: string;
 }
 
-/**
- * Hook: useAuth
- *
- * - login(email, password, redirectTo?) accepts an optional third parameter
- *   that forces a redirect after successful auth (useful when caller already
- *   computed a desired redirect).
- */
 export function useAuth() {
   const router = useRouter();
   const supabase = createClient();
@@ -37,18 +29,15 @@ export function useAuth() {
       agent: ROUTES.AGENT_DASHBOARD,
       client: ROUTES.USER_DASHBOARD,
     };
-    router.replace(destination[role]);
+    
+    // [FIX] Refrescar el router para actualizar las cookies de sesión
+    // antes de que el Middleware verifique la ruta protegida.
     router.refresh();
+    
+    router.push(destination[role]);
   }
 
-  /**
-   * Login with email + password.
-   *
-   * @param email
-   * @param password
-   * @param redirectTo optional explicit redirect path (e.g. '/panel' or '/checkout')
-   */
-  async function login(email: string, password: string, redirectTo?: string) {
+  async function login(email: string, password: string) {
     setIsLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -58,64 +47,14 @@ export function useAuth() {
 
       if (error) throw error;
 
-      // Esperar que la sesión persista y esté disponible al server
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      // Sincronizar session con el servidor (escribe cookies sb-*)
-      if (session) {
-        await fetch('/api/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session }),
-        });
-      }
-
-      // 1) Si caller pasó redirectTo, respetarlo
-      if (redirectTo) {
-        router.replace(redirectTo);
-        router.refresh();
-        return;
-      }
-
-      // 2) Si middleware agregó ?redirect= en la URL, respetarlo
-      try {
-        if (typeof window !== 'undefined') {
-          const params = new URLSearchParams(window.location.search);
-          const redirectParam = params.get('redirect');
-          if (redirectParam) {
-            router.replace(redirectParam);
-            router.refresh();
-            return;
-          }
-        }
-      } catch {
-        // ignore
-      }
-
-      // 3) fallback: redirigir por rol leyendo profile
-      const userId = data?.user?.id;
-      if (!userId) {
-        router.replace(ROUTES.USER_DASHBOARD);
-        router.refresh();
-        return;
-      }
-
-      const { data: profile, error: profileError } = await supabase
+      // Fetch profile to determine role
+      const { data: profile } = await supabase
         .from('profiles')
         .select('role')
-        .eq('id', userId)
+        .eq('id', data.user.id)
         .single();
 
-      if (profileError) {
-        router.replace(ROUTES.USER_DASHBOARD);
-        router.refresh();
-        return;
-      }
-
-      const role = (profile?.role as UserRole | undefined) ?? 'client';
-      redirectByRole(role);
+      redirectByRole((profile?.role as UserRole) ?? 'client');
     } finally {
       setIsLoading(false);
     }
@@ -142,22 +81,11 @@ export function useAuth() {
   }
 
   async function logout() {
-    setIsLoading(true);
-    try {
-      await supabase.auth.signOut();
-
-      // Avisar al servidor para limpiar cookies
-      await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session: null }),
-      });
-
-      router.push(ROUTES.HOME);
-    } finally {
-      setIsLoading(false);
-    }
+    await supabase.auth.signOut();
+    
+    router.refresh();
+    router.push(ROUTES.HOME);
   }
-
+  
   return { login, register, logout, isLoading };
 }
