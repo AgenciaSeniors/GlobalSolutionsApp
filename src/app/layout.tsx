@@ -7,6 +7,7 @@ import { DM_Sans, Playfair_Display } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/components/providers/AuthProvider';
 import ToastProvider from '@/components/providers/ToastProvider';
+import ChatWidget from '@/components/features/chat/ChatWidget';
 
 const dmSans = DM_Sans({
   subsets: ['latin'],
@@ -44,6 +45,7 @@ export default function RootLayout({
       <body className="font-sans">
         <AuthProvider>
           {children}
+          <ChatWidget />
           <ToastProvider />
         </AuthProvider>
       </body>

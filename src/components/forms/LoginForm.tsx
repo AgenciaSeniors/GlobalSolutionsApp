@@ -1,11 +1,14 @@
 /**
- * @fileoverview Login form with client-side Zod validation and Supabase auth.
+ * @fileoverview Login form with redirect support for guest→checkout flow.
+ * Per spec §3.1: Guest searches freely, login required only at checkout.
+ * Supports ?redirect= param to return user to checkout after login.
  * @module components/forms/LoginForm
  */
 'use client';
 
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Shield } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -15,6 +18,9 @@ import { useAuth } from '@/hooks/useAuth';
 
 export default function LoginForm() {
   const { login, isLoading } = useAuth();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get('redirect');
+
   const [form, setForm] = useState<LoginFormValues>({ email: '', password: '' });
   const [errors, setErrors] = useState<Partial<Record<keyof LoginFormValues, string>>>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -37,7 +43,7 @@ export default function LoginForm() {
     setErrors({});
 
     try {
-      await login(result.data.email, result.data.password);
+      await login(result.data.email, result.data.password, redirect || undefined);
     } catch (err: unknown) {
       setServerError(
         err instanceof Error ? err.message : 'Error al iniciar sesión',
@@ -51,6 +57,13 @@ export default function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Redirect notice */}
+      {redirect && (
+        <div className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-700">
+          Inicia sesión para continuar con tu compra.
+        </div>
+      )}
+
       {serverError && (
         <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-accent-red" role="alert">
           {serverError}
@@ -76,6 +89,15 @@ export default function LoginForm() {
         error={errors.password}
         required
       />
+
+      <div className="flex items-center justify-end">
+        <Link
+          href={ROUTES.FORGOT_PASSWORD}
+          className="text-sm font-medium text-brand-600 hover:underline"
+        >
+          ¿Olvidaste tu contraseña?
+        </Link>
+      </div>
 
       <Button type="submit" isLoading={isLoading} className="w-full">
         Iniciar Sesión

@@ -1,0 +1,433 @@
+/**
+ * @fileoverview Checkout page — Payment with transparent pricing.
+ * Per spec §5.1: Full price breakdown visible before payment.
+ * Per spec §5.2: Stripe, PayPal, Zelle options.
+ * Per spec §8 step 5: "$1300 Vuelo + $70 Comisión PayPal = $1370"
+ * Per spec §3.1: Guest can search, login required only at checkout.
+ *
+ * Gateway fees now pulled from app_settings (admin-configurable).
+ */
+'use client';
+
+import { useEffect, useState, type FormEvent } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import Navbar from '@/components/layout/Navbar';
+import Footer from '@/components/layout/Footer';
+import Card from '@/components/ui/Card';
+import Input from '@/components/ui/Input';
+import Button from '@/components/ui/Button';
+import { createClient } from '@/lib/supabase/client';
+import { useAuthContext } from '@/components/providers/AuthProvider';
+import { useAppSettings } from '@/hooks/useAppSettings';
+import PriceBreakdownCard from '@/components/features/checkout/PriceBreakdownCard';
+import type { FlightWithDetails, PriceBreakdown } from '@/types/models';
+import { CreditCard, Building, Banknote, Shield, Lock, CheckCircle, Plane, AlertTriangle } from 'lucide-react';
+
+export default function CheckoutPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const supabase = createClient();
+  const { user, profile } = useAuthContext();
+  const { settings, loading: settingsLoading, calculateGatewayFee } = useAppSettings();
+
+  const flightId = searchParams.get('flight');
+  const passengerCount = parseInt(searchParams.get('passengers') || '1');
+
+  const [flight, setFlight] = useState<FlightWithDetails | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [gateway, setGateway] = useState<'stripe' | 'paypal' | 'zelle'>('stripe');
+  const [passengers, setPassengers] = useState<Array<{
+    first_name: string; last_name: string; dob: string;
+    nationality: string; passport_number: string; passport_expiry: string;
+  }>>([]);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [bookingCode, setBookingCode] = useState('');
+
+  useEffect(() => {
+    // Guest redirect: if not logged in, send to login with redirect back here
+    if (!user) {
+      const currentUrl = `/checkout?flight=${flightId}&passengers=${passengerCount}`;
+      router.push(`/login?redirect=${encodeURIComponent(currentUrl)}`);
+      return;
+    }
+    if (!flightId) { router.push('/flights'); return; }
+
+    async function load() {
+      const { data } = await supabase
+        .from('flights')
+        .select('*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)')
+        .eq('id', flightId)
+        .single();
+
+      if (!data) { router.push('/flights'); return; }
+      setFlight(data as unknown as FlightWithDetails);
+
+      setPassengers(Array.from({ length: passengerCount }, () => ({
+        first_name: '', last_name: '', dob: '', nationality: '',
+        passport_number: '', passport_expiry: '',
+      })));
+      setLoading(false);
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flightId, user]);
+
+  if (loading || settingsLoading || !flight) {
+    return (
+      <>
+        <Navbar />
+        <div className="flex min-h-screen items-center justify-center pt-20">
+          <p className="text-neutral-500">Cargando checkout...</p>
+        </div>
+      </>
+    );
+  }
+
+  /* ─── Dynamic price calculation from settings ─── */
+  const subtotal = flight.final_price * passengerCount;
+  const gatewayFee = calculateGatewayFee(subtotal, gateway);
+  const total = Math.round((subtotal + gatewayFee) * 100) / 100;
+
+  const breakdown: PriceBreakdown = {
+    base_price: flight.base_price,
+    markup_amount: flight.final_price - flight.base_price,
+    subtotal,
+    gateway_fee: Math.round(gatewayFee * 100) / 100,
+    gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
+    gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
+    total,
+    passengers: passengerCount,
+  };
+
+  function updatePassenger(index: number, field: string, value: string) {
+    setPassengers(prev => prev.map((p, i) => i === index ? { ...p, [field]: value } : p));
+  }
+
+  function validatePassengers(): boolean {
+    for (let i = 0; i < passengers.length; i++) {
+      const p = passengers[i];
+      if (!p.first_name.trim() || !p.last_name.trim()) {
+        setError(`Pasajero ${i + 1}: Nombre y apellido son obligatorios.`);
+        return false;
+      }
+      if (!p.dob) {
+        setError(`Pasajero ${i + 1}: Fecha de nacimiento requerida.`);
+        return false;
+      }
+      if (!p.nationality.trim()) {
+        setError(`Pasajero ${i + 1}: Nacionalidad requerida.`);
+        return false;
+      }
+      if (!p.passport_number.trim()) {
+        setError(`Pasajero ${i + 1}: Número de pasaporte requerido.`);
+        return false;
+      }
+      if (!p.passport_expiry) {
+        setError(`Pasajero ${i + 1}: Vencimiento de pasaporte requerido.`);
+        return false;
+      }
+      // Check passport not expired
+      if (new Date(p.passport_expiry) < new Date()) {
+        setError(`Pasajero ${i + 1}: El pasaporte está vencido.`);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    setError(null);
+
+    if (!validatePassengers()) return;
+    setProcessing(true);
+
+    try {
+      const bookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+
+      // Create booking
+      const { data: booking, error: bookingErr } = await supabase
+        .from('bookings')
+        .insert({
+          booking_code: bookingCode,
+          user_id: user.id,
+          flight_id: flight.id,
+          subtotal: breakdown.subtotal,
+          payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
+          total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
+          payment_method: gateway,
+          payment_status: 'pending',
+          booking_status: 'pending_emission',
+        })
+        .select('id')
+        .single();
+
+      if (bookingErr) throw bookingErr;
+
+      // Create passengers (passport_number stored as BYTEA — encrypted at DB level via pgcrypto)
+      for (const p of passengers) {
+        const { error: pErr } = await supabase.from('booking_passengers').insert({
+          booking_id: booking.id,
+          first_name: p.first_name.trim(),
+          last_name: p.last_name.trim(),
+          date_of_birth: p.dob,
+          nationality: p.nationality.trim().toUpperCase(),
+          passport_number: p.passport_number.trim(),
+          passport_expiry_date: p.passport_expiry,
+        });
+        if (pErr) throw pErr;
+      }
+
+      // Reduce available seats
+      await supabase.from('flights').update({
+        available_seats: flight.available_seats - passengerCount,
+      }).eq('id', flight.id);
+
+      if (gateway === 'stripe' || gateway === 'paypal') {
+        // In production: create Stripe PaymentIntent / PayPal order via API
+        // Simulate successful payment for now
+        await supabase.from('bookings').update({
+          payment_status: 'paid',
+          paid_at: new Date().toISOString(),
+        }).eq('id', booking.id);
+      }
+      // Zelle stays 'pending' until manual admin confirmation
+
+      // Award loyalty points
+      const pointsEarned = Math.floor(breakdown.subtotal * settings.loyalty_points_per_dollar);
+      if (pointsEarned > 0 && profile) {
+        await supabase.from('profiles').update({
+          loyalty_points: (profile.loyalty_points || 0) + pointsEarned,
+        }).eq('id', user.id);
+      }
+
+      setBookingCode(bookingCode);
+      setSuccess(true);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : 'Error al procesar la reserva.');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  /* ─── Success screen ─── */
+  if (success) {
+    return (
+      <>
+        <Navbar />
+        <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-brand-50 to-white pt-20">
+          <Card className="max-w-lg text-center">
+            <CheckCircle className="mx-auto mb-4 h-16 w-16 text-emerald-500" />
+            <h1 className="text-2xl font-bold">¡Reserva Confirmada!</h1>
+            <p className="mt-2 font-mono text-lg font-bold text-brand-600">{bookingCode}</p>
+            <p className="mt-3 text-neutral-600">
+              {gateway === 'zelle'
+                ? 'Realiza la transferencia por Zelle y un agente confirmará tu pago en 2-4 horas.'
+                : 'Tu pago fue recibido. Recibirás tus boletos en un plazo máximo de 24 horas.'
+              }
+            </p>
+            <p className="mt-4 text-sm text-neutral-400">
+              Estado: {gateway === 'zelle' ? 'Pendiente de Pago' : 'Pendiente de Emisión'}
+            </p>
+            <div className="mt-6 flex gap-3 justify-center">
+              <Button onClick={() => router.push('/user/dashboard/bookings')}>
+                Ver Mis Reservas
+              </Button>
+              <Button variant="outline" onClick={() => router.push('/')}>
+                Volver al Inicio
+              </Button>
+            </div>
+          </Card>
+        </main>
+        <Footer />
+      </>
+    );
+  }
+
+  /* ─── Main checkout form ─── */
+  return (
+    <>
+      <Navbar />
+      <main className="min-h-screen bg-neutral-50 pb-20 pt-24">
+        <div className="mx-auto max-w-5xl px-6">
+          <h1 className="mb-8 font-display text-3xl font-bold">Finalizar Compra</h1>
+
+          {error && (
+            <div className="mb-6 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">
+              <AlertTriangle className="h-5 w-5 flex-shrink-0" /> {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+              {/* Left: Flight summary + Passenger forms + Payment */}
+              <div className="space-y-6 lg:col-span-2">
+                {/* Flight summary */}
+                <Card variant="bordered">
+                  <div className="flex items-center gap-4">
+                    <Plane className="h-8 w-8 text-brand-600" />
+                    <div className="flex-1">
+                      <p className="font-bold">{flight.airline.name} {flight.flight_number}</p>
+                      <p className="text-sm text-neutral-500">
+                        {flight.origin_airport.city} ({flight.origin_airport.iata_code}) → {flight.destination_airport.city} ({flight.destination_airport.iata_code})
+                      </p>
+                      <p className="text-xs text-neutral-400">
+                        {new Date(flight.departure_datetime).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                        {' · '}
+                        {new Date(flight.departure_datetime).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+                        {flight.aircraft_type && ` · ${flight.aircraft_type}`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-brand-600">${flight.final_price.toFixed(2)}</p>
+                      <p className="text-xs text-neutral-400">por persona</p>
+                    </div>
+                  </div>
+                  {flight.available_seats < 10 && (
+                    <p className="mt-3 text-xs font-semibold text-red-500">
+                      ⚠️ Solo quedan {flight.available_seats} asientos disponibles
+                    </p>
+                  )}
+                </Card>
+
+                {/* Passenger forms */}
+                {passengers.map((p, i) => (
+                  <Card key={i} variant="bordered">
+                    <h3 className="mb-4 font-bold">Pasajero {i + 1} de {passengerCount}</h3>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <Input
+                        label="Nombre (como en pasaporte)"
+                        value={p.first_name}
+                        onChange={e => updatePassenger(i, 'first_name', e.target.value)}
+                        placeholder="María"
+                        required
+                      />
+                      <Input
+                        label="Apellido (como en pasaporte)"
+                        value={p.last_name}
+                        onChange={e => updatePassenger(i, 'last_name', e.target.value)}
+                        placeholder="García"
+                        required
+                      />
+                      <Input
+                        label="Fecha de Nacimiento"
+                        type="date"
+                        value={p.dob}
+                        onChange={e => updatePassenger(i, 'dob', e.target.value)}
+                        required
+                      />
+                      <Input
+                        label="Nacionalidad"
+                        value={p.nationality}
+                        onChange={e => updatePassenger(i, 'nationality', e.target.value)}
+                        placeholder="CUB"
+                        maxLength={3}
+                        required
+                      />
+                      <Input
+                        label="Número de Pasaporte"
+                        value={p.passport_number}
+                        onChange={e => updatePassenger(i, 'passport_number', e.target.value)}
+                        placeholder="A12345678"
+                        required
+                      />
+                      <Input
+                        label="Vencimiento Pasaporte"
+                        type="date"
+                        value={p.passport_expiry}
+                        onChange={e => updatePassenger(i, 'passport_expiry', e.target.value)}
+                        required
+                      />
+                    </div>
+                    <p className="mt-3 flex items-center gap-1.5 text-xs text-neutral-400">
+                      <Lock className="h-3 w-3" />
+                      Los datos del pasaporte se almacenan encriptados con AES-256
+                    </p>
+                  </Card>
+                ))}
+
+                {/* Payment method */}
+                <Card variant="bordered">
+                  <h3 className="mb-4 font-bold">Método de Pago</h3>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    {([
+                      {
+                        id: 'stripe' as const,
+                        icon: CreditCard,
+                        label: 'Tarjeta (Stripe)',
+                        sub: `${settings.stripe_fee_percentage}% + $${settings.stripe_fee_fixed.toFixed(2)}`,
+                      },
+                      {
+                        id: 'paypal' as const,
+                        icon: Building,
+                        label: 'PayPal',
+                        sub: `${settings.paypal_fee_percentage}% + $${settings.paypal_fee_fixed.toFixed(2)}`,
+                      },
+                      {
+                        id: 'zelle' as const,
+                        icon: Banknote,
+                        label: 'Zelle',
+                        sub: 'Sin comisión',
+                      },
+                    ]).map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setGateway(m.id)}
+                        className={`rounded-xl border-2 p-4 text-left transition-all ${
+                          gateway === m.id
+                            ? 'border-brand-500 bg-brand-50'
+                            : 'border-neutral-200 hover:border-neutral-300'
+                        }`}
+                      >
+                        <m.icon className={`mb-2 h-6 w-6 ${gateway === m.id ? 'text-brand-600' : 'text-neutral-400'}`} />
+                        <p className="font-semibold text-sm">{m.label}</p>
+                        <p className="text-xs text-neutral-500">{m.sub}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {gateway === 'zelle' && (
+                    <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                      <strong>Zelle:</strong> Realiza la transferencia a{' '}
+                      <span className="font-mono font-bold">{settings.business_email}</span>{' '}
+                      y un agente confirmará tu pago en 2–4 horas.
+                    </div>
+                  )}
+                </Card>
+              </div>
+
+              {/* Right: Price breakdown + Pay button */}
+              <div className="space-y-4">
+                <PriceBreakdownCard breakdown={breakdown} gateway={gateway} />
+
+                <Button type="submit" isLoading={processing} className="w-full gap-2">
+                  <Lock className="h-4 w-4" />
+                  {gateway === 'zelle'
+                    ? `Reservar $${breakdown.subtotal.toFixed(2)}`
+                    : `Pagar $${breakdown.total.toFixed(2)}`
+                  }
+                </Button>
+
+                <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">
+                  <Shield className="h-3 w-3" /> Pago seguro · Datos encriptados
+                </p>
+
+                {/* Loyalty preview */}
+                {settings.loyalty_points_per_dollar > 0 && (
+                  <div className="rounded-xl bg-amber-50 px-4 py-3 text-center text-xs text-amber-700">
+                    ⭐ Ganarás <strong>{Math.floor(breakdown.subtotal * settings.loyalty_points_per_dollar)} puntos</strong> de fidelidad con esta compra
+                  </div>
+                )}
+              </div>
+            </div>
+          </form>
+        </div>
+      </main>
+      <Footer />
+    </>
+  );
+}

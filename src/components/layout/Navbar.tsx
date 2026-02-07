@@ -12,6 +12,8 @@ import { Menu, X, Plane, Car, Sparkles, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
+import { useAuthContext } from '@/components/providers/AuthProvider';
+import type { UserRole } from '@/types/models';
 
 const NAV_LINKS = [
   { href: ROUTES.FLIGHTS, label: 'Vuelos', icon: Plane },
@@ -22,8 +24,15 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { user, profile } = useAuthContext();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const dashboardRoute: Record<UserRole, string> = {
+    admin: ROUTES.ADMIN_DASHBOARD,
+    agent: ROUTES.AGENT_DASHBOARD,
+    client: ROUTES.USER_DASHBOARD,
+  };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -84,9 +93,20 @@ export default function Navbar() {
 
         {/* ── Auth Actions ── */}
         <div className="flex items-center gap-3">
-          <Link href={ROUTES.LOGIN} className="hidden sm:block">
-            <Button size="sm">Iniciar Sesión</Button>
-          </Link>
+          {user && profile ? (
+            <Link href={dashboardRoute[profile.role] || ROUTES.USER_DASHBOARD} className="hidden sm:block">
+              <Button size="sm" variant="outline" className="gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
+                  {profile.full_name?.charAt(0).toUpperCase() || 'U'}
+                </span>
+                Mi Panel
+              </Button>
+            </Link>
+          ) : (
+            <Link href={ROUTES.LOGIN} className="hidden sm:block">
+              <Button size="sm">Iniciar Sesión</Button>
+            </Link>
+          )}
 
           {/* Mobile toggle */}
           <button

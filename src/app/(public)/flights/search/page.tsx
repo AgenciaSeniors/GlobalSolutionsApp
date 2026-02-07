@@ -6,7 +6,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import FlightSearchForm from '@/components/forms/FlightSearchForm';
@@ -15,7 +15,9 @@ import { useFlightSearch } from '@/hooks/useFlightSearch';
 
 export default function FlightSearchResultsPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { results, isLoading, search } = useFlightSearch();
+  const passengerCount = Number(searchParams.get('passengers')) || 1;
 
   useEffect(() => {
     const from = searchParams.get('from');
@@ -35,8 +37,9 @@ export default function FlightSearchResultsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // Map FlightWithDetails → FlightCardProps
+  // Map FlightWithDetails → FlightCardProps with checkout navigation
   const cards = results.map((f) => ({
+    id: f.id,
     airline: f.airline?.name ?? 'Aerolínea',
     flightCode: f.flight_number,
     originCode: f.origin_airport?.iata_code ?? '',
@@ -59,6 +62,7 @@ export default function FlightSearchResultsPage() {
     stops: 0,
     price: f.final_price,
     availableSeats: f.available_seats,
+    onSelect: () => router.push(`/checkout?flight=${f.id}&passengers=${passengerCount}`),
   }));
 
   return (

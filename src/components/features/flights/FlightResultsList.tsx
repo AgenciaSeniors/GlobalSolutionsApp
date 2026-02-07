@@ -35,6 +35,15 @@ export default function FlightResultsList({
         <p className="mt-1 text-sm text-neutral-400">
           Intenta con otras fechas o destinos.
         </p>
+        <a
+          href="/quote-request"
+          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+        >
+          ✉️ Solicitar Cotización a un Agente
+        </a>
+        <p className="mt-2 text-xs text-neutral-400">
+          Nuestros agentes pueden conseguirte el vuelo que necesitas
+        </p>
       </div>
     );
   }

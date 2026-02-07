@@ -13,25 +13,22 @@ const LINK_GROUPS = [
       { label: 'Vuelos', href: ROUTES.FLIGHTS },
       { label: 'Renta de Autos', href: ROUTES.CARS },
       { label: 'Ofertas', href: ROUTES.OFFERS },
-      { label: 'Paquetes', href: '#' },
+      { label: 'Solicitar Cotización', href: ROUTES.QUOTE_REQUEST },
     ],
   },
   {
     title: 'Soporte',
     links: [
-      { label: 'Centro de Ayuda', href: '#' },
-      { label: 'Contacto', href: '#' },
-      { label: 'FAQ', href: '#' },
-      { label: 'Políticas', href: '#' },
+      { label: 'Contacto', href: ROUTES.CONTACT },
+      { label: 'Quiénes Somos', href: ROUTES.ABOUT },
+      { label: 'Chat en Vivo', href: '#chat' },
     ],
   },
   {
     title: 'Legal',
     links: [
-      { label: 'Términos', href: '#' },
-      { label: 'Privacidad', href: '#' },
-      { label: 'Cookies', href: '#' },
-      { label: 'PCI-DSS', href: '#' },
+      { label: 'Términos y Condiciones', href: ROUTES.TERMS },
+      { label: 'Contacto', href: ROUTES.CONTACT },
     ],
   },
 ] as const;

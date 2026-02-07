@@ -1,37 +1,32 @@
-// src/lib/supabase/middleware.ts
 /**
- * Middleware helper that refreshes the Supabase session on
- * every request, keeping the auth cookie alive.
+ * @fileoverview Next.js Middleware — Route protection by role.
  *
- * Protecciones añadidas / tipado:
- *  - Tipos explícitos para cookiesToSet y sus campos.
- *  - No asumimos que request.cookies.set exista (puede ser read-only).
- *  - Siempre escribimos las cookies en la respuesta (supabaseResponse).
- *  - Logging para facilitar depuración.
+ * Per spec §3.1: "Guest puede buscar vuelos sin login.
+ * Login se exige SOLO al momento de comprar (checkout)."
+ *
+ * Public routes (no auth required):
+ *   /, /flights, /flights/search, /flights/[id], /offers, /cars,
+ *   /about, /quote-request, /legal/*
+ *
+ * Auth routes (redirect if already logged in):
+ *   /login, /register, /forgot-password
+ *
+ * Protected routes (redirect to login if not authenticated):
+ *   /checkout, /user/*, /agent/*, /admin/*
+ *
+ * Role-based access:
+ *   /admin/* → role=admin only
+ *   /agent/* → role=agent or admin
+ *   /user/*  → role=client, agent, or admin
  */
+import { type NextRequest, NextResponse } from 'next/server';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
-import { createServerClient } from '@supabase/ssr';
-import { NextResponse, type NextRequest } from 'next/server';
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
 
-type CookieOptions = {
-  // Opcional: definimos un shape flexible para las options de cookie.
-  // Si quieres, puedes reemplazar por el tipo exacto de Next.js.
-  [key: string]: any;
-};
-
-type CookieToSet = {
-  name: string;
-  value: string;
-  options?: CookieOptions;
-};
-
-type UpdateSessionResult = {
-  supabaseResponse: NextResponse;
-  user: any | null;
-};
-
-export async function updateSession(request: NextRequest): Promise<UpdateSessionResult> {
-  let supabaseResponse = NextResponse.next({ request });
+  // Create Supabase server client using request cookies
+  let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,59 +36,102 @@ export async function updateSession(request: NextRequest): Promise<UpdateSession
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet: CookieToSet[]) {
-          // 1) Intentamos escribir en request.cookies si existe set (no confiamos en ello).
-          try {
-            const maybeSet = (request.cookies as any)?.set;
-            if (typeof maybeSet === 'function') {
-              cookiesToSet.forEach((cookie: CookieToSet) => {
-                const { name, value, options } = cookie;
-                try {
-                  (request.cookies as any).set(name, value, options);
-                } catch (e) {
-                  // Puede fallar en contextos read-only; ignoramos el fallo por cookie.
-                }
-              });
-            }
-          } catch (err) {
-            // No hacemos fallar la petición por esto; lo logueamos y seguimos.
-            console.warn(
-              '[supabase/middleware] request.cookies.set no disponible o falló (se ignorará).',
-              err,
-            );
-          }
-
-          // 2) Siempre escribimos en la respuesta: esto sí funciona en middleware.
-          try {
-            supabaseResponse = NextResponse.next({ request });
-            cookiesToSet.forEach((cookie: CookieToSet) => {
-              const { name, value, options } = cookie;
-              // options puede ser undefined; NextResponse.cookies.set acepta (name, value, options)
-              supabaseResponse.cookies.set(name, value, options as any);
-            });
-          } catch (err) {
-            console.error(
-              '[supabase/middleware] fallo al establecer cookies en la respuesta',
-              err,
-            );
-            // No lanzamos: preferimos continuar sin bloquear la petición.
-          }
+        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value);
+          });
+          response = NextResponse.next({ request });
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
         },
       },
     },
   );
 
-  // Refresh session — IMPORTANT: do NOT remove this call.
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  // Refresh session (important for SSR)
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    return { supabaseResponse, user: user ?? null };
-  } catch (err) {
-    // Si falla getUser devolvemos supabaseResponse y user = null
-    // para que la middleware llamante pueda decidir (no queremos 500 por aquí).
-    console.error('[supabase/middleware] supabase.auth.getUser falló:', err);
-    return { supabaseResponse, user: null };
+  /* ─────────── Auth routes (login/register) ─────────── */
+  if (pathname.startsWith('/login') || pathname.startsWith('/register') || pathname.startsWith('/forgot-password')) {
+    if (user) {
+      // Already logged in — redirect to appropriate dashboard
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      const role = profile?.role || 'client';
+      const dashboardMap: Record<string, string> = {
+        admin: '/admin/dashboard',
+        agent: '/agent/dashboard',
+        client: '/user/dashboard',
+      };
+      return NextResponse.redirect(new URL(dashboardMap[role], request.url));
+    }
+    return response;
   }
+
+  /* ─────────── Protected: Checkout ─────────── */
+  if (pathname.startsWith('/checkout')) {
+    if (!user) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname + request.nextUrl.search);
+      return NextResponse.redirect(loginUrl);
+    }
+    return response;
+  }
+
+  /* ─────────── Protected: Dashboard routes ─────────── */
+  if (
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/agent') ||
+    pathname.startsWith('/user')
+  ) {
+    if (!user) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    // Fetch role for authorization
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    const role = profile?.role || 'client';
+
+    // Admin routes — admin only
+    if (pathname.startsWith('/admin') && role !== 'admin') {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+
+    // Agent routes — agent or admin
+    if (pathname.startsWith('/agent') && !['agent', 'admin'].includes(role)) {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+
+    // User routes — any authenticated user
+    return response;
+  }
+
+  /* ─────────── Public routes — no auth needed ─────────── */
+  return response;
 }
+
+export const config = {
+  matcher: [
+    /*
+     * Match all routes EXCEPT:
+     * - _next/static, _next/image (Next.js internals)
+     * - favicon.ico, images, etc.
+     * - API routes (handled separately)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|images|api).*)',
+  ],
+};

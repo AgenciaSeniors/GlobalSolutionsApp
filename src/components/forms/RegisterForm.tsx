@@ -1,233 +1,205 @@
 /**
- * @fileoverview Client registration form with 3-step OTP hybrid flow.
- *
- *   Step 1 → Enter email → request OTP
- *   Step 2 → Enter 6-digit code → verify OTP
- *   Step 3 → Enter name + password → complete registration
- *
+ * @fileoverview Hybrid registration: Email → OTP verify → Create password.
+ * Per spec §1.1: "Auth Híbrido (OTP + Contraseña)"
+ * Step 1: User enters email
+ * Step 2: System sends 6-digit OTP → user verifies
+ * Step 3: User creates secure password → account created
  * @module components/forms/RegisterForm
  */
 'use client';
 
-import { useState, useEffect, useRef, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { Shield, Mail, KeyRound, UserPlus, ArrowLeft, Loader2 } from 'lucide-react';
+import { Shield, Mail, Key, Lock, ArrowLeft, CheckCircle } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants/routes';
-import { useAuth } from '@/hooks/useAuth';
-
-type Step = 'email' | 'otp' | 'complete';
+import { createClient } from '@/lib/supabase/client';
+import type { OTPStep } from '@/types/models';
 
 export default function RegisterForm() {
-  const { requestOtp, verifyOtp, completeRegister, isLoading } = useAuth();
+  const supabase = createClient();
 
-  const [step, setStep] = useState<Step>('email');
+  const [step, setStep] = useState<OTPStep>('email');
   const [email, setEmail] = useState('');
-  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [cooldown, setCooldown] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-
-  /* ── Cooldown timer for resend ── */
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [cooldown]);
-
-  /* ── OTP input handlers ── */
-  function handleOtpChange(index: number, value: string) {
-    // Only allow digits
-    const digit = value.replace(/\D/g, '').slice(-1);
-    const next = [...otpDigits];
-    next[index] = digit;
-    setOtpDigits(next);
-
-    // Auto-advance to next input
-    if (digit && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  }
-
-  function handleOtpKeyDown(index: number, e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
-  }
-
-  function handleOtpPaste(e: React.ClipboardEvent) {
+  /* ── Step 1: Send OTP to email ── */
+  async function handleSendOTP(e: FormEvent) {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (pasted.length === 6) {
-      setOtpDigits(pasted.split(''));
-      inputRefs.current[5]?.focus();
-    }
-  }
+    setError(null);
 
-  const otpCode = otpDigits.join('');
-
-  /* ── STEP 1: Request OTP ── */
-  async function handleRequestOtp(e: FormEvent) {
-    e.preventDefault();
-    setServerError(null);
-
-    if (!email || !email.includes('@')) {
-      setServerError('Ingresa un correo electrónico válido');
+    if (!email.trim() || !fullName.trim()) {
+      setError('Nombre y correo son obligatorios.');
       return;
     }
 
+    setIsLoading(true);
     try {
-      await requestOtp({ email });
-      setCooldown(60);
-      setStep('otp');
+      // Use Supabase OTP (magic link / email code)
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          shouldCreateUser: true,
+          data: { full_name: fullName.trim(), role: 'client' },
+        },
+      });
+
+      if (otpError) throw otpError;
+      setStep('verify');
     } catch (err: unknown) {
-      setServerError(err instanceof Error ? err.message : 'Error al enviar el código');
+      setError(err instanceof Error ? err.message : 'Error al enviar código');
+    } finally {
+      setIsLoading(false);
     }
   }
 
-  /* ── Resend OTP ── */
-  async function handleResend() {
-    setServerError(null);
-    try {
-      await requestOtp({ email });
-      setCooldown(60);
-    } catch (err: unknown) {
-      setServerError(err instanceof Error ? err.message : 'Error al reenviar');
-    }
-  }
-
-  /* ── STEP 2: Verify OTP ── */
-  async function handleVerifyOtp(e: FormEvent) {
+  /* ── Step 2: Verify OTP code ── */
+  async function handleVerifyOTP(e: FormEvent) {
     e.preventDefault();
-    setServerError(null);
+    setError(null);
 
-    if (otpCode.length !== 6) {
-      setServerError('Ingresa los 6 dígitos del código');
+    if (otp.length !== 6) {
+      setError('Ingresa el código de 6 dígitos.');
       return;
     }
 
+    setIsLoading(true);
     try {
-      await verifyOtp({ email, code: otpCode });
-      setStep('complete');
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email,
+        token: otp,
+        type: 'email',
+      });
+
+      if (verifyError) throw verifyError;
+      setStep('password');
     } catch (err: unknown) {
-      setServerError(err instanceof Error ? err.message : 'Código inválido');
+      setError(err instanceof Error ? err.message : 'Código inválido o expirado');
+    } finally {
+      setIsLoading(false);
     }
   }
 
-  /* ── STEP 3: Complete Registration ── */
-  async function handleComplete(e: FormEvent) {
+  /* ── Step 3: Set password ── */
+  async function handleSetPassword(e: FormEvent) {
     e.preventDefault();
-    setServerError(null);
+    setError(null);
 
-    if (!fullName || fullName.trim().length < 2) {
-      setServerError('El nombre debe tener al menos 2 caracteres');
-      return;
-    }
     if (password.length < 8) {
-      setServerError('La contraseña debe tener al menos 8 caracteres');
-      return;
-    }
-    if (!/[A-Z]/.test(password)) {
-      setServerError('La contraseña debe contener al menos una mayúscula');
-      return;
-    }
-    if (!/[0-9]/.test(password)) {
-      setServerError('La contraseña debe contener al menos un número');
+      setError('La contraseña debe tener mínimo 8 caracteres.');
       return;
     }
     if (password !== confirmPassword) {
-      setServerError('Las contraseñas no coinciden');
+      setError('Las contraseñas no coinciden.');
       return;
     }
 
+    setIsLoading(true);
     try {
-      await completeRegister({ email, fullName, password });
+      // User is already authenticated via OTP — update their password
+      const { error: pwError } = await supabase.auth.updateUser({
+        password,
+      });
+
+      if (pwError) throw pwError;
+
+      // Update profile with phone
+      if (phone.trim()) {
+        await supabase.from('profiles').update({ phone: phone.trim() })
+          .eq('email', email);
+      }
+
+      setSuccess(true);
     } catch (err: unknown) {
-      setServerError(err instanceof Error ? err.message : 'Error al registrarse');
+      setError(err instanceof Error ? err.message : 'Error al crear contraseña');
+    } finally {
+      setIsLoading(false);
     }
   }
 
-  /* ── Step indicator ── */
-  const steps = [
-    { key: 'email', label: 'Correo', icon: Mail },
-    { key: 'otp', label: 'Verificar', icon: KeyRound },
-    { key: 'complete', label: 'Completar', icon: UserPlus },
-  ] as const;
-
-  const currentIndex = steps.findIndex((s) => s.key === step);
+  /* ── Success screen ── */
+  if (success) {
+    return (
+      <div className="text-center space-y-4">
+        <CheckCircle className="mx-auto h-16 w-16 text-emerald-500" />
+        <h2 className="text-2xl font-bold text-brand-950">¡Cuenta Creada!</h2>
+        <p className="text-neutral-600">
+          Tu cuenta ha sido verificada y tu contraseña establecida.
+        </p>
+        <Link
+          href={ROUTES.USER_DASHBOARD}
+          className="inline-flex items-center justify-center rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white hover:bg-brand-700 transition-colors"
+        >
+          Ir a Mi Panel
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* ── Step Progress ── */}
-      <div className="flex items-center justify-between">
-        {steps.map((s, i) => {
-          const Icon = s.icon;
-          const isActive = i === currentIndex;
-          const isDone = i < currentIndex;
-          return (
-            <div key={s.key} className="flex flex-1 items-center">
-              <div className="flex flex-col items-center gap-1.5">
-                <span
-                  className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition-colors ${
-                    isActive
-                      ? 'bg-brand-600 text-white shadow-md shadow-brand-600/30'
-                      : isDone
-                        ? 'bg-emerald-100 text-emerald-600'
-                        : 'bg-neutral-100 text-neutral-400'
-                  }`}
-                >
-                  {isDone ? '✓' : <Icon className="h-4 w-4" />}
-                </span>
-                <span
-                  className={`text-[11px] font-semibold ${
-                    isActive ? 'text-brand-600' : isDone ? 'text-emerald-600' : 'text-neutral-400'
-                  }`}
-                >
-                  {s.label}
-                </span>
-              </div>
-              {i < steps.length - 1 && (
-                <div
-                  className={`mx-2 h-0.5 flex-1 rounded transition-colors ${
-                    isDone ? 'bg-emerald-300' : 'bg-neutral-200'
-                  }`}
-                />
-              )}
+      {/* Progress indicator */}
+      <div className="flex items-center justify-center gap-2">
+        {(['email', 'verify', 'password'] as OTPStep[]).map((s, i) => (
+          <div key={s} className="flex items-center gap-2">
+            <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold transition-colors ${
+              step === s ? 'bg-brand-600 text-white' :
+              (['email', 'verify', 'password'].indexOf(step) > i) ? 'bg-emerald-500 text-white' :
+              'bg-neutral-200 text-neutral-500'
+            }`}>
+              {(['email', 'verify', 'password'].indexOf(step) > i) ? '✓' : i + 1}
             </div>
-          );
-        })}
+            {i < 2 && <div className={`h-0.5 w-8 ${(['email', 'verify', 'password'].indexOf(step) > i) ? 'bg-emerald-500' : 'bg-neutral-200'}`} />}
+          </div>
+        ))}
       </div>
 
-      {/* ── Error banner ── */}
-      {serverError && (
-        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-accent-red" role="alert">
-          {serverError}
+      {error && (
+        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600" role="alert">
+          {error}
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════════════════ */}
-      {/*  STEP 1 — Email                                              */}
-      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* ── Step 1: Email + Name ── */}
       {step === 'email' && (
-        <form onSubmit={handleRequestOtp} className="space-y-5">
-          <div>
-            <p className="text-sm text-neutral-600">
-              Ingresa tu correo electrónico y te enviaremos un código de 6 dígitos para verificar tu identidad.
-            </p>
+        <form onSubmit={handleSendOTP} className="space-y-4">
+          <div className="text-center mb-2">
+            <Mail className="mx-auto h-10 w-10 text-brand-500 mb-2" />
+            <h3 className="font-bold text-lg">Paso 1: Tu información</h3>
+            <p className="text-sm text-neutral-500">Te enviaremos un código de verificación</p>
           </div>
+
+          <Input
+            label="Nombre Completo"
+            placeholder="María García"
+            value={fullName}
+            onChange={e => setFullName(e.target.value)}
+            required
+          />
 
           <Input
             label="Correo Electrónico"
             type="email"
             placeholder="correo@ejemplo.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={e => setEmail(e.target.value)}
             required
+          />
+
+          <Input
+            label="Teléfono (opcional)"
+            type="tel"
+            placeholder="+53 5555 5555"
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
           />
 
           <Button type="submit" isLoading={isLoading} className="w-full">
@@ -243,100 +215,65 @@ export default function RegisterForm() {
         </form>
       )}
 
-      {/* ══════════════════════════════════════════════════════════════ */}
-      {/*  STEP 2 — OTP Verification                                   */}
-      {/* ══════════════════════════════════════════════════════════════ */}
-      {step === 'otp' && (
-        <form onSubmit={handleVerifyOtp} className="space-y-5">
-          <div>
-            <p className="text-sm text-neutral-600">
-              Enviamos un código de 6 dígitos a{' '}
-              <span className="font-semibold text-neutral-900">{email}</span>
+      {/* ── Step 2: OTP Verification ── */}
+      {step === 'verify' && (
+        <form onSubmit={handleVerifyOTP} className="space-y-4">
+          <div className="text-center mb-2">
+            <Key className="mx-auto h-10 w-10 text-amber-500 mb-2" />
+            <h3 className="font-bold text-lg">Paso 2: Verificar correo</h3>
+            <p className="text-sm text-neutral-500">
+              Ingresa el código de 6 dígitos enviado a <strong>{email}</strong>
             </p>
           </div>
 
-          {/* 6-digit OTP inputs */}
-          <div className="flex justify-center gap-2" onPaste={handleOtpPaste}>
-            {otpDigits.map((digit, i) => (
-              <input
-                key={i}
-                ref={(el) => { inputRefs.current[i] = el; }}
-                type="text"
-                inputMode="numeric"
-                maxLength={1}
-                value={digit}
-                onChange={(e) => handleOtpChange(i, e.target.value)}
-                onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                className={`h-14 w-12 rounded-xl border-2 bg-neutral-50 text-center text-xl font-bold transition-colors
-                  focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20
-                  ${digit ? 'border-brand-300 text-neutral-900' : 'border-neutral-200 text-neutral-400'}`}
-                autoFocus={i === 0}
-              />
-            ))}
-          </div>
-
-          {/* Resend */}
-          <div className="text-center">
-            {cooldown > 0 ? (
-              <p className="text-sm text-neutral-400">
-                Reenviar código en <span className="font-semibold text-neutral-600">{cooldown}s</span>
-              </p>
-            ) : (
-              <button
-                type="button"
-                onClick={handleResend}
-                disabled={isLoading}
-                className="text-sm font-semibold text-brand-600 hover:underline disabled:opacity-50"
-              >
-                Reenviar código
-              </button>
-            )}
-          </div>
+          <Input
+            label="Código de Verificación (6 dígitos)"
+            placeholder="123456"
+            value={otp}
+            onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            maxLength={6}
+            className="text-center text-2xl tracking-[0.5em] font-mono"
+            required
+          />
 
           <Button type="submit" isLoading={isLoading} className="w-full">
             Verificar Código
           </Button>
 
-          {/* Back */}
-          <button
-            type="button"
-            onClick={() => { setStep('email'); setServerError(null); setOtpDigits(['', '', '', '', '', '']); }}
-            className="flex w-full items-center justify-center gap-1.5 text-sm font-medium text-neutral-500 hover:text-neutral-700"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Cambiar correo
-          </button>
+          <div className="flex items-center justify-between text-sm">
+            <button
+              type="button"
+              onClick={() => setStep('email')}
+              className="flex items-center gap-1 text-neutral-500 hover:text-brand-600"
+            >
+              <ArrowLeft className="h-4 w-4" /> Cambiar email
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSendOTP({ preventDefault: () => {} } as FormEvent)}
+              className="text-brand-600 hover:underline"
+            >
+              Reenviar código
+            </button>
+          </div>
         </form>
       )}
 
-      {/* ══════════════════════════════════════════════════════════════ */}
-      {/*  STEP 3 — Complete Registration                              */}
-      {/* ══════════════════════════════════════════════════════════════ */}
-      {step === 'complete' && (
-        <form onSubmit={handleComplete} className="space-y-4">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600">
-              ✓ Correo verificado
-            </div>
-            <p className="text-sm text-neutral-600">
-              Completa tu perfil para finalizar el registro.
-            </p>
+      {/* ── Step 3: Create Password ── */}
+      {step === 'password' && (
+        <form onSubmit={handleSetPassword} className="space-y-4">
+          <div className="text-center mb-2">
+            <Lock className="mx-auto h-10 w-10 text-emerald-500 mb-2" />
+            <h3 className="font-bold text-lg">Paso 3: Crear contraseña</h3>
+            <p className="text-sm text-neutral-500">Email verificado ✓ — ahora crea tu contraseña</p>
           </div>
-
-          <Input
-            label="Nombre Completo"
-            placeholder="María García"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            required
-          />
 
           <Input
             label="Contraseña"
             type="password"
-            placeholder="Mínimo 8 caracteres, 1 mayúscula, 1 número"
+            placeholder="Mínimo 8 caracteres"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={e => setPassword(e.target.value)}
             required
           />
 
@@ -345,7 +282,7 @@ export default function RegisterForm() {
             type="password"
             placeholder="Repetir contraseña"
             value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
+            onChange={e => setConfirmPassword(e.target.value)}
             required
           />
 
@@ -355,7 +292,6 @@ export default function RegisterForm() {
         </form>
       )}
 
-      {/* ── Footer ── */}
       <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">
         <Shield className="h-3 w-3" />
         Conexión segura · Datos encriptados con AES-256
