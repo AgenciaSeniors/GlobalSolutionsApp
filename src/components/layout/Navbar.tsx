@@ -1,19 +1,14 @@
-/**
- * @fileoverview Main navigation bar with scroll-aware glass morphism,
- *               mobile drawer and role-aware links.
- * @module components/layout/Navbar
- */
 'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Plane, Car, Sparkles, Globe } from 'lucide-react';
+import { Menu, X, Plane, Car, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
-import { useAuthContext } from '@/components/providers/AuthProvider';
-import type { UserRole } from '@/types/models';
+import { createClient } from '@/lib/supabase/client'; // <-- nuevo import
 
 const NAV_LINKS = [
   { href: ROUTES.FLIGHTS, label: 'Vuelos', icon: Plane },
@@ -24,15 +19,11 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { user, profile } = useAuthContext();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const dashboardRoute: Record<UserRole, string> = {
-    admin: ROUTES.ADMIN_DASHBOARD,
-    agent: ROUTES.AGENT_DASHBOARD,
-    client: ROUTES.USER_DASHBOARD,
-  };
+  // Estado de autenticación
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -42,6 +33,42 @@ export default function Navbar() {
 
   // Close drawer on route change
   useEffect(() => setMobileOpen(false), [pathname]);
+
+  // Chequear sesión en cliente y subscribirse a cambios de auth
+  useEffect(() => {
+  const supabase = createClient();
+
+  let mounted = true;
+
+  // Chequear usuario inicial
+  (async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!mounted) return;
+      setIsLoggedIn(Boolean(user));
+    } catch {
+      if (!mounted) return;
+      setIsLoggedIn(false);
+    }
+  })();
+
+  // Suscribirse a cambios de auth y obtener la Subscription real
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    setIsLoggedIn(Boolean(session?.user));
+  });
+
+  // data may be undefined in some environments; guardarlo
+  const subscription = data?.subscription;
+
+  return () => {
+    mounted = false;
+    // Si existe la subscription, cancelarla
+    subscription?.unsubscribe();
+  };
+}, []);
+
 
   return (
     <header
@@ -54,18 +81,15 @@ export default function Navbar() {
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
-        <Link href={ROUTES.HOME} className="flex items-center gap-2.5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-brand-900 text-white">
-            <Globe className="h-5 w-5" />
-          </span>
-          <span className="flex flex-col leading-tight">
-            <span className="font-display text-lg font-bold tracking-tight text-brand-950">
-              Global Solutions
-            </span>
-            <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-brand-600">
-              Travel
-            </span>
-          </span>
+        <Link href={ROUTES.HOME} className="flex items-center gap-3">
+          <Image
+            src="/brand/logo.png"
+            alt="Global Solutions Travel"
+            width={170}
+            height={48}
+            className="h-10 w-auto"
+            priority
+          />
         </Link>
 
         {/* ── Desktop Links ── */}
@@ -93,14 +117,9 @@ export default function Navbar() {
 
         {/* ── Auth Actions ── */}
         <div className="flex items-center gap-3">
-          {user && profile ? (
-            <Link href={dashboardRoute[profile.role] || ROUTES.USER_DASHBOARD} className="hidden sm:block">
-              <Button size="sm" variant="outline" className="gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
-                  {profile.full_name?.charAt(0).toUpperCase() || 'U'}
-                </span>
-                Mi Panel
-              </Button>
+          {isLoggedIn ? (
+            <Link href={ROUTES.PANEL} className="hidden sm:block">
+              <Button size="sm">Mi panel</Button>
             </Link>
           ) : (
             <Link href={ROUTES.LOGIN} className="hidden sm:block">
@@ -140,9 +159,15 @@ export default function Navbar() {
               </li>
             ))}
             <li className="mt-4">
-              <Link href={ROUTES.LOGIN}>
-                <Button className="w-full">Iniciar Sesión</Button>
-              </Link>
+              {isLoggedIn ? (
+                <Link href={ROUTES.PANEL}>
+                  <Button className="w-full">Mi panel</Button>
+                </Link>
+              ) : (
+                <Link href={ROUTES.LOGIN}>
+                  <Button className="w-full">Iniciar Sesión</Button>
+                </Link>
+              )}
             </li>
           </ul>
         </div>

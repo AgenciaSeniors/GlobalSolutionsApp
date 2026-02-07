@@ -6,6 +6,7 @@
 export const ROUTES = {
   HOME: '/',
   FLIGHTS: '/flights',
+  PANEL: '/panel',
   FLIGHT_SEARCH: '/flights/search',
   CARS: '/cars',
   OFFERS: '/offers',

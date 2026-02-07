@@ -24,7 +24,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
 
 /** Routes that require auth check */
-const PROTECTED_PREFIXES = ['/admin', '/agent', '/user', '/checkout'];
+const PROTECTED_PREFIXES = ['/admin', '/agent', '/user', '/panel'];
 const AUTH_PREFIXES = ['/login', '/register', '/forgot-password'];
 
 function needsAuthCheck(pathname: string): boolean {

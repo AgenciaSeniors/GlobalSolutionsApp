@@ -1,12 +1,4 @@
-/**
- * @fileoverview Custom hook encapsulating authentication actions.
- *
- * Per spec §3.1: Guest searches freely, login at checkout.
- * Supports optional `redirectTo` param so login redirects
- * back to checkout (or any page) after success.
- *
- * @module hooks/useAuth
- */
+// src/hooks/useAuth.ts
 'use client';
 
 import { useState } from 'react';
@@ -15,29 +7,27 @@ import { createClient } from '@/lib/supabase/client';
 import { ROUTES } from '@/lib/constants/routes';
 import type { UserRole } from '@/types/models';
 
+interface RegisterPayload {
+  email: string;
+  password: string;
+  fullName: string;
+}
+
 export function useAuth() {
   const router = useRouter();
   const supabase = createClient();
   const [isLoading, setIsLoading] = useState(false);
 
-  /** Redirect user to the correct dashboard based on their role. */
-  function redirectByRole(role: UserRole, redirectTo?: string) {
-    if (redirectTo) {
-      router.push(redirectTo);
-      return;
-    }
+  function redirectByRole(role: UserRole) {
     const destination: Record<UserRole, string> = {
       admin: ROUTES.ADMIN_DASHBOARD,
       agent: ROUTES.AGENT_DASHBOARD,
       client: ROUTES.USER_DASHBOARD,
     };
-    router.push(destination[role]);
+    router.replace(destination[role]);
+    router.refresh();
   }
 
-  /**
-   * Login with email + password.
-   * @param redirectTo — optional URL to redirect after login (e.g. /checkout?flight=xxx)
-   */
   async function login(email: string, password: string, redirectTo?: string) {
     setIsLoading(true);
     try {
@@ -45,16 +35,69 @@ export function useAuth() {
         email,
         password,
       });
-
       if (error) throw error;
 
-      const { data: profile } = await supabase
+      // Esperar que la sesión persista y esté disponible al server
+      await supabase.auth.getSession();
+
+      // Prioridad 1: redirect explícito pasado como argumento.
+      if (redirectTo) {
+        router.replace(redirectTo);
+        router.refresh();
+        return;
+      }
+
+      // Prioridad 2: ?redirect= en la URL (middleware)
+      try {
+        if (typeof window !== 'undefined') {
+          const params = new URLSearchParams(window.location.search);
+          const redirectParam = params.get('redirect');
+          if (redirectParam) {
+            router.replace(redirectParam);
+            router.refresh();
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      // Fallback: redirigir por rol (leer profile)
+      const userId = data?.user?.id;
+      if (!userId) {
+        router.replace(ROUTES.USER_DASHBOARD);
+        router.refresh();
+        return;
+      }
+
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('role')
-        .eq('id', data.user.id)
+        .eq('id', userId)
         .single();
 
-      redirectByRole((profile?.role as UserRole) ?? 'client', redirectTo);
+      if (profileError) {
+        router.replace(ROUTES.USER_DASHBOARD);
+        router.refresh();
+        return;
+      }
+
+      redirectByRole(profile.role as UserRole);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function register({ email, password, fullName }: RegisterPayload) {
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: fullName, role: 'client' } },
+      });
+      if (error) throw error;
+      router.push(`${ROUTES.LOGIN}?confirmed=pending`);
     } finally {
       setIsLoading(false);
     }
@@ -65,17 +108,5 @@ export function useAuth() {
     router.push(ROUTES.HOME);
   }
 
-  async function resetPassword(email: string) {
-    setIsLoading(true);
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-      if (error) throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  return { login, logout, resetPassword, isLoading };
+  return { login, register, logout, isLoading };
 }
