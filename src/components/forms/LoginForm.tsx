@@ -21,6 +21,8 @@ export default function LoginForm() {
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect');
 
+  const confirmed = searchParams.get('confirmed') === 'true';
+
   const [form, setForm] = useState<LoginFormValues>({ email: '', password: '' });
   const [errors, setErrors] = useState<Partial<Record<keyof LoginFormValues, string>>>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -57,6 +59,13 @@ export default function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Email confirmed notice */}
+      {confirmed && (
+        <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 border border-emerald-200">
+          ✅ <strong>¡Correo confirmado!</strong> Ahora puedes iniciar sesión.
+        </div>
+      )}
+
       {/* Redirect notice */}
       {redirect && (
         <div className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-700">
