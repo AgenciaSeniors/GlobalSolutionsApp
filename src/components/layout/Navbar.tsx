@@ -49,8 +49,9 @@ export default function Navbar() {
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-all duration-300',
         scrolled
-          ? 'bg-white/90 backdrop-blur-xl border-b border-neutral-200/50 shadow-sm'
-          : 'bg-transparent',
+  ? 'bg-white/90 backdrop-blur-xl border-b border-brand-100 shadow-sm'
+  : 'bg-transparent',
+
       )}
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
@@ -76,10 +77,11 @@ export default function Navbar() {
                 <Link
                   href={href}
                   className={cn(
-                    'flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors',
-                    active
-                      ? 'bg-brand-50 text-brand-600'
-                      : 'text-neutral-600 hover:bg-neutral-100 hover:text-brand-600',
+                    'flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition-colors',
+active
+  ? 'bg-brand-50 text-brand-900'
+  : 'text-brand-700 hover:bg-brand-50 hover:text-brand-900',
+
                   )}
                 >
                   {Icon && <Icon className="h-4 w-4" />}
@@ -110,7 +112,8 @@ export default function Navbar() {
           {/* Mobile toggle */}
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
-            className="rounded-lg p-2 text-neutral-700 hover:bg-neutral-100 md:hidden"
+            className="rounded-xl p-2 text-brand-900 hover:bg-brand-50 md:hidden"
+
             aria-label="Abrir menú"
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -120,17 +123,19 @@ export default function Navbar() {
 
       {/* ── Mobile Drawer ── */}
       {mobileOpen && (
-        <div className="absolute inset-x-0 top-[72px] border-t border-neutral-200 bg-white p-6 shadow-xl md:hidden animate-fade-in">
+       <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-6 shadow-xl md:hidden animate-fade-in">
+
           <ul className="flex flex-col gap-2">
             {NAV_LINKS.map(({ href, label, icon: Icon }) => (
               <li key={href}>
                 <Link
                   href={href}
                   className={cn(
-                    'flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium transition-colors',
-                    pathname === href
-                      ? 'bg-brand-50 text-brand-600'
-                      : 'text-neutral-700 hover:bg-neutral-50',
+                    'flex items-center gap-3 rounded-xl px-4 py-3 text-base font-semibold transition-colors',
+pathname === href
+  ? 'bg-brand-50 text-brand-900'
+  : 'text-brand-800 hover:bg-brand-50',
+
                   )}
                 >
                   {Icon && <Icon className="h-5 w-5" />}
