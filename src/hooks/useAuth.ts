@@ -1,4 +1,9 @@
 // src/hooks/useAuth.ts
+/**
+ * @fileoverview Custom hook encapsulating authentication actions
+ *               (login, register, logout) with role-based redirect.
+ * @module hooks/useAuth
+ */
 'use client';
 
 import { useState } from 'react';
@@ -13,11 +18,19 @@ interface RegisterPayload {
   fullName: string;
 }
 
+/**
+ * Hook: useAuth
+ *
+ * - login(email, password, redirectTo?) accepts an optional third parameter
+ *   that forces a redirect after successful auth (useful when caller already
+ *   computed a desired redirect).
+ */
 export function useAuth() {
   const router = useRouter();
   const supabase = createClient();
   const [isLoading, setIsLoading] = useState(false);
 
+  /** Redirect user to the correct dashboard based on their role. */
   function redirectByRole(role: UserRole) {
     const destination: Record<UserRole, string> = {
       admin: ROUTES.ADMIN_DASHBOARD,
@@ -28,6 +41,13 @@ export function useAuth() {
     router.refresh();
   }
 
+  /**
+   * Login with email + password.
+   *
+   * @param email
+   * @param password
+   * @param redirectTo optional explicit redirect path (e.g. '/panel' or '/checkout')
+   */
   async function login(email: string, password: string, redirectTo?: string) {
     setIsLoading(true);
     try {
@@ -35,19 +55,31 @@ export function useAuth() {
         email,
         password,
       });
+
       if (error) throw error;
 
       // Esperar que la sesión persista y esté disponible al server
-      await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      // Prioridad 1: redirect explícito pasado como argumento.
+      // Sincronizar session con el servidor (escribe cookies sb-*)
+      if (session) {
+        await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session }),
+        });
+      }
+
+      // 1) Si caller pasó redirectTo, respetarlo
       if (redirectTo) {
         router.replace(redirectTo);
         router.refresh();
         return;
       }
 
-      // Prioridad 2: ?redirect= en la URL (middleware)
+      // 2) Si middleware agregó ?redirect= en la URL, respetarlo
       try {
         if (typeof window !== 'undefined') {
           const params = new URLSearchParams(window.location.search);
@@ -62,7 +94,7 @@ export function useAuth() {
         // ignore
       }
 
-      // Fallback: redirigir por rol (leer profile)
+      // 3) fallback: redirigir por rol leyendo profile
       const userId = data?.user?.id;
       if (!userId) {
         router.replace(ROUTES.USER_DASHBOARD);
@@ -82,7 +114,8 @@ export function useAuth() {
         return;
       }
 
-      redirectByRole(profile.role as UserRole);
+      const role = (profile?.role as UserRole | undefined) ?? 'client';
+      redirectByRole(role);
     } finally {
       setIsLoading(false);
     }
@@ -94,9 +127,14 @@ export function useAuth() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName, role: 'client' } },
+        options: {
+          data: { full_name: fullName, role: 'client' },
+        },
       });
+
       if (error) throw error;
+
+      // After sign-up the user will receive a confirmation email.
       router.push(`${ROUTES.LOGIN}?confirmed=pending`);
     } finally {
       setIsLoading(false);
@@ -104,8 +142,21 @@ export function useAuth() {
   }
 
   async function logout() {
-    await supabase.auth.signOut();
-    router.push(ROUTES.HOME);
+    setIsLoading(true);
+    try {
+      await supabase.auth.signOut();
+
+      // Avisar al servidor para limpiar cookies
+      await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: null }),
+      });
+
+      router.push(ROUTES.HOME);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return { login, register, logout, isLoading };
