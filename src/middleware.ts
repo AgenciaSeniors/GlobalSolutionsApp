@@ -1,27 +1,8 @@
 /**
  * @fileoverview Next.js Middleware — Route protection by role.
- *
- * Per spec §3.1: "Guest puede buscar vuelos sin login.
- * Login se exige SOLO al momento de comprar (checkout)."
-  *
- * Public routes (no auth required):
- *   /, /flights, /flights/search, /flights/[id], /offers, /cars,
- *   /about, /quote-request, /legal/*
- *
- * Auth routes (redirect if already logged in):
- *   /login, /register, /forgot-password
- *
- * Protected routes (redirect to login if not authenticated):
- *   /checkout, /user/*, /agent/*, /admin/*
- *
- * Role-based access:
- *   /admin/* → role=admin only
- *   /agent/* → role=agent or admin
- *   /user/*  → role=client, agent, or admin
  */
 import { type NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
-
 
 /** Routes that require auth check */
 const PROTECTED_PREFIXES = ['/admin', '/agent', '/user', '/panel'];
@@ -37,13 +18,11 @@ function needsAuthCheck(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Skip auth check for public routes — just pass through
   if (!needsAuthCheck(pathname)) {
     return NextResponse.next({ request });
   }
 
-  // Create Supabase server client using request cookies
-  let response = NextResponse.next({ request });
+  const response = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,10 +33,7 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value }) => {
-            request.cookies.set(name, value);
-          });
-          response = NextResponse.next({ request });
+          // ✅ La única forma confiable: setear cookies en el response
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options);
           });
@@ -66,20 +42,17 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // Refresh session — wrapped in try/catch to prevent crashes
   let user = null;
   try {
     const { data } = await supabase.auth.getUser();
     user = data.user;
   } catch {
-    // Supabase fetch failed (e.g. network issue) — treat as unauthenticated
     console.warn('Middleware: Supabase getUser failed for', pathname);
   }
 
-  /* ─────────── Auth routes (login/register) ─────────── */
+  /* ─────────── Auth routes ─────────── */
   if (AUTH_PREFIXES.some(p => pathname.startsWith(p))) {
     if (user) {
-      // Already logged in — redirect to appropriate dashboard
       try {
         const { data: profile } = await supabase
           .from('profiles')
@@ -93,7 +66,8 @@ export async function middleware(request: NextRequest) {
           agent: '/agent/dashboard',
           client: '/user/dashboard',
         };
-        return NextResponse.redirect(new URL(dashboardMap[role], request.url));
+
+        return NextResponse.redirect(new URL(dashboardMap[role] ?? '/user/dashboard', request.url));
       } catch {
         return NextResponse.redirect(new URL('/user/dashboard', request.url));
       }
@@ -112,18 +86,13 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ─────────── Protected: Dashboard routes ─────────── */
-  if (
-    pathname.startsWith('/admin') ||
-    pathname.startsWith('/agent') ||
-    pathname.startsWith('/user')
-  ) {
+  if (pathname.startsWith('/admin') || pathname.startsWith('/agent') || pathname.startsWith('/user')) {
     if (!user) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       return NextResponse.redirect(loginUrl);
     }
 
-    // Fetch role for authorization
     try {
       const { data: profile } = await supabase
         .from('profiles')
@@ -133,12 +102,10 @@ export async function middleware(request: NextRequest) {
 
       const role = profile?.role || 'client';
 
-      // Admin routes — admin only
       if (pathname.startsWith('/admin') && role !== 'admin') {
         return NextResponse.redirect(new URL('/', request.url));
       }
 
-      // Agent routes — agent or admin
       if (pathname.startsWith('/agent') && !['agent', 'admin'].includes(role)) {
         return NextResponse.redirect(new URL('/', request.url));
       }

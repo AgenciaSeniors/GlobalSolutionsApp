@@ -4,9 +4,11 @@
  */
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ChangeEvent } from 'react';
 import Link from 'next/link';
 import { Shield } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { loginSchema, type LoginFormValues } from '@/lib/validations/auth.schema';
@@ -18,6 +20,9 @@ export default function LoginForm() {
   const [form, setForm] = useState<LoginFormValues>({ email: '', password: '' });
   const [errors, setErrors] = useState<Partial<Record<keyof LoginFormValues, string>>>({});
   const [serverError, setServerError] = useState<string | null>(null);
+
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get('redirect');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -37,24 +42,23 @@ export default function LoginForm() {
     setErrors({});
 
     try {
-      // [CORRECCIÓN] Se llama solo con 2 argumentos.
-      // La redirección la maneja useAuth internamente basándose en el rol.
-      await login(result.data.email, result.data.password);
+      // ✅ Pasa ?redirect=/... si viene de una ruta protegida (middleware)
+      await login(result.data.email, result.data.password, redirect ?? undefined);
     } catch (err: unknown) {
-      setServerError(
-        err instanceof Error ? err.message : 'Error al iniciar sesión',
-      );
+      setServerError(err instanceof Error ? err.message : 'Error al iniciar sesión');
     }
   }
 
-  const update = (field: keyof LoginFormValues) => (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
+  const update = (field: keyof LoginFormValues) => (e: ChangeEvent<HTMLInputElement>) =>
+    setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {serverError && (
-        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-accent-red" role="alert">
+        <div
+          className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-accent-red"
+          role="alert"
+        >
           {serverError}
         </div>
       )}

@@ -29,41 +29,52 @@ export function useAuth() {
       agent: ROUTES.AGENT_DASHBOARD,
       client: ROUTES.USER_DASHBOARD,
     };
-    
+
     const targetUrl = destination[role] || ROUTES.USER_DASHBOARD;
     window.location.href = targetUrl;
   }
 
-  async function login(email: string, password: string) {
-  setIsLoading(true);
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+  /**
+   * Login and ensure the session is synced to server-side cookies before navigating.
+   * If `redirectTo` is provided (e.g. from `?redirect=/user/dashboard`), it takes precedence.
+   */
+  async function login(email: string, password: string, redirectTo?: string) {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
 
-    // ✅ 1) Sincronizar cookies server-side ANTES de redirigir (clave para el middleware)
-    if (data.session) {
-      await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session: data.session }),
-      });
+      // ✅ CLAVE: sincroniza la sesión con cookies server-side para que el middleware la vea
+      if (data.session) {
+        await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ session: data.session }),
+        });
+      }
+
+      // Si venimos de una ruta protegida, el middleware envía /login?redirect=/...
+      // Respetamos ese destino (solo rutas internas).
+      if (redirectTo && redirectTo.startsWith('/')) {
+        window.location.href = redirectTo;
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', data.user.id)
+        .single();
+
+      redirectByRole((profile?.role as UserRole) ?? 'client');
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
     }
-
-    // Fetch profile to determine role
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', data.user.id)
-      .single();
-
-    redirectByRole((profile?.role as UserRole) ?? 'client');
-  } catch (error) {
-    console.error("Login error:", error);
-    throw error;
-  } finally {
-    setIsLoading(false);
   }
-}
 
   async function register({ email, password, fullName }: RegisterPayload) {
     setIsLoading(true);
