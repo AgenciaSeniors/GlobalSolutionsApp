@@ -12,7 +12,7 @@ export async function POST(req: Request) {
 
     // ✅ Normalizar email (consistente con request-otp y verify-otp)
     const email    = String(body?.email    ?? '').trim().toLowerCase();
-    const fullName = String(body?.fullName ?? '').trim();
+    const fullName = String(body?.fullName ?? body?.full_name ?? '').trim();
     const password = String(body?.password ?? '');
 
     if (!email || !fullName || !password) {

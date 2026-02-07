@@ -1,22 +1,31 @@
 /**
  * @fileoverview Custom hook encapsulating authentication actions
- * (login, register, logout, verify) with role-based redirect.
+ *               (login, OTP-based register, logout) with role-based redirect.
  * @module hooks/useAuth
  */
 'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { type EmailOtpType } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { ROUTES } from '@/lib/constants/routes';
 import type { UserRole } from '@/types/models';
 
-interface RegisterPayload {
+/* ── Payload types ── */
+
+interface RequestOtpPayload {
   email: string;
-  password: string;
+}
+
+interface VerifyOtpPayload {
+  email: string;
+  code: string;
+}
+
+interface CompleteRegisterPayload {
+  email: string;
   fullName: string;
-  phone?: string;
+  password: string;
 }
 
 export function useAuth() {
@@ -34,15 +43,9 @@ export function useAuth() {
     router.push(destination[role]);
   }
 
-  async function checkUserAndRedirect(userId: string) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', userId)
-      .single();
-
-    redirectByRole((profile?.role as UserRole) ?? 'client');
-  }
+  /* ────────────────────────────────────────────────────────────────── */
+  /*  LOGIN (unchanged)                                                */
+  /* ────────────────────────────────────────────────────────────────── */
 
   async function login(email: string, password: string) {
     setIsLoading(true);
@@ -54,68 +57,119 @@ export function useAuth() {
 
       if (error) throw error;
 
-      if (data.user) {
-        await checkUserAndRedirect(data.user.id);
-      }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', data.user.id)
+        .single();
+
+      redirectByRole((profile?.role as UserRole) ?? 'client');
     } finally {
       setIsLoading(false);
     }
   }
 
-  async function register({ email, password, fullName, phone }: RegisterPayload) {
+  /* ────────────────────────────────────────────────────────────────── */
+  /*  STEP 1 — Request OTP                                            */
+  /* ────────────────────────────────────────────────────────────────── */
+
+  async function requestOtp({ email }: RequestOtpPayload) {
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { 
-            full_name: fullName, 
-            role: 'client',
-            phone: phone || '' 
-          },
-        },
+      const res = await fetch('/api/auth/request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
 
-      if (error) throw error;
+      const data = await res.json();
 
-      // Redirigir al login con un indicador para mostrar el input de código
-      // Se pasa el email por URL para facilitar la UX
-      router.push(`${ROUTES.LOGIN}?confirmed=pending&email=${encodeURIComponent(email)}`);
+      if (!res.ok) {
+        throw new Error(data.error ?? 'Error al enviar el código');
+      }
+
+      return data;
     } finally {
       setIsLoading(false);
     }
   }
 
-  /**
-   * Verifica el código de 6 dígitos (OTP).
-   * @param email El correo electrónico del usuario.
-   * @param token El código de 6 dígitos.
-   * @param type El tipo de verificación ('signup' para registro, 'recovery' para pass, etc).
-   */
-  async function verifyOtp(email: string, token: string, type: EmailOtpType = 'signup') {
+  /* ────────────────────────────────────────────────────────────────── */
+  /*  STEP 2 — Verify OTP                                             */
+  /* ────────────────────────────────────────────────────────────────── */
+
+  async function verifyOtp({ email, code }: VerifyOtpPayload) {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token,
-        type,
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          code: code.trim(),
+        }),
       });
 
-      if (error) throw error;
+      const data = await res.json();
 
-      if (data.session?.user) {
-        await checkUserAndRedirect(data.session.user.id);
+      if (!res.ok) {
+        throw new Error(data.error ?? 'Código inválido');
       }
+
+      return data;
     } finally {
       setIsLoading(false);
     }
   }
+
+  /* ────────────────────────────────────────────────────────────────── */
+  /*  STEP 3 — Complete registration                                   */
+  /* ────────────────────────────────────────────────────────────────── */
+
+  async function completeRegister({ email, fullName, password }: CompleteRegisterPayload) {
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/auth/complete-register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          fullName: fullName.trim(),
+          password,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error ?? 'Error al completar el registro');
+      }
+
+      // Auto-login after successful registration
+      await supabase.auth.signInWithPassword({ email, password });
+
+      router.push(ROUTES.USER_DASHBOARD);
+      return data;
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  /* ────────────────────────────────────────────────────────────────── */
+  /*  LOGOUT                                                           */
+  /* ────────────────────────────────────────────────────────────────── */
 
   async function logout() {
     await supabase.auth.signOut();
     router.push(ROUTES.HOME);
   }
 
-  return { login, register, verifyOtp, logout, isLoading };
+  return {
+    login,
+    requestOtp,
+    verifyOtp,
+    completeRegister,
+    logout,
+    isLoading,
+  };
 }
