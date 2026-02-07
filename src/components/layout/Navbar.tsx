@@ -57,7 +57,7 @@ export default function Navbar() {
         {/* ── Logo ── */}
         <Link href={ROUTES.HOME} className="flex items-center gap-3">
           <Image
-            src="public/brand/logo.png"
+            src="/brand/logo.png"
 
             alt="Global Solutions Travel"
             width={170}
