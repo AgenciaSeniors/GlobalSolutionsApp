@@ -31,14 +31,6 @@ export function useAuth() {
     };
     
     const targetUrl = destination[role] || ROUTES.USER_DASHBOARD;
-
-    // 🔴 ANTES (Causaba el error de bucle):
-    // router.refresh();
-    // router.push(targetUrl);
-
-    // 🟢 AHORA (Solución robusta):
-    // Usamos window.location.href para forzar una recarga completa.
-    // Esto asegura que el Middleware reciba las cookies frescas sí o sí.
     window.location.href = targetUrl;
   }
 
@@ -61,14 +53,9 @@ export function useAuth() {
 
       redirectByRole((profile?.role as UserRole) ?? 'client');
     } catch (error) {
-       // Importante: Si falla el login, detenemos el loading aquí
-       // para que el usuario pueda intentar de nuevo.
        console.error("Login error:", error);
        throw error;
     } finally {
-       // Nota: Si redirigimos con window.location, la página se recargará,
-       // así que el setIsLoading(false) visualmente no importa tanto si hay éxito,
-       // pero es buena práctica mantenerlo.
       setIsLoading(false);
     }
   }
