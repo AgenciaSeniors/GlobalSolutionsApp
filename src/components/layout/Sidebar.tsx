@@ -105,6 +105,7 @@ export const USER_SIDEBAR_LINKS: SidebarLink[] = [
 
 export const AGENT_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/agent/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/agent/dashboard/bookings', label: 'Reservas Asignadas', icon: CalendarCheck },
   { href: '/agent/dashboard/news', label: 'Muro de Noticias', icon: Newspaper },
   { href: '/agent/dashboard/tickets', label: 'Tickets Internos', icon: MessageSquare },
   { href: '/agent/dashboard/settings', label: 'Configuración', icon: Settings },
