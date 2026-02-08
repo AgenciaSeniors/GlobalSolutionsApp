@@ -56,7 +56,8 @@ export default function Navbar() {
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
-        <Link href={ROUTES.HOME} className="flex items-center gap-3">
+        <Link href={ROUTES.HOME} className="flex items-center gap-3 py-1">
+
           <Image
             src="/brand/logo.png"
 
