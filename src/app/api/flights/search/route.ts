@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type { FlightSearchParams, FlightLeg } from '@/types/api.types';
 
 const TTL_MINUTES = 15;
 
 function normalizeToLegs(params: FlightSearchParams): { legs: FlightLeg[]; passengers: number } {
-  // Nuevo formato (legs)
   if ('legs' in params && Array.isArray(params.legs) && params.legs.length > 0) {
     return {
       legs: params.legs.map((l) => ({
@@ -17,7 +16,6 @@ function normalizeToLegs(params: FlightSearchParams): { legs: FlightLeg[]; passe
     };
   }
 
-  // Formato legacy (origin/destination/departure_date)
   const legacy = params as any;
   const legs: FlightLeg[] = [
     {
@@ -27,7 +25,6 @@ function normalizeToLegs(params: FlightSearchParams): { legs: FlightLeg[]; passe
     },
   ];
 
-  // Roundtrip legacy -> 2 legs
   if (legacy.return_date) {
     legs.push({
       origin: String(legacy.destination ?? '').toUpperCase(),
@@ -47,92 +44,112 @@ function makeCacheKey(body: { legs: FlightLeg[]; passengers: number }) {
 }
 
 export async function POST(req: Request) {
-  const supabase = await createClient();
-  const raw = (await req.json()) as FlightSearchParams;
+  const supabase = createAdminClient();
+    console.log('[FLIGHT_SEARCH] using service role:', Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY));
 
-  const body = normalizeToLegs(raw);
+  try {
+    const raw = (await req.json()) as FlightSearchParams;
+    const body = normalizeToLegs(raw);
 
-  if (!body.legs.length || !body.legs[0].origin || !body.legs[0].destination || !body.legs[0].departure_date) {
-    return NextResponse.json({ error: 'Parámetros inválidos (legs/origin/destination/departure_date)' }, { status: 400 });
-  }
+    if (
+      !body.legs.length ||
+      !body.legs[0].origin ||
+      !body.legs[0].destination ||
+      !body.legs[0].departure_date
+    ) {
+      return NextResponse.json(
+        { error: 'Parámetros inválidos (legs/origin/destination/departure_date)' },
+        { status: 400 }
+      );
+    }
 
-  const cache_key = makeCacheKey(body);
-  const now = new Date().toISOString();
+    const cache_key = makeCacheKey(body);
+    const now = new Date().toISOString();
 
-  // 1) Cache hit
-  const { data: cached, error: cacheErr } = await supabase
-    .from('flight_search_cache')
-    .select('response, expires_at')
-    .eq('cache_key', cache_key)
-    .gt('expires_at', now)
-    .maybeSingle();
+    // 1) Cache hit
+    const { data: cached, error: cacheErr } = await supabase
+      .from('flight_search_cache')
+      .select('response, expires_at')
+      .eq('cache_key', cache_key)
+      .gt('expires_at', now)
+      .maybeSingle();
 
-  if (cacheErr) {
-    // no cortamos por error de cache; seguimos a live
-    console.warn('flight_search_cache read error:', cacheErr.message);
-  }
+    if (cacheErr) {
+      console.warn('flight_search_cache read error:', cacheErr.message);
+    }
 
-  if (cached?.response) {
-    return NextResponse.json({ source: 'cache', results: cached.response });
-  }
+    if (cached?.response) {
+      return NextResponse.json({ source: 'cache', results: cached.response });
+    }
 
-    // 2) LIVE (por ahora usa tabla flights como provider local)
-  const leg0 = body.legs[0];
-  const start = `${leg0.departure_date}T00:00:00`;
-  const end = `${leg0.departure_date}T23:59:59`;
+    // 2) LIVE (tabla flights)
+    const leg0 = body.legs[0];
+    const start = `${leg0.departure_date}T00:00:00`;
+    const end = `${leg0.departure_date}T23:59:59`;
 
-  // Resolver IATA -> airport_id
-  const { data: airports, error: airportsErr } = await supabase
-    .from('airports')
-    .select('id, iata_code')
-    .in('iata_code', [leg0.origin, leg0.destination]);
+    // Resolver IATA -> airport_id
+    const { data: airports, error: airportsErr } = await supabase
+      .from('airports')
+      .select('id, iata_code')
+      .in('iata_code', [leg0.origin, leg0.destination]);
 
-  if (airportsErr) {
-    return NextResponse.json({ error: airportsErr.message }, { status: 500 });
-  }
+    if (airportsErr) {
+      return NextResponse.json({ error: airportsErr.message }, { status: 500 });
+    }
 
-  const originAirport = airports?.find((a) => a.iata_code === leg0.origin);
-  const destinationAirport = airports?.find((a) => a.iata_code === leg0.destination);
+    const originAirport = airports?.find((a) => a.iata_code === leg0.origin);
+    const destinationAirport = airports?.find((a) => a.iata_code === leg0.destination);
 
-  if (!originAirport || !destinationAirport) {
+    if (!originAirport || !destinationAirport) {
+      return NextResponse.json({ error: 'IATA inválido: airport no encontrado' }, { status: 400 });
+    }
+
+    const { data: flights, error: flightsErr } = await supabase
+      .from('flights')
+      .select(
+        `
+        *,
+        airline:airlines(*),
+        origin_airport:airports!origin_airport_id(*),
+        destination_airport:airports!destination_airport_id(*)
+      `
+      )
+      .gt('available_seats', 0)
+      .eq('origin_airport_id', originAirport.id)
+      .eq('destination_airport_id', destinationAirport.id)
+      .gte('departure_datetime', start)
+      .lte('departure_datetime', end)
+      .order('final_price', { ascending: true });
+
+    if (flightsErr) {
+      return NextResponse.json({ error: flightsErr.message }, { status: 500 });
+    }
+
+    // 3) Cache store
+    const expires_at = new Date(Date.now() + TTL_MINUTES * 60 * 1000).toISOString();
+
+    const { error: upsertErr } = await supabase
+      .from('flight_search_cache')
+      .upsert(
+        {
+          cache_key,
+          response: flights ?? [],
+          expires_at,
+        },
+        { onConflict: 'cache_key' }
+      );
+
+    if (upsertErr) {
+      console.warn('flight_search_cache upsert error:', upsertErr.message);
+    }
+
+    return NextResponse.json({ source: 'live', results: flights ?? [] });
+  } catch (err: any) {
+    console.error('[FLIGHT_SEARCH_ERROR]', err);
+    // En dev, devolvemos el mensaje para depurar (sin stack)
     return NextResponse.json(
-      { error: 'IATA inválido: airport no encontrado' },
-      { status: 400 },
+      { error: err?.message ?? 'Internal server error' },
+      { status: 500 }
     );
   }
-
-  const { data: flights, error: flightsErr } = await supabase
-    .from('flights')
-    .select(
-      `
-      *,
-      airline:airlines(*),
-      origin_airport:airports!origin_airport_id(*),
-      destination_airport:airports!destination_airport_id(*)
-    `,
-    )
-    .gt('available_seats', 0)
-    .eq('origin_airport_id', originAirport.id)
-    .eq('destination_airport_id', destinationAirport.id)
-    .gte('departure_datetime', start)
-    .lte('departure_datetime', end)
-    .order('final_price', { ascending: true });
-
-  if (flightsErr) {
-    return NextResponse.json({ error: flightsErr.message }, { status: 500 });
-  }
-
-  // 3) Cache store
-  const expires_at = new Date(Date.now() + TTL_MINUTES * 60 * 1000).toISOString();
-  const { error: upsertErr } = await supabase.from('flight_search_cache').upsert({
-    cache_key,
-    response: flights ?? [],
-    expires_at,
-  });
-
-  if (upsertErr) {
-    console.warn('flight_search_cache upsert error:', upsertErr.message);
-  }
-
-  return NextResponse.json({ source: 'live', results: flights ?? [] });
 }
