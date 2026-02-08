@@ -56,18 +56,18 @@ export default function Navbar() {
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
-        <Link href={ROUTES.HOME} className="flex items-center gap-3 py-1">
+        <Link href={ROUTES.HOME} className="flex items-center">
+  <span className="relative h-14 w-[260px] overflow-hidden">
+    <Image
+      src="/brand/logo.png"
+      alt="Global Solutions Travel"
+      fill
+      priority
+      className="object-contain scale-[1.35] -translate-y-1"
+    />
+  </span>
+</Link>
 
-          <Image
-            src="/brand/logo.png"
-
-            alt="Global Solutions Travel"
-            width={220}
-            height={64}
-            className="h-14 w-auto"
-            priority
-          />
-        </Link>
 
         {/* ── Desktop Links ── */}
         <ul className="hidden items-center gap-1 md:flex">
