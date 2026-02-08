@@ -20,18 +20,29 @@ export interface PaginatedResponse<T> {
   per_page: number;
   has_more: boolean;
 }
-
 /* ------------------------------------------------------------------ */
 /*  FLIGHTS                                                           */
 /* ------------------------------------------------------------------ */
 
-export interface FlightSearchParams {
-  origin: string;
-  destination: string;
-  departure_date: string;
-  return_date?: string;
-  passengers: number;
-}
+export type FlightLeg = {
+  origin: string;          // IATA
+  destination: string;     // IATA
+  departure_date: string;  // YYYY-MM-DD
+};
+
+export type FlightSearchParams =
+  | {
+      legs: FlightLeg[];
+      passengers: number;
+    }
+  | {
+      // legacy (para no romper lo actual hoy)
+      origin: string;
+      destination: string;
+      departure_date: string;
+      return_date?: string;
+      passengers: number;
+    };
 
 /* ------------------------------------------------------------------ */
 /*  BOOKINGS                                                          */

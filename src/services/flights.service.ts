@@ -1,89 +1,62 @@
-/**
- * @fileoverview Service layer for flight-related Supabase queries.
- * @module services/flights.service
- */
-import { createClient } from '@/lib/supabase/client';
-import type { FlightSearchParams } from '@/types/api.types';
 import type { FlightWithDetails } from '@/types/models';
+import type { FlightSearchParams } from '@/types/api.types';
 
-async function search(params: FlightSearchParams): Promise<FlightWithDetails[]> {
-  const supabase = createClient();
+/**
+ * Flights Service
+ * Todas las búsquedas pasan por el API route (/api/flights/search)
+ * para cache, seguridad y normalización.
+ */
+export const flightsService = {
+  /**
+   * Buscar vuelos (oneway / roundtrip / multicity)
+   * @param params FlightSearchParams
+   */
+  async search(params: FlightSearchParams): Promise<FlightWithDetails[]> {
+    const res = await fetch('/api/flights/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
 
-  let query = supabase
-    .from('flights')
-    .select(
-      `
-      *,
-      airline:airlines(*),
-      origin_airport:airports!origin_airport_id(*),
-      destination_airport:airports!destination_airport_id(*)
-    `,
-    )
-    .gt('available_seats', 0);
+    const json = await res.json();
 
-  // Filter by origin / destination airport IATA code
-  if (params.origin) {
-    query = query.eq('origin_airport.iata_code', params.origin);
-  }
-  if (params.destination) {
-    query = query.eq('destination_airport.iata_code', params.destination);
-  }
+    if (!res.ok) {
+      throw new Error(json?.error ?? 'Error buscando vuelos');
+    }
 
-  // Filter by departure date (same day)
-  if (params.departure_date) {
-    const start = `${params.departure_date}T00:00:00`;
-    const end = `${params.departure_date}T23:59:59`;
-    query = query.gte('departure_datetime', start).lte('departure_datetime', end);
-  }
+    return (json.results ?? []) as FlightWithDetails[];
+  },
 
-  query = query.order('final_price', { ascending: true });
+  /**
+   * Ofertas destacadas (esto puede seguir directo a Supabase si querés)
+   * o migrarse después a API route.
+   */
+  async getExclusiveOffers(): Promise<FlightWithDetails[]> {
+    const res = await fetch('/api/flights/exclusive');
 
-  const { data, error } = await query;
+    const json = await res.json();
 
-  if (error) throw error;
-  return (data ?? []) as unknown as FlightWithDetails[];
-}
+    if (!res.ok) {
+      throw new Error(json?.error ?? 'Error cargando ofertas');
+    }
 
-async function getExclusiveOffers(): Promise<FlightWithDetails[]> {
-  const supabase = createClient();
+    return (json.results ?? []) as FlightWithDetails[];
+  },
 
-  const { data, error } = await supabase
-    .from('flights')
-    .select(
-      `
-      *,
-      airline:airlines(*),
-      origin_airport:airports!origin_airport_id(*),
-      destination_airport:airports!destination_airport_id(*)
-    `,
-    )
-    .eq('is_exclusive_offer', true)
-    .gt('available_seats', 0)
-    .order('final_price', { ascending: true })
-    .limit(8);
+  /**
+   * Obtener vuelo por ID
+   */
+  async getById(id: string): Promise<FlightWithDetails | null> {
+    const res = await fetch(`/api/flights/${id}`);
 
-  if (error) throw error;
-  return (data ?? []) as unknown as FlightWithDetails[];
-}
+    const json = await res.json();
 
-async function getById(id: string): Promise<FlightWithDetails | null> {
-  const supabase = createClient();
+    if (!res.ok) {
+      throw new Error(json?.error ?? 'Error cargando vuelo');
+    }
 
-  const { data, error } = await supabase
-    .from('flights')
-    .select(
-      `
-      *,
-      airline:airlines(*),
-      origin_airport:airports!origin_airport_id(*),
-      destination_airport:airports!destination_airport_id(*)
-    `,
-    )
-    .eq('id', id)
-    .single();
-
-  if (error) throw error;
-  return data as unknown as FlightWithDetails;
-}
-
-export const flightsService = { search, getExclusiveOffers, getById };
+    return (json.data ?? null) as FlightWithDetails | null;
+  },
+};
