@@ -37,11 +37,16 @@ function normalizeToLegs(params: FlightSearchParams): { legs: FlightLeg[]; passe
 }
 
 function makeCacheKey(body: { legs: FlightLeg[]; passengers: number }) {
-  return JSON.stringify({
-    legs: body.legs.map((l) => ({ o: l.origin, d: l.destination, dt: l.departure_date })),
-    p: body.passengers,
-  });
+  const legsKey = body.legs
+    .map(
+      (l) =>
+        `${l.origin.toUpperCase()}-${l.destination.toUpperCase()}-${l.departure_date}`,
+    )
+    .join('|');
+
+  return `flights:${legsKey}:p${body.passengers}`;
 }
+
 
 export async function POST(req: Request) {
   const supabase = createAdminClient();
