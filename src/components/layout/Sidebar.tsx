@@ -20,7 +20,6 @@ import {
   Tag,
   Users,
   FileText,
-  BarChart3,
   HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';

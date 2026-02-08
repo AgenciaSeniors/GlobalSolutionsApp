@@ -9,7 +9,7 @@
 
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { Shield, Mail, User, Lock, Phone, CheckCircle, Loader2 } from 'lucide-react';
+import { Shield, Mail } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants/routes';
@@ -65,7 +65,9 @@ export default function RegisterForm() {
 
       // If user already exists but unconfirmed, Supabase returns user with identities = []
       if (data.user && data.user.identities?.length === 0) {
-        setError('Este correo ya está registrado. Revisa tu bandeja de entrada para confirmar tu cuenta, o intenta iniciar sesión.');
+        setError(
+          'Este correo ya está registrado. Revisa tu bandeja de entrada para confirmar tu cuenta, o intenta iniciar sesión.',
+        );
         return;
       }
 
@@ -106,7 +108,9 @@ export default function RegisterForm() {
           <ol className="text-left space-y-1 ml-4 list-decimal">
             <li>Abre tu correo electrónico</li>
             <li>Busca el email de <strong>Global Solutions Travel</strong></li>
-            <li>Haz clic en <strong>"Confirm your mail"</strong></li>
+            <li>
+              Haz clic en <strong>&quot;Confirm your mail&quot;</strong>
+            </li>
             <li>Vuelve aquí e inicia sesión</li>
           </ol>
         </div>
@@ -126,7 +130,10 @@ export default function RegisterForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {error && (
-        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600" role="alert">
+        <div
+          className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600"
+          role="alert"
+        >
           {error}
         </div>
       )}

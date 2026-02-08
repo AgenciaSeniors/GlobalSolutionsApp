@@ -1,4 +1,8 @@
-// src/components/providers/AuthProvider.tsx
+/**
+ * @fileoverview React context provider that exposes auth session state
+ *               and listens for Supabase auth changes.
+ * @module components/providers/AuthProvider
+ */
 'use client';
 
 import {
@@ -31,64 +35,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Initial session check and sync with server
-    (async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        const u = session?.user ?? null;
-        setUser(u);
-
-        if (u) {
-          // sincronizar cookie server-side (fire-and-forget)
-          fetch('/api/auth', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session }),
-          }).catch(() => {});
-
-          await fetchProfile(u.id);
-        } else {
-          setIsLoading(false);
-        }
-      } catch {
-        setIsLoading(false);
-      }
-    })();
+    // Initial session check
+    supabase.auth.getUser().then(({ data: { user: u } }) => {
+      setUser(u);
+      if (u) fetchProfile(u.id);
+      else setIsLoading(false);
+    });
 
     // Listen for auth changes
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       const u = session?.user ?? null;
       setUser(u);
-      if (u) {
-        // sincronizar server cookies al hacer sign in
-        fetch('/api/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session }),
-        }).catch(() => {});
-
-        fetchProfile(u.id);
-      } else {
-        // sincronizar sign out en server
-        fetch('/api/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session: null }),
-        }).catch(() => {});
-
+      if (u) fetchProfile(u.id);
+      else {
         setProfile(null);
         setIsLoading(false);
       }
     });
 
-    const subscription = data?.subscription;
-
-    return () => {
-      subscription?.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

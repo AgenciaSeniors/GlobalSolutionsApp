@@ -1,15 +1,14 @@
-/**
- * @fileoverview Middleware helper that refreshes the Supabase session on
- *               every request, keeping the auth cookie alive.
- * @module lib/supabase/middleware
- */
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { NextResponse, type NextRequest } from 'next/server';
+
+type SupabaseCookie = {
+  name: string;
+  value: string;
+  options: CookieOptions;
+};
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  })
+  let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,27 +16,28 @@ export async function updateSession(request: NextRequest) {
     {
       cookies: {
         getAll() {
-          return request.cookies.getAll()
+          return request.cookies.getAll();
         },
-        // Aquí es donde arreglamos el error definiendo los tipos explícitamente:
-        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
-          
-          supabaseResponse = NextResponse.next({
-            request,
-          })
-          
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
+        setAll(cookiesToSet: SupabaseCookie[]) {
+          // Aquí NO necesitamos options, así evitamos el no-unused-vars
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
+
+          supabaseResponse = NextResponse.next({ request });
+
+          // Aquí sí usamos options
+          cookiesToSet.forEach(({ name, value, options }) => {
+            supabaseResponse.cookies.set(name, value, options);
+          });
         },
       },
-    }
-  )
+    },
+  );
 
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = await supabase.auth.getUser();
 
-  return { supabaseResponse, user }
+  return { supabaseResponse, user };
 }
