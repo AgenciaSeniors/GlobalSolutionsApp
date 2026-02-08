@@ -6,7 +6,13 @@ export function createAdminClient() {
 
   if (!url) throw new Error('Falta NEXT_PUBLIC_SUPABASE_URL');
   if (!serviceKey) throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY');
-console.log('[ADMIN_CLIENT] loaded admin.ts from src/lib/supabase/admin.ts');
 
-  return createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Server-only client (Service Role). Never import this from 'use client' code.
+  return createClient(url, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
 }
