@@ -105,13 +105,13 @@ export default function UserReviewsPage() {
     ]);
 
     const existingReviewBookingIds = new Set(
-      (reviewsRes.data || []).map((r: { booking_id: string }) => r.booking_id)
+      (reviewsRes.data || []).map((r: { booking_id: string }) => r.booking_id),
     );
 
-    setReviews(reviewsRes.data as unknown as UserReview[] || []);
+    setReviews((reviewsRes.data as unknown as UserReview[]) || []);
     setReviewableBookings(
-      ((bookingsRes.data as unknown as ReviewableBooking[]) || [])
-        .filter(b => !existingReviewBookingIds.has(b.id))
+      (((bookingsRes.data as unknown as ReviewableBooking[]) || [])
+        .filter(b => !existingReviewBookingIds.has(b.id))),
     );
     setLoading(false);
   }
@@ -227,7 +227,7 @@ export default function UserReviewsPage() {
                       </div>
                       <Button
                         size="sm"
-                        variant={showForm === b.id ? 'outline' : 'default'}
+                        variant={showForm === b.id ? 'outline' : 'primary'}
                         onClick={() => { setShowForm(showForm === b.id ? null : b.id); setRating(5); setTitle(''); setComment(''); }}
                         className="gap-1 flex-shrink-0"
                       >
@@ -286,6 +286,11 @@ export default function UserReviewsPage() {
                 {reviews.map(r => {
                   const cfg = statusConfig[r.status] || statusConfig.pending_approval;
                   const StatusIcon = cfg.icon;
+                  const isExpanded = expandedReview === r.id;
+                  const displayComment = isExpanded
+                    ? r.comment
+                    : (r.comment.length > 180 ? r.comment.slice(0, 180) + '…' : r.comment);
+
                   return (
                     <Card key={r.id} variant="bordered">
                       <div className="flex items-start justify-between gap-4">
@@ -297,13 +302,24 @@ export default function UserReviewsPage() {
                             </Badge>
                           </div>
                           {r.title && <p className="font-semibold text-neutral-900 mt-2">{r.title}</p>}
-                          <p className="text-sm text-neutral-600 mt-1">{r.comment}</p>
+                          <p className="text-sm text-neutral-600 mt-1">{displayComment}</p>
                           <p className="text-xs text-neutral-400 mt-2">
                             {r.booking?.booking_code && `Reserva ${r.booking.booking_code} · `}
                             {r.booking?.flight?.origin_airport?.city} → {r.booking?.flight?.destination_airport?.city}
                             {' · '}{new Date(r.created_at).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </p>
                         </div>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setExpandedReview(isExpanded ? null : r.id)}
+                          className="mt-1 p-2"
+                          aria-label={isExpanded ? 'Contraer reseña' : 'Expandir reseña'}
+                        >
+                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </Button>
                       </div>
                     </Card>
                   );
