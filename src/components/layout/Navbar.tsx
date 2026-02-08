@@ -62,9 +62,9 @@ export default function Navbar() {
             src="/brand/logo.png"
 
             alt="Global Solutions Travel"
-            width={170}
-            height={48}
-            className="h-16 w-auto"
+            width={220}
+            height={64}
+            className="h-14 w-auto"
             priority
           />
         </Link>
