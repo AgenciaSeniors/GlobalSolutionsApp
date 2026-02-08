@@ -20,20 +20,30 @@ export interface PaginatedResponse<T> {
   per_page: number;
   has_more: boolean;
 }
+
 /* ------------------------------------------------------------------ */
 /*  FLIGHTS                                                           */
 /* ------------------------------------------------------------------ */
 
 export type FlightLeg = {
-  origin: string;          // IATA
-  destination: string;     // IATA
-  departure_date: string;  // YYYY-MM-DD
+  origin: string; // IATA
+  destination: string; // IATA
+  departure_date: string; // YYYY-MM-DD
+};
+
+export type FlightSearchFilters = {
+  airlineCodes?: string[]; // e.g. ["CM","AA"]
+  minPrice?: number;
+  maxPrice?: number;
+  departureTimeRange?: { from: string; to: string }; // "HH:MM" 24h
+  maxStops?: number; // best-effort (depende de tu schema)
 };
 
 export type FlightSearchParams =
   | {
       legs: FlightLeg[];
       passengers: number;
+      filters?: FlightSearchFilters;
     }
   | {
       // legacy (para no romper lo actual hoy)
@@ -42,6 +52,7 @@ export type FlightSearchParams =
       departure_date: string;
       return_date?: string;
       passengers: number;
+      filters?: FlightSearchFilters;
     };
 
 /* ------------------------------------------------------------------ */

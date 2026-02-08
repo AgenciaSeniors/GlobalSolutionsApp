@@ -1,5 +1,64 @@
 import type { FlightWithDetails } from '@/types/models';
-import type { FlightSearchParams } from '@/types/api.types';
+import type { FlightLeg, FlightSearchParams, FlightSearchFilters } from '@/types/api.types';
+
+type ResultsByLeg = Array<{ legIndex: number; flights: FlightWithDetails[] }>;
+
+function normalizeFilters(filters?: FlightSearchFilters): FlightSearchFilters | undefined {
+  if (!filters) return undefined;
+
+  const airlineCodes =
+    Array.isArray(filters.airlineCodes) && filters.airlineCodes.length
+      ? filters.airlineCodes.map((c) => String(c).toUpperCase()).sort()
+      : undefined;
+
+  const minPrice = filters.minPrice != null ? Number(filters.minPrice) : undefined;
+  const maxPrice = filters.maxPrice != null ? Number(filters.maxPrice) : undefined;
+
+  const departureTimeRange =
+    filters.departureTimeRange?.from && filters.departureTimeRange?.to
+      ? { from: String(filters.departureTimeRange.from), to: String(filters.departureTimeRange.to) }
+      : undefined;
+
+  const maxStops = filters.maxStops != null ? Number(filters.maxStops) : undefined;
+
+  return { airlineCodes, minPrice, maxPrice, departureTimeRange, maxStops };
+}
+
+function buildSearchBody(
+  params: FlightSearchParams,
+): { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters } {
+  // New format already
+  if ('legs' in params && Array.isArray(params.legs) && params.legs.length > 0) {
+    return {
+      legs: params.legs.map((l) => ({
+        origin: l.origin.toUpperCase(),
+        destination: l.destination.toUpperCase(),
+        departure_date: l.departure_date,
+      })),
+      passengers: params.passengers,
+      filters: normalizeFilters((params as any).filters),
+    };
+  }
+
+  // Legacy format
+  const legacy = params as any;
+  const origin = String(legacy.origin ?? '').toUpperCase();
+  const destination = String(legacy.destination ?? '').toUpperCase();
+  const departure_date = String(legacy.departure_date ?? '');
+  const passengers = Number(legacy.passengers ?? 1);
+
+  const legs: FlightLeg[] = [{ origin, destination, departure_date }];
+
+  if (legacy.return_date) {
+    legs.push({
+      origin: destination,
+      destination: origin,
+      departure_date: String(legacy.return_date),
+    });
+  }
+
+  return { legs, passengers, filters: normalizeFilters(legacy.filters) };
+}
 
 /**
  * Flights Service
@@ -8,16 +67,15 @@ import type { FlightSearchParams } from '@/types/api.types';
  */
 export const flightsService = {
   /**
-   * Buscar vuelos (oneway / roundtrip / multicity)
-   * @param params FlightSearchParams
+   * Buscar vuelos (compatibilidad UI actual): devuelve SOLO el tramo 0
    */
   async search(params: FlightSearchParams): Promise<FlightWithDetails[]> {
+    const body = buildSearchBody(params);
+
     const res = await fetch('/api/flights/search', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(params),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
 
     const json = await res.json();
@@ -26,37 +84,49 @@ export const flightsService = {
       throw new Error(json?.error ?? 'Error buscando vuelos');
     }
 
+    // Backend nuevo: results por leg
+    if (Array.isArray(json?.results) && json.results.length && json.results[0]?.flights) {
+      return (json.results[0].flights ?? []) as FlightWithDetails[];
+    }
+
+    // Fallback (por si un entorno devuelve array plano)
     return (json.results ?? []) as FlightWithDetails[];
   },
 
   /**
-   * Ofertas destacadas (esto puede seguir directo a Supabase si querés)
-   * o migrarse después a API route.
+   * Buscar itinerario multi-leg (para UI multi-tramo)
    */
+  async searchItinerary(params: FlightSearchParams): Promise<ResultsByLeg> {
+    const body = buildSearchBody(params);
+
+    const res = await fetch('/api/flights/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const json = await res.json();
+
+    if (!res.ok) {
+      throw new Error(json?.error ?? 'Error buscando vuelos');
+    }
+
+    return (json.results ?? []) as ResultsByLeg;
+  },
+
   async getExclusiveOffers(): Promise<FlightWithDetails[]> {
     const res = await fetch('/api/flights/exclusive');
-
     const json = await res.json();
 
-    if (!res.ok) {
-      throw new Error(json?.error ?? 'Error cargando ofertas');
-    }
-
+    if (!res.ok) throw new Error(json?.error ?? 'Error cargando ofertas');
     return (json.results ?? []) as FlightWithDetails[];
   },
 
-  /**
-   * Obtener vuelo por ID
-   */
   async getById(id: string): Promise<FlightWithDetails | null> {
     const res = await fetch(`/api/flights/${id}`);
-
     const json = await res.json();
 
-    if (!res.ok) {
-      throw new Error(json?.error ?? 'Error cargando vuelo');
-    }
-
+    if (!res.ok) throw new Error(json?.error ?? 'Error cargando vuelo');
     return (json.data ?? null) as FlightWithDetails | null;
   },
 };
