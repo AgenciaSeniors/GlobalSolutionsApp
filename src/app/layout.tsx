@@ -3,51 +3,24 @@
  * Fonts loaded via <link> to avoid build-time fetch issues with next/font/google.
  * @module app/layout
  */
-import type { Metadata } from 'next';
-<<<<<<< HEAD
-import './globals.css';
-import { AuthProvider } from '@/components/providers/AuthProvider';
-import ToastProvider from '@/components/providers/ToastProvider';
-import ChatWidget from '@/components/features/chat/ChatWidget';
-=======
-import { Roboto_Condensed, Open_Sans, Dancing_Script } from 'next/font/google';
-import './globals.css';
-import { AuthProvider } from '@/components/providers/AuthProvider';
-import ToastProvider from '@/components/providers/ToastProvider';
+import type { Metadata } from "next";
+import "./globals.css";
 
-const heading = Roboto_Condensed({
-  subsets: ['latin'],
-  variable: '--font-heading',
-  display: 'swap',
-  weight: ['400', '700'],
-});
-
-const body = Open_Sans({
-  subsets: ['latin'],
-  variable: '--font-body',
-  display: 'swap',
-  weight: ['400', '600', '700'],
-});
-
-const script = Dancing_Script({
-  subsets: ['latin'],
-  variable: '--font-script',
-  display: 'swap',
-  weight: ['400', '700'],
-});
->>>>>>> efb60f8 (ok)
+import { AuthProvider } from "@/components/providers/AuthProvider";
+import ToastProvider from "@/components/providers/ToastProvider";
+import ChatWidget from "@/components/features/chat/ChatWidget";
 
 export const metadata: Metadata = {
   title: {
-    default: 'Global Solutions Travel — Vuelos y Renta de Autos',
-    template: '%s | Global Solutions Travel',
+    default: "Global Solutions Travel — Vuelos y Renta de Autos",
+    template: "%s | Global Solutions Travel",
   },
   description:
-    'Reserva vuelos internacionales y renta de autos con los mejores precios. Seguridad bancaria, atención personalizada y ofertas exclusivas.',
-  keywords: ['vuelos', 'renta de autos', 'viajes', 'Cuba', 'Estambul', 'agencia de viajes'],
+    "Reserva vuelos internacionales y renta de autos con los mejores precios. Seguridad bancaria, atención personalizada y ofertas exclusivas.",
+  keywords: ["vuelos", "renta de autos", "viajes", "Cuba", "Estambul", "agencia de viajes"],
   openGraph: {
-    type: 'website',
-    siteName: 'Global Solutions Travel',
+    type: "website",
+    siteName: "Global Solutions Travel",
   },
 };
 
@@ -57,7 +30,6 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-<<<<<<< HEAD
     <html lang="es">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -72,10 +44,6 @@ export default function RootLayout({
         />
       </head>
       <body className="font-sans">
-=======
-    <html lang="es" className={`${heading.variable} ${body.variable} ${script.variable}`}>
-      <body className="font-body">
->>>>>>> efb60f8 (ok)
         <AuthProvider>
           {children}
           <ChatWidget />
