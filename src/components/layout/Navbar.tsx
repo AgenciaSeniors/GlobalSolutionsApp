@@ -63,7 +63,7 @@ export default function Navbar() {
             alt="Global Solutions Travel"
             width={170}
             height={48}
-            className="h-10 w-auto"
+            className="h-14 w-auto"
             priority
           />
         </Link>
