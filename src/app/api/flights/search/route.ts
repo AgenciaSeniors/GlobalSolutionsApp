@@ -76,11 +76,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ source: 'cache', results: cached.response });
   }
 
-  // 2) LIVE (por ahora usa tabla flights como provider local)
-  // (Paso 2: reemplazamos por Duffel/Amadeus + normalizador)
+    // 2) LIVE (por ahora usa tabla flights como provider local)
   const leg0 = body.legs[0];
   const start = `${leg0.departure_date}T00:00:00`;
   const end = `${leg0.departure_date}T23:59:59`;
+
+  // Resolver IATA -> airport_id
+  const { data: airports, error: airportsErr } = await supabase
+    .from('airports')
+    .select('id, iata_code')
+    .in('iata_code', [leg0.origin, leg0.destination]);
+
+  if (airportsErr) {
+    return NextResponse.json({ error: airportsErr.message }, { status: 500 });
+  }
+
+  const originAirport = airports?.find((a) => a.iata_code === leg0.origin);
+  const destinationAirport = airports?.find((a) => a.iata_code === leg0.destination);
+
+  if (!originAirport || !destinationAirport) {
+    return NextResponse.json(
+      { error: 'IATA inválido: airport no encontrado' },
+      { status: 400 },
+    );
+  }
 
   const { data: flights, error: flightsErr } = await supabase
     .from('flights')
@@ -93,8 +112,8 @@ export async function POST(req: Request) {
     `,
     )
     .gt('available_seats', 0)
-    .eq('origin_airport.iata_code', leg0.origin)
-    .eq('destination_airport.iata_code', leg0.destination)
+    .eq('origin_airport_id', originAirport.id)
+    .eq('destination_airport_id', destinationAirport.id)
     .gte('departure_datetime', start)
     .lte('departure_datetime', end)
     .order('final_price', { ascending: true });
