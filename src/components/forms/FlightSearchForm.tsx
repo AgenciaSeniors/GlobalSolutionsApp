@@ -167,17 +167,19 @@ export default function FlightSearchForm() {
           </select>
         </div>
 
-        <Button
-          type="submit"
-          size="lg"
-          className="flex-1 h-12 gap-2.5 justify-center
-                     transition-all duration-200 ease-out
-                     hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
-        >
-          {/* ✅ Lupita a la izquierda */}
-          <Search className="h-5 w-5" />
-          Buscar Vuelos
-        </Button>
+        <Button 
+  type="submit"
+  size="lg"
+  className="flex-1 h-12 gap-2.5 justify-center
+             transition-all duration-200 ease-out
+             hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
+>
+  <span className="flex items-center justify-center gap-2.5">
+    <span>Buscar Vuelos</span>
+    <Search className="h-5 w-5" />
+  </span>
+</Button>
+
       </div>
     </form>
   );

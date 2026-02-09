@@ -46,14 +46,12 @@ export default function Navbar() {
   useEffect(() => setMobileOpen(false), [pathname]);
 
   return (
-    <header
-      className={cn(
-        'fixed inset-x-0 top-0 z-50 transition-all duration-300',
-        scrolled
-          ? 'bg-white/90 backdrop-blur-xl border-b border-brand-100 shadow-sm'
-          : 'bg-transparent'
-      )}
-    >
+   <header
+  className={cn(
+    'fixed inset-x-0 top-0 z-50 bg-white border-b border-brand-100 shadow-sm'
+  )}
+>
+
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
         <Link href={ROUTES.HOME} className="flex items-center px-2 py-2">
