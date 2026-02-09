@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { FlightSearchParams, FlightLeg, FlightSearchFilters } from '@/types/api.types';
-import { seedDbProvider } from '@/lib/flights/providers/seedDbProvider';
+import { flightsOrchestrator } from '@/lib/flights/orchestrator/flightsOrchestrator';
 
 const TTL_MINUTES = 15;
 
@@ -199,8 +199,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ source: 'cache', results: cached.response });
     }
 
-    // 2) LIVE — provider (agency-first friendly). Si el provider falla, usamos fallback legacy abajo.
-    const provider = seedDbProvider;
+    // 2) LIVE — orchestrator (agency-first). Si el orchestrator falla, usamos fallback legacy abajo.
+    const provider = flightsOrchestrator;
     console.info('[FLIGHTS_SEARCH] source=live', { cache_key, provider: provider.id });
 
     let resultsByLeg: ResultsByLeg | null = null;
@@ -217,7 +217,7 @@ export async function POST(req: Request) {
       if (msg.startsWith('IATA inválido')) {
         return NextResponse.json({ error: msg }, { status: 400 });
       }
-      console.warn('[FLIGHTS_SEARCH] provider error, usando fallback legacy:', msg);
+      console.warn('[FLIGHTS_SEARCH] orchestrator error, usando fallback legacy:', msg);
     }
 
     // === FALLBACK LEGACY (TU BLOQUE LIVE ORIGINAL, SIN SIMPLIFICAR) ===
@@ -309,14 +309,11 @@ export async function POST(req: Request) {
         }
 
         // maxStops (best-effort in-memory)
-        let flights: FlightRecord[] = (flightsRaw as unknown[])
-          .filter(isRecord) as FlightRecord[];
+        let flights: FlightRecord[] = (flightsRaw as unknown[]).filter(isRecord) as FlightRecord[];
 
         if (body.filters?.maxStops != null) {
           const maxStops = body.filters.maxStops;
-
-          flights = flights.filter((f) => {
-            // Intentamos varias claves conocidas sin asumir tipos.
+          flights = flights.filter((f: FlightRecord) => {
             let stops =
               readNumberField(f, 'stops_count') ??
               readNumberField(f, 'number_of_stops') ??
@@ -328,7 +325,7 @@ export async function POST(req: Request) {
               if (seg != null) stops = Math.max(0, seg - 1);
             }
 
-            if (stops == null) return true; // no evaluable => keep
+            if (stops == null) return true; // can't evaluate; keep
             return stops <= maxStops;
           });
         }
