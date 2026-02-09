@@ -1,89 +1,132 @@
-/**
- * @fileoverview Service layer for flight-related Supabase queries.
- * @module services/flights.service
- */
-import { createClient } from '@/lib/supabase/client';
-import type { FlightSearchParams } from '@/types/api.types';
 import type { FlightWithDetails } from '@/types/models';
+import type { FlightLeg, FlightSearchParams, FlightSearchFilters } from '@/types/api.types';
 
-async function search(params: FlightSearchParams): Promise<FlightWithDetails[]> {
-  const supabase = createClient();
+type ResultsByLeg = Array<{ legIndex: number; flights: FlightWithDetails[] }>;
 
-  let query = supabase
-    .from('flights')
-    .select(
-      `
-      *,
-      airline:airlines(*),
-      origin_airport:airports!origin_airport_id(*),
-      destination_airport:airports!destination_airport_id(*)
-    `,
-    )
-    .gt('available_seats', 0);
+function normalizeFilters(filters?: FlightSearchFilters): FlightSearchFilters | undefined {
+  if (!filters) return undefined;
 
-  // Filter by origin / destination airport IATA code
-  if (params.origin) {
-    query = query.eq('origin_airport.iata_code', params.origin);
-  }
-  if (params.destination) {
-    query = query.eq('destination_airport.iata_code', params.destination);
-  }
+  const airlineCodes =
+    Array.isArray(filters.airlineCodes) && filters.airlineCodes.length
+      ? filters.airlineCodes.map((c) => String(c).toUpperCase()).sort()
+      : undefined;
 
-  // Filter by departure date (same day)
-  if (params.departure_date) {
-    const start = `${params.departure_date}T00:00:00`;
-    const end = `${params.departure_date}T23:59:59`;
-    query = query.gte('departure_datetime', start).lte('departure_datetime', end);
-  }
+  const minPrice = filters.minPrice != null ? Number(filters.minPrice) : undefined;
+  const maxPrice = filters.maxPrice != null ? Number(filters.maxPrice) : undefined;
 
-  query = query.order('final_price', { ascending: true });
+  const departureTimeRange =
+    filters.departureTimeRange?.from && filters.departureTimeRange?.to
+      ? { from: String(filters.departureTimeRange.from), to: String(filters.departureTimeRange.to) }
+      : undefined;
 
-  const { data, error } = await query;
+  const maxStops = filters.maxStops != null ? Number(filters.maxStops) : undefined;
 
-  if (error) throw error;
-  return (data ?? []) as unknown as FlightWithDetails[];
+  return { airlineCodes, minPrice, maxPrice, departureTimeRange, maxStops };
 }
 
-async function getExclusiveOffers(): Promise<FlightWithDetails[]> {
-  const supabase = createClient();
+function buildSearchBody(
+  params: FlightSearchParams,
+): { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters } {
+  // New format already
+  if ('legs' in params && Array.isArray(params.legs) && params.legs.length > 0) {
+    return {
+      legs: params.legs.map((l) => ({
+        origin: l.origin.toUpperCase(),
+        destination: l.destination.toUpperCase(),
+        departure_date: l.departure_date,
+      })),
+      passengers: params.passengers,
+      filters: normalizeFilters((params as any).filters),
+    };
+  }
 
-  const { data, error } = await supabase
-    .from('flights')
-    .select(
-      `
-      *,
-      airline:airlines(*),
-      origin_airport:airports!origin_airport_id(*),
-      destination_airport:airports!destination_airport_id(*)
-    `,
-    )
-    .eq('is_exclusive_offer', true)
-    .gt('available_seats', 0)
-    .order('final_price', { ascending: true })
-    .limit(8);
+  // Legacy format
+  const legacy = params as any;
+  const origin = String(legacy.origin ?? '').toUpperCase();
+  const destination = String(legacy.destination ?? '').toUpperCase();
+  const departure_date = String(legacy.departure_date ?? '');
+  const passengers = Number(legacy.passengers ?? 1);
 
-  if (error) throw error;
-  return (data ?? []) as unknown as FlightWithDetails[];
+  const legs: FlightLeg[] = [{ origin, destination, departure_date }];
+
+  if (legacy.return_date) {
+    legs.push({
+      origin: destination,
+      destination: origin,
+      departure_date: String(legacy.return_date),
+    });
+  }
+
+  return { legs, passengers, filters: normalizeFilters(legacy.filters) };
 }
 
-async function getById(id: string): Promise<FlightWithDetails | null> {
-  const supabase = createClient();
+/**
+ * Flights Service
+ * Todas las búsquedas pasan por el API route (/api/flights/search)
+ * para cache, seguridad y normalización.
+ */
+export const flightsService = {
+  /**
+   * Buscar vuelos (compatibilidad UI actual): devuelve SOLO el tramo 0
+   */
+  async search(params: FlightSearchParams): Promise<FlightWithDetails[]> {
+    const body = buildSearchBody(params);
 
-  const { data, error } = await supabase
-    .from('flights')
-    .select(
-      `
-      *,
-      airline:airlines(*),
-      origin_airport:airports!origin_airport_id(*),
-      destination_airport:airports!destination_airport_id(*)
-    `,
-    )
-    .eq('id', id)
-    .single();
+    const res = await fetch('/api/flights/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
-  if (error) throw error;
-  return data as unknown as FlightWithDetails;
-}
+    const json = await res.json();
 
-export const flightsService = { search, getExclusiveOffers, getById };
+    if (!res.ok) {
+      throw new Error(json?.error ?? 'Error buscando vuelos');
+    }
+
+    // Backend nuevo: results por leg
+    if (Array.isArray(json?.results) && json.results.length && json.results[0]?.flights) {
+      return (json.results[0].flights ?? []) as FlightWithDetails[];
+    }
+
+    // Fallback (por si un entorno devuelve array plano)
+    return (json.results ?? []) as FlightWithDetails[];
+  },
+
+  /**
+   * Buscar itinerario multi-leg (para UI multi-tramo)
+   */
+  async searchItinerary(params: FlightSearchParams): Promise<ResultsByLeg> {
+    const body = buildSearchBody(params);
+
+    const res = await fetch('/api/flights/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const json = await res.json();
+
+    if (!res.ok) {
+      throw new Error(json?.error ?? 'Error buscando vuelos');
+    }
+
+    return (json.results ?? []) as ResultsByLeg;
+  },
+
+  async getExclusiveOffers(): Promise<FlightWithDetails[]> {
+    const res = await fetch('/api/flights/exclusive');
+    const json = await res.json();
+
+    if (!res.ok) throw new Error(json?.error ?? 'Error cargando ofertas');
+    return (json.results ?? []) as FlightWithDetails[];
+  },
+
+  async getById(id: string): Promise<FlightWithDetails | null> {
+    const res = await fetch(`/api/flights/${id}`);
+    const json = await res.json();
+
+    if (!res.ok) throw new Error(json?.error ?? 'Error cargando vuelo');
+    return (json.data ?? null) as FlightWithDetails | null;
+  },
+};
