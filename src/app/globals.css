@@ -15,9 +15,10 @@
     scroll-behavior: smooth;
   }
 
-  body {
-    @apply bg-neutral-50 text-neutral-800;
-  }
+ body {
+  @apply bg-neutral-50 text-neutral-800 font-body;
+}
+
 
   /* Custom scrollbar */
   ::-webkit-scrollbar {

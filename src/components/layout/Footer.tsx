@@ -35,7 +35,8 @@ const LINK_GROUPS = [
 
 export default function Footer() {
   return (
-    <footer className="bg-gradient-to-b from-brand-950 to-[#0f172a] text-white">
+   <footer className="bg-navy text-white">
+
       <div className="mx-auto max-w-7xl px-6 pb-8 pt-16">
         {/* ── Top Grid ── */}
         <div className="grid grid-cols-2 gap-10 sm:grid-cols-4 lg:gap-16">

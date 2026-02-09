@@ -20,16 +20,16 @@ const base =
   "disabled:cursor-not-allowed disabled:opacity-60 select-none";
 
 const variants: Record<ButtonVariant, string> = {
-  primary:
-    "bg-accent-500 text-white shadow-sm " +
-    "hover:brightness-[0.98] active:translate-y-[0.5px]",
+ primary: "bg-coral text-white shadow-sm hover:brightness-[0.98] active:translate-y-[0.5px]",
+
 
   outline:
     "bg-white text-brand-900 border-2 border-brand-200 " +
     "hover:border-brand-300 hover:bg-brand-50 active:translate-y-[0.5px]",
 
   ghost:
-    "bg-transparent text-brand-900 hover:bg-brand-50 active:translate-y-[0.5px]",
+  "bg-transparent text-navy border-2 border-navy " +
+  "hover:bg-white/60 active:translate-y-[0.5px]",
 };
 
 const sizes: Record<ButtonSize, string> = {

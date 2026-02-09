@@ -43,7 +43,7 @@ const config: Config = {
       },
 
       fontFamily: {
-        heading: ['"Roboto Condensed"', "sans-serif"],
+       heading: ['"Oswald"', '"Roboto Condensed"', "sans-serif"],
         body: ['"Open Sans"', "sans-serif"],
         script: ['"Dancing Script"', "cursive"],
       },
