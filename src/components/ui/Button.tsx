@@ -2,66 +2,88 @@
  * @fileoverview Reusable Button with variant system, sizes and loading state.
  * @module components/ui/Button
  */
-import { forwardRef, type ButtonHTMLAttributes } from 'react';
-import { Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils/cn';
+import { forwardRef, type ButtonHTMLAttributes } from "react";
+import { cn } from "@/lib/utils/cn";
 
-const variants = {
-  primary:
-    'bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-brand-500 shadow-lg shadow-brand-600/25 hover:shadow-xl hover:shadow-brand-600/30 hover:-translate-y-0.5',
-  secondary:
-    'bg-gray-200 text-gray-900 hover:bg-gray-300 focus-visible:ring-gray-500',
-  outline:
-    'border-2 border-brand-600 text-brand-600 hover:bg-brand-50 focus-visible:ring-brand-500',
-  ghost:
-    'text-gray-700 hover:bg-gray-100 hover:text-brand-600 focus-visible:ring-gray-500',
-  destructive:
-    'bg-accent-red text-white hover:bg-red-700 focus-visible:ring-red-500',
-} as const;
-
-const sizes = {
-  sm: 'px-4 py-2 text-sm rounded-lg',
-  md: 'px-6 py-3 text-base rounded-xl',
-  lg: 'px-8 py-4 text-lg rounded-xl',
-} as const;
+type ButtonVariant = "primary" | "outline" | "ghost";
+type ButtonSize = "sm" | "md" | "lg";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: keyof typeof variants;
-  size?: keyof typeof sizes;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   isLoading?: boolean;
 }
 
-const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  (
-    {
-      className,
-      variant = 'primary',
-      size = 'md',
-      isLoading = false,
-      children,
-      disabled,
-      ...props
-    },
-    ref,
-  ) => (
-    <button
-      ref={ref}
-      disabled={disabled || isLoading}
-      className={cn(
-        'inline-flex items-center justify-center font-semibold transition-all duration-200',
-        'disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
-        variants[variant],
-        sizes[size],
-        className,
-      )}
-      {...props}
-    >
-      {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-      {children}
-    </button>
-  ),
+const base =
+  "inline-flex items-center justify-center gap-2 font-semibold transition-all " +
+  "rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/30 " +
+  "disabled:cursor-not-allowed disabled:opacity-60 select-none";
+
+const variants: Record<ButtonVariant, string> = {
+ primary: "bg-coral text-white shadow-sm hover:brightness-[0.98] active:translate-y-[0.5px]",
+
+
+  outline:
+    "bg-white text-brand-900 border-2 border-brand-200 " +
+    "hover:border-brand-300 hover:bg-brand-50 active:translate-y-[0.5px]",
+
+  ghost:
+  "bg-transparent text-navy border-2 border-navy " +
+  "hover:bg-white/60 active:translate-y-[0.5px]",
+};
+
+const sizes: Record<ButtonSize, string> = {
+  sm: "h-9 px-3 text-sm",
+  md: "h-11 px-4 text-[15px]",
+  lg: "h-12 px-5 text-[15px]",
+};
+
+const Spinner = () => (
+  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" aria-hidden="true">
+    <circle
+      className="opacity-25"
+      cx="12"
+      cy="12"
+      r="10"
+      stroke="currentColor"
+      strokeWidth="4"
+      fill="none"
+    />
+    <path
+      className="opacity-75"
+      fill="currentColor"
+      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+    />
+  </svg>
 );
 
-Button.displayName = 'Button';
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    className,
+    variant = "primary",
+    size = "md",
+    isLoading = false,
+    disabled,
+    children,
+    ...props
+  },
+  ref
+) {
+  const isDisabled = disabled || isLoading;
+
+  return (
+    <button
+      ref={ref}
+      disabled={isDisabled}
+      aria-busy={isLoading}
+      className={cn(base, variants[variant], sizes[size], className)}
+      {...props}
+    >
+      {isLoading && <Spinner />}
+      <span className={cn(isLoading && "opacity-90")}>{children}</span>
+    </button>
+  );
+});
+
 export default Button;
+

@@ -14,11 +14,15 @@ interface CarRentalCardProps {
 
 export default function CarRentalCard({ car }: CarRentalCardProps) {
   return (
-    <article className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm transition-all duration-300 hover:shadow-lg">
+    <article className="overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-[2px]">
+
       {/* Placeholder image */}
       <div className="relative flex h-44 items-center justify-center bg-gradient-to-br from-brand-50 to-brand-100">
         <Car className="h-16 w-16 text-brand-300" />
-        <Badge className="absolute left-4 top-4">{car.category}</Badge>
+       <Badge variant="offer" className="absolute left-4 top-4">
+  {car.category}
+</Badge>
+
       </div>
 
       <div className="p-6">
@@ -28,7 +32,8 @@ export default function CarRentalCard({ car }: CarRentalCardProps) {
 
         {/* Specs */}
         <div className="mt-3 flex gap-4 text-sm text-neutral-600">
-          <span className="flex items-center gap-1">
+          <span className="text-2xl font-extrabold text-accent-500">
+
             <Users className="h-3.5 w-3.5" /> {car.passenger_capacity}
           </span>
           <span>{car.transmission === 'automatic' ? 'Automático' : 'Manual'}</span>
@@ -40,7 +45,8 @@ export default function CarRentalCard({ car }: CarRentalCardProps) {
           {car.features.map((f) => (
             <span
               key={f}
-              className="rounded-md bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-600"
+             className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 border border-brand-100"
+
             >
               {f}
             </span>

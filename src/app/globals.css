@@ -4,8 +4,9 @@
 
 @layer base {
   :root {
-    --font-dm-sans: 'DM Sans', system-ui, sans-serif;
-    --font-playfair: 'Playfair Display', Georgia, serif;
+    --font-heading: 'Roboto Condensed', system-ui, sans-serif;
+    --font-body: 'Open Sans', system-ui, sans-serif;
+    --font-script: 'Dancing Script', cursive;
   }
 
   html {
@@ -14,9 +15,10 @@
     scroll-behavior: smooth;
   }
 
-  body {
-    @apply bg-neutral-50 text-neutral-800;
-  }
+ body {
+  @apply bg-neutral-50 text-neutral-800 font-body;
+}
+
 
   /* Custom scrollbar */
   ::-webkit-scrollbar {
@@ -35,6 +37,12 @@
 
 @layer utilities {
   .font-display {
-    font-family: var(--font-playfair);
+    font-family: var(--font-heading);
+  }
+  .font-body {
+    font-family: var(--font-body);
+  }
+  .font-script {
+    font-family: var(--font-script);
   }
 }
