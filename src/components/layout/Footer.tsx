@@ -83,6 +83,7 @@ export default function Footer() {
 
         {/* ── Bottom Bar ── */}
         <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-6">
+
           <p className="text-xs text-white/35">
             © {new Date().getFullYear()} Global Solutions Travel. Todos los
             derechos reservados.
