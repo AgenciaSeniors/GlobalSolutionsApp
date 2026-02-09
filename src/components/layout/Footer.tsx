@@ -13,32 +13,30 @@ const LINK_GROUPS = [
       { label: 'Vuelos', href: ROUTES.FLIGHTS },
       { label: 'Renta de Autos', href: ROUTES.CARS },
       { label: 'Ofertas', href: ROUTES.OFFERS },
-      { label: 'Paquetes', href: '#' },
+      { label: 'Solicitar Cotización', href: ROUTES.QUOTE_REQUEST },
     ],
   },
   {
     title: 'Soporte',
     links: [
-      { label: 'Centro de Ayuda', href: '#' },
-      { label: 'Contacto', href: '#' },
-      { label: 'FAQ', href: '#' },
-      { label: 'Políticas', href: '#' },
+      { label: 'Contacto', href: ROUTES.CONTACT },
+      { label: 'Quiénes Somos', href: ROUTES.ABOUT },
+      { label: 'Chat en Vivo', href: '#chat' },
     ],
   },
   {
     title: 'Legal',
     links: [
-      { label: 'Términos', href: '#' },
-      { label: 'Privacidad', href: '#' },
-      { label: 'Cookies', href: '#' },
-      { label: 'PCI-DSS', href: '#' },
+      { label: 'Términos y Condiciones', href: ROUTES.TERMS },
+      { label: 'Contacto', href: ROUTES.CONTACT },
     ],
   },
 ] as const;
 
 export default function Footer() {
   return (
-    <footer className="bg-gradient-to-b from-brand-950 to-[#0f172a] text-white">
+   <footer className="bg-navy text-white">
+
       <div className="mx-auto max-w-7xl px-6 pb-8 pt-16">
         {/* ── Top Grid ── */}
         <div className="grid grid-cols-2 gap-10 sm:grid-cols-4 lg:gap-16">
@@ -85,6 +83,7 @@ export default function Footer() {
 
         {/* ── Bottom Bar ── */}
         <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-6">
+
           <p className="text-xs text-white/35">
             © {new Date().getFullYear()} Global Solutions Travel. Todos los
             derechos reservados.

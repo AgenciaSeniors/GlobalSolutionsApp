@@ -1,12 +1,18 @@
 /**
  * @fileoverview Custom hook encapsulating authentication actions
- *               (login, register, logout) with role-based redirect.
+ * (login, register, logout) with role-based redirect.
+ *
+ * IMPORTANT: createBrowserClient from @supabase/ssr already stores
+ * session tokens in cookies automatically. There is NO need for a
+ * separate /api/auth endpoint to "sync" cookies. That pattern was
+ * from the old @supabase/auth-helpers and is now harmful — it
+ * overwrites valid cookies with potentially broken ones.
+ *
  * @module hooks/useAuth
  */
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { ROUTES } from '@/lib/constants/routes';
 import type { UserRole } from '@/types/models';
@@ -18,7 +24,6 @@ interface RegisterPayload {
 }
 
 export function useAuth() {
-  const router = useRouter();
   const supabase = createClient();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -29,20 +34,35 @@ export function useAuth() {
       agent: ROUTES.AGENT_DASHBOARD,
       client: ROUTES.USER_DASHBOARD,
     };
-    router.push(destination[role]);
+    // Full page navigation so the middleware sees the fresh cookies
+    window.location.href = destination[role] || ROUTES.USER_DASHBOARD;
   }
 
-  async function login(email: string, password: string) {
+  /**
+   * Login with email + password.
+   * After signInWithPassword(), @supabase/ssr's createBrowserClient
+   * automatically stores the session in cookies. We just need to
+   * trigger a full-page navigation so the middleware picks them up.
+   */
+  async function login(email: string, password: string, redirectTo?: string) {
     setIsLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-
       if (error) throw error;
 
-      // Fetch profile to determine role
+      // NOTE: No /api/auth call needed!
+      // createBrowserClient already stored the session in cookies.
+
+      // If we came from a protected route (?redirect=/...), go back there
+      if (redirectTo && redirectTo.startsWith('/')) {
+        window.location.href = redirectTo;
+        return;
+      }
+
+      // Otherwise, fetch role and redirect to the correct dashboard
       const { data: profile } = await supabase
         .from('profiles')
         .select('role')
@@ -50,6 +70,9 @@ export function useAuth() {
         .single();
 
       redirectByRole((profile?.role as UserRole) ?? 'client');
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -63,13 +86,10 @@ export function useAuth() {
         password,
         options: {
           data: { full_name: fullName, role: 'client' },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
-
       if (error) throw error;
-
-      // After sign-up the user will receive a confirmation email.
-      router.push(`${ROUTES.LOGIN}?confirmed=pending`);
     } finally {
       setIsLoading(false);
     }
@@ -77,7 +97,7 @@ export function useAuth() {
 
   async function logout() {
     await supabase.auth.signOut();
-    router.push(ROUTES.HOME);
+    window.location.href = ROUTES.HOME;
   }
 
   return { login, register, logout, isLoading };

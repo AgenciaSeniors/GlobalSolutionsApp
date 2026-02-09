@@ -1,10 +1,11 @@
-/**
- * @fileoverview Middleware helper that refreshes the Supabase session on
- *               every request, keeping the auth cookie alive.
- * @module lib/supabase/middleware
- */
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+
+type SupabaseCookie = {
+  name: string;
+  value: string;
+  options: CookieOptions;
+};
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -17,23 +18,40 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            request.cookies.set(name, value),
-          );
+        setAll(cookiesToSet: SupabaseCookie[]) {
+          // Aquí NO necesitamos options, así evitamos el no-unused-vars
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
+
           supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
+
+          // Aquí sí usamos options
+          cookiesToSet.forEach(({ name, value, options }) => {
+            supabaseResponse.cookies.set(name, value, options);
+          });
         },
       },
     },
   );
 
-  // Refresh session — IMPORTANT: do NOT remove this call.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+
+try {
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error) {
+    console.error('❌ supabase.auth.getUser error:', error);
+  }
+
+  user = data?.user ?? null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+} catch (err: any) {
+  console.error('🔥 supabase.auth.getUser threw:', err);
+  console.error('👉 cause:', err?.cause);
+  console.error('👉 cause errors:', err?.cause?.errors);
+}
+
 
   return { supabaseResponse, user };
 }

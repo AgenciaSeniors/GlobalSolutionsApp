@@ -15,16 +15,8 @@ import Input from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
-  Star,
-  PenSquare,
-  CheckCircle,
-  Clock,
-  XCircle,
-  Plane,
-  ChevronDown,
-  ChevronUp,
-  Send,
-  Sparkles,
+  Star, PenSquare, CheckCircle, Clock, XCircle, Plane,
+  ChevronDown, ChevronUp, Send, Sparkles,
 } from 'lucide-react';
 
 interface ReviewableBooking {
@@ -76,10 +68,7 @@ export default function UserReviewsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  useEffect(() => {
-    if (user) fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  useEffect(() => { if (user) fetchData(); }, [user]);
 
   async function fetchData() {
     setLoading(true);
@@ -121,11 +110,9 @@ export default function UserReviewsPage() {
 
     setReviews((reviewsRes.data as unknown as UserReview[]) || []);
     setReviewableBookings(
-      ((bookingsRes.data as unknown as ReviewableBooking[]) || []).filter(
-        b => !existingReviewBookingIds.has(b.id),
-      ),
+      (((bookingsRes.data as unknown as ReviewableBooking[]) || [])
+        .filter(b => !existingReviewBookingIds.has(b.id))),
     );
-
     setLoading(false);
   }
 
@@ -159,10 +146,7 @@ export default function UserReviewsPage() {
     setTimeout(() => setMessage(null), 5000);
   }
 
-  const statusConfig: Record<
-    string,
-    { label: string; icon: typeof Clock; variant: 'warning' | 'success' | 'destructive' }
-  > = {
+  const statusConfig: Record<string, { label: string; icon: typeof Clock; variant: 'warning' | 'success' | 'destructive' }> = {
     pending_approval: { label: 'En revisión', icon: Clock, variant: 'warning' },
     approved: { label: 'Publicada', icon: CheckCircle, variant: 'success' },
     rejected: { label: 'Rechazada', icon: XCircle, variant: 'destructive' },
@@ -197,19 +181,12 @@ export default function UserReviewsPage() {
       <div className="flex-1">
         <Header title="Mis Reseñas" subtitle="Comparte tu experiencia y gana puntos de lealtad" />
         <div className="p-8 space-y-8 max-w-4xl">
+
           {message && (
-            <div
-              className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
-                message.type === 'success'
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                  : 'border-red-300 bg-red-50 text-red-800'
-              }`}
-            >
-              {message.type === 'success' ? (
-                <CheckCircle className="h-4 w-4" />
-              ) : (
-                <XCircle className="h-4 w-4" />
-              )}
+            <div className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
+              message.type === 'success' ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-red-300 bg-red-50 text-red-800'
+            }`}>
+              {message.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
               {message.text}
             </div>
           )}
@@ -220,9 +197,7 @@ export default function UserReviewsPage() {
               <Sparkles className="h-6 w-6 text-amber-500" />
               <div>
                 <p className="font-semibold text-amber-800">Gana puntos por tus reseñas</p>
-                <p className="text-sm text-amber-700">
-                  Cada reseña aprobada te otorga puntos de lealtad que puedes usar en futuras compras.
-                </p>
+                <p className="text-sm text-amber-700">Cada reseña aprobada te otorga puntos de lealtad que puedes usar en futuras compras.</p>
               </div>
             </div>
           </Card>
@@ -250,15 +225,10 @@ export default function UserReviewsPage() {
                           </p>
                         </div>
                       </div>
-
                       <Button
                         size="sm"
-                        onClick={() => {
-                          setShowForm(showForm === b.id ? null : b.id);
-                          setRating(5);
-                          setTitle('');
-                          setComment('');
-                        }}
+                        variant={showForm === b.id ? 'outline' : 'primary'}
+                        onClick={() => { setShowForm(showForm === b.id ? null : b.id); setRating(5); setTitle(''); setComment(''); }}
                         className="gap-1 flex-shrink-0"
                       >
                         <PenSquare className="h-3.5 w-3.5" />
@@ -267,24 +237,17 @@ export default function UserReviewsPage() {
                     </div>
 
                     {showForm === b.id && (
-                      <form
-                        onSubmit={e => handleSubmitReview(e, b.id)}
-                        className="mt-4 border-t border-neutral-100 pt-4 space-y-4"
-                      >
+                      <form onSubmit={e => handleSubmitReview(e, b.id)} className="mt-4 border-t border-neutral-100 pt-4 space-y-4">
                         <div>
                           <label className="block text-sm font-medium text-neutral-700 mb-2">Tu calificación</label>
                           <StarRating value={rating} interactive />
                         </div>
-
-                        <div className="space-y-1">
-                          <label className="block text-sm font-medium text-neutral-700">Título (opcional)</label>
-                          <Input
-                            value={title}
-                            onChange={e => setTitle(e.target.value)}
-                            placeholder="Ej: Excelente servicio"
-                          />
-                        </div>
-
+                        <Input
+                          label="Título (opcional)"
+                          value={title}
+                          onChange={e => setTitle(e.target.value)}
+                          placeholder="Ej: Excelente servicio"
+                        />
                         <div>
                           <label className="mb-1.5 block text-sm font-medium text-neutral-700">Tu experiencia *</label>
                           <textarea
@@ -296,18 +259,8 @@ export default function UserReviewsPage() {
                             required
                           />
                         </div>
-
-                        <Button type="submit" disabled={submitting} className="gap-2">
-                          {submitting ? (
-                            <>
-                              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                              Enviando...
-                            </>
-                          ) : (
-                            <>
-                              <Send className="h-4 w-4" /> Enviar Reseña
-                            </>
-                          )}
+                        <Button type="submit" isLoading={submitting} className="gap-2">
+                          <Send className="h-4 w-4" /> Enviar Reseña
                         </Button>
                       </form>
                     )}
@@ -321,9 +274,7 @@ export default function UserReviewsPage() {
           <div>
             <h2 className="text-lg font-bold text-neutral-900 mb-4">Mis Reseñas ({reviews.length})</h2>
             {loading ? (
-              <Card variant="bordered">
-                <p className="text-neutral-400 text-sm py-4">Cargando...</p>
-              </Card>
+              <Card variant="bordered"><p className="text-neutral-400 text-sm py-4">Cargando...</p></Card>
             ) : reviews.length === 0 && reviewableBookings.length === 0 ? (
               <Card variant="bordered" className="text-center py-10">
                 <Star className="mx-auto h-10 w-10 text-neutral-200 mb-2" />
@@ -335,13 +286,10 @@ export default function UserReviewsPage() {
                 {reviews.map(r => {
                   const cfg = statusConfig[r.status] || statusConfig.pending_approval;
                   const StatusIcon = cfg.icon;
-
                   const isExpanded = expandedReview === r.id;
                   const displayComment = isExpanded
                     ? r.comment
-                    : r.comment.length > 180
-                      ? r.comment.slice(0, 180) + '…'
-                      : r.comment;
+                    : (r.comment.length > 180 ? r.comment.slice(0, 180) + '…' : r.comment);
 
                   return (
                     <Card key={r.id} variant="bordered">
@@ -350,8 +298,7 @@ export default function UserReviewsPage() {
                           <div className="flex items-center gap-2 flex-wrap">
                             <StarRating value={r.rating} />
                             <Badge variant={cfg.variant} className="text-[10px]">
-                              <StatusIcon className="mr-1 h-3 w-3 inline" />
-                              {cfg.label}
+                              <StatusIcon className="mr-1 h-3 w-3 inline" />{cfg.label}
                             </Badge>
                           </div>
                           {r.title && <p className="font-semibold text-neutral-900 mt-2">{r.title}</p>}
@@ -359,17 +306,13 @@ export default function UserReviewsPage() {
                           <p className="text-xs text-neutral-400 mt-2">
                             {r.booking?.booking_code && `Reserva ${r.booking.booking_code} · `}
                             {r.booking?.flight?.origin_airport?.city} → {r.booking?.flight?.destination_airport?.city}
-                            {' · '}
-                            {new Date(r.created_at).toLocaleDateString('es', {
-                              day: '2-digit',
-                              month: 'short',
-                              year: 'numeric',
-                            })}
+                            {' · '}{new Date(r.created_at).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </p>
                         </div>
 
                         <Button
                           type="button"
+                          variant="ghost"
                           size="sm"
                           onClick={() => setExpandedReview(isExpanded ? null : r.id)}
                           className="mt-1 p-2"

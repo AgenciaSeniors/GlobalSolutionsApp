@@ -6,11 +6,18 @@ import { forwardRef, type HTMLAttributes } from 'react';
 import { cn } from '@/lib/utils/cn';
 
 const variants = {
-  default: 'bg-white rounded-2xl p-6',
-  bordered: 'bg-white rounded-2xl p-6 border border-neutral-200',
+  default:
+    "bg-white rounded-2xl p-6",
+
+  bordered:
+    "bg-white rounded-2xl p-6 border border-brand-100",
+
   elevated:
-    'bg-white rounded-2xl p-6 shadow-lg shadow-black/[0.04] hover:shadow-xl transition-shadow duration-300',
+    "bg-white rounded-2xl p-6 border border-brand-100 " +
+    "shadow-sm hover:shadow-md transition-all duration-200 " +
+    "hover:-translate-y-[2px]",
 } as const;
+
 
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   variant?: keyof typeof variants;

@@ -1,86 +1,148 @@
 /**
- * @fileoverview Client registration form with comprehensive Zod validation.
+ * @fileoverview Registration form — Email + Password with email confirmation.
+ * Uses supabase.auth.signUp() which works with default Supabase config.
+ * After signup, user receives confirmation email (magic link from Supabase).
+ * Once confirmed, user can login normally.
  * @module components/forms/RegisterForm
  */
 'use client';
 
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { Shield } from 'lucide-react';
+import { Shield, Mail } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
-import { registerSchema, type RegisterFormValues } from '@/lib/validations/auth.schema';
 import { ROUTES } from '@/lib/constants/routes';
-import { useAuth } from '@/hooks/useAuth';
+import { createClient } from '@/lib/supabase/client';
 
-type FormFields = {
-  full_name: string;
-  email: string;
-  phone: string;
-  password: string;
-  confirm_password: string;
-};
+type Step = 'form' | 'success';
 
 export default function RegisterForm() {
-  const { register, isLoading } = useAuth();
-  const [form, setForm] = useState<FormFields>({
-    full_name: '',
-    email: '',
-    phone: '',
-    password: '',
-    confirm_password: '',
-  });
-  const [errors, setErrors] = useState<Partial<Record<keyof FormFields, string>>>({});
-  const [serverError, setServerError] = useState<string | null>(null);
+  const supabase = createClient();
+
+  const [step, setStep] = useState<Step>('form');
+  const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setServerError(null);
+    setError(null);
 
-    const result = registerSchema.safeParse(form);
-    if (!result.success) {
-      const fieldErrors: typeof errors = {};
-      result.error.issues.forEach((issue) => {
-        const key = issue.path[0] as keyof FormFields;
-        fieldErrors[key] = issue.message;
-      });
-      setErrors(fieldErrors);
+    // Validations
+    if (!fullName.trim() || !email.trim()) {
+      setError('Nombre y correo son obligatorios.');
+      return;
+    }
+    if (password.length < 8) {
+      setError('La contraseña debe tener mínimo 8 caracteres.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Las contraseñas no coinciden.');
       return;
     }
 
-    setErrors({});
-
+    setIsLoading(true);
     try {
-      await register({
-        email: result.data.email,
-        password: result.data.password,
-        fullName: result.data.full_name,
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+            role: 'client',
+          },
+          emailRedirectTo: `${window.location.origin}/login?confirmed=true`,
+        },
       });
+
+      if (signUpError) throw signUpError;
+
+      // If user already exists but unconfirmed, Supabase returns user with identities = []
+      if (data.user && data.user.identities?.length === 0) {
+        setError(
+          'Este correo ya está registrado. Revisa tu bandeja de entrada para confirmar tu cuenta, o intenta iniciar sesión.',
+        );
+        return;
+      }
+
+      // Update phone in profile if provided
+      if (phone.trim() && data.user) {
+        try {
+          await supabase
+            .from('profiles')
+            .update({ phone: phone.trim() })
+            .eq('id', data.user.id);
+        } catch {
+          // Ignore if profile not yet created
+        }
+      }
+
+      setStep('success');
     } catch (err: unknown) {
-      setServerError(
-        err instanceof Error ? err.message : 'Error al registrarse',
-      );
+      setError(err instanceof Error ? err.message : 'Error al crear cuenta');
+    } finally {
+      setIsLoading(false);
     }
   }
 
-  const update = (field: keyof FormFields) => (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
+  /* ── Success screen ── */
+  if (step === 'success') {
+    return (
+      <div className="text-center space-y-4">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+          <Mail className="h-8 w-8 text-emerald-600" />
+        </div>
+        <h2 className="text-2xl font-bold text-brand-950">¡Revisa tu correo!</h2>
+        <p className="text-neutral-600">
+          Hemos enviado un enlace de confirmación a{' '}
+          <strong className="text-brand-600">{email}</strong>
+        </p>
+        <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+          <p className="font-semibold mb-1">📧 Pasos para completar tu registro:</p>
+          <ol className="text-left space-y-1 ml-4 list-decimal">
+            <li>Abre tu correo electrónico</li>
+            <li>Busca el email de <strong>Global Solutions Travel</strong></li>
+            <li>
+              Haz clic en <strong>&quot;Confirm your mail&quot;</strong>
+            </li>
+            <li>Vuelve aquí e inicia sesión</li>
+          </ol>
+        </div>
+        <p className="text-xs text-neutral-400">
+          ¿No lo ves? Revisa tu carpeta de spam o correo no deseado.
+        </p>
+        <Link
+          href={ROUTES.LOGIN}
+          className="inline-flex items-center justify-center rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white hover:bg-brand-700 transition-colors"
+        >
+          Ir a Iniciar Sesión
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {serverError && (
-        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-accent-red" role="alert">
-          {serverError}
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {error && (
+        <div
+          className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600"
+          role="alert"
+        >
+          {error}
         </div>
       )}
 
       <Input
         label="Nombre Completo"
         placeholder="María García"
-        value={form.full_name}
-        onChange={update('full_name')}
-        error={errors.full_name}
+        value={fullName}
+        onChange={e => setFullName(e.target.value)}
         required
       />
 
@@ -88,9 +150,8 @@ export default function RegisterForm() {
         label="Correo Electrónico"
         type="email"
         placeholder="correo@ejemplo.com"
-        value={form.email}
-        onChange={update('email')}
-        error={errors.email}
+        value={email}
+        onChange={e => setEmail(e.target.value)}
         required
       />
 
@@ -98,17 +159,16 @@ export default function RegisterForm() {
         label="Teléfono (opcional)"
         type="tel"
         placeholder="+53 5555 5555"
-        value={form.phone}
-        onChange={update('phone')}
+        value={phone}
+        onChange={e => setPhone(e.target.value)}
       />
 
       <Input
         label="Contraseña"
         type="password"
         placeholder="Mínimo 8 caracteres"
-        value={form.password}
-        onChange={update('password')}
-        error={errors.password}
+        value={password}
+        onChange={e => setPassword(e.target.value)}
         required
       />
 
@@ -116,14 +176,13 @@ export default function RegisterForm() {
         label="Confirmar Contraseña"
         type="password"
         placeholder="Repetir contraseña"
-        value={form.confirm_password}
-        onChange={update('confirm_password')}
-        error={errors.confirm_password}
+        value={confirmPassword}
+        onChange={e => setConfirmPassword(e.target.value)}
         required
       />
 
       <Button type="submit" isLoading={isLoading} className="w-full">
-        Crear Cuenta
+        {isLoading ? 'Creando cuenta...' : 'Crear Cuenta'}
       </Button>
 
       <p className="text-center text-sm text-neutral-600">

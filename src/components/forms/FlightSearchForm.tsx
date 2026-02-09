@@ -1,11 +1,10 @@
 /**
- * @fileoverview Flight search form with airport selectors, date pickers,
- *               passenger count and trip-type toggle.
+ * @fileoverview Flight search form with airport selectors, dates, passengers and submit.
  * @module components/forms/FlightSearchForm
  */
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { MapPin, Calendar, Users, Search } from 'lucide-react';
 import Input from '@/components/ui/Input';
@@ -26,6 +25,12 @@ export default function FlightSearchForm() {
     passengers: '1',
   });
 
+  const update =
+    (field: keyof typeof form) =>
+    (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+    };
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
@@ -43,10 +48,6 @@ export default function FlightSearchForm() {
     router.push(`${ROUTES.FLIGHT_SEARCH}?${params.toString()}`);
   }
 
-  const update = (field: keyof typeof form) => (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
-  ) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
-
   return (
     <form
       onSubmit={handleSubmit}
@@ -54,20 +55,29 @@ export default function FlightSearchForm() {
     >
       {/* Trip type toggle */}
       <div className="mb-7 inline-flex gap-1 rounded-xl bg-neutral-100 p-1">
-        {(['roundtrip', 'oneway'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTripType(t)}
-            className={`rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
-              tripType === t
-                ? 'bg-white text-brand-600 shadow-sm'
-                : 'text-neutral-600 hover:text-neutral-900'
-            }`}
-          >
-            {t === 'roundtrip' ? 'Ida y Vuelta' : 'Solo Ida'}
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={() => setTripType('roundtrip')}
+          className={`rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
+            tripType === 'roundtrip'
+              ? 'bg-white text-brand-600 shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-900'
+          }`}
+        >
+          Ida y Vuelta
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTripType('oneway')}
+          className={`rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
+            tripType === 'oneway'
+              ? 'bg-white text-brand-600 shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-900'
+          }`}
+        >
+          Solo Ida
+        </button>
       </div>
 
       {/* Fields grid */}
@@ -81,7 +91,8 @@ export default function FlightSearchForm() {
             value={form.origin}
             onChange={update('origin')}
             required
-            className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 text-[15px] focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 text-[15px]
+                       focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">Seleccionar aeropuerto</option>
             {AIRPORTS.map((a) => (
@@ -101,7 +112,8 @@ export default function FlightSearchForm() {
             value={form.destination}
             onChange={update('destination')}
             required
-            className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 text-[15px] focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 text-[15px]
+                       focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">Seleccionar aeropuerto</option>
             {AIRPORTS.map((a) => (
@@ -113,24 +125,26 @@ export default function FlightSearchForm() {
         </div>
 
         {/* Departure */}
-        <Input
-          label="Fecha de Ida"
-          icon={<Calendar className="h-3.5 w-3.5" />}
-          type="date"
-          value={form.departure}
-          onChange={update('departure')}
-          required
-        />
+        <div>
+          <label className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
+            <Calendar className="h-3.5 w-3.5 text-brand-500" /> Fecha de Ida
+          </label>
+          <Input type="date" value={form.departure} onChange={update('departure')} required />
+        </div>
 
         {/* Return */}
-        <Input
-          label={`Fecha de Vuelta ${tripType === 'oneway' ? '(N/A)' : ''}`}
-          icon={<Calendar className="h-3.5 w-3.5" />}
-          type="date"
-          value={form.returnDate}
-          onChange={update('returnDate')}
-          disabled={tripType === 'oneway'}
-        />
+        <div>
+          <label className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
+            <Calendar className="h-3.5 w-3.5 text-brand-500" />{' '}
+            {tripType === 'oneway' ? 'Fecha de Vuelta (N/A)' : 'Fecha de Vuelta'}
+          </label>
+          <Input
+            type="date"
+            value={form.returnDate}
+            onChange={update('returnDate')}
+            disabled={tripType === 'oneway'}
+          />
+        </div>
       </div>
 
       {/* Passengers + Search */}
@@ -142,7 +156,8 @@ export default function FlightSearchForm() {
           <select
             value={form.passengers}
             onChange={update('passengers')}
-            className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 text-[15px] focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            className="w-full h-12 rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 text-[15px]
+                       focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           >
             {Array.from({ length: 9 }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>
@@ -152,7 +167,14 @@ export default function FlightSearchForm() {
           </select>
         </div>
 
-        <Button type="submit" size="lg" className="flex-1 gap-2.5">
+        <Button
+          type="submit"
+          size="lg"
+          className="flex-1 h-12 gap-2.5 justify-center
+                     transition-all duration-200 ease-out
+                     hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
+        >
+          {/* ✅ Lupita a la izquierda */}
           <Search className="h-5 w-5" />
           Buscar Vuelos
         </Button>

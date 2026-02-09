@@ -4,11 +4,13 @@
  * @module components/features/flights/ExclusiveOfferCard
  */
 import { Flame, Clock, MapPin, Plane } from 'lucide-react';
+import Link from 'next/link';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import { formatCurrency, calcDiscount } from '@/lib/utils/formatters';
 
 export interface ExclusiveOfferCardProps {
+  id?: string;
   destination: string;
   route: string;
   airline: string;
@@ -20,6 +22,7 @@ export interface ExclusiveOfferCardProps {
 }
 
 export default function ExclusiveOfferCard({
+  id,
   destination,
   route,
   airline,
@@ -83,7 +86,15 @@ export default function ExclusiveOfferCard({
           Oferta válida por 48 horas
         </div>
 
-        <Button className="mt-4 w-full">Reservar Ahora</Button>
+        {id ? (
+          <Link href={`/offers/${id}`}>
+            <Button className="mt-4 w-full">Ver Oferta</Button>
+          </Link>
+        ) : (
+          <Link href="/offers">
+            <Button className="mt-4 w-full">Reservar Ahora</Button>
+          </Link>
+        )}
       </div>
     </article>
   );

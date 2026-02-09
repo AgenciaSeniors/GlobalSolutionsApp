@@ -15,6 +15,12 @@ import {
   Settings,
   ChevronLeft,
   LogOut,
+  Newspaper,
+  MessageSquare,
+  Tag,
+  Users,
+  FileText,
+  HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
@@ -98,15 +104,22 @@ export const USER_SIDEBAR_LINKS: SidebarLink[] = [
 
 export const AGENT_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/agent/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/agent/dashboard/bookings', label: 'Reservas', icon: CalendarCheck },
-  { href: '/agent/dashboard/flights', label: 'Vuelos', icon: Plane },
+  { href: '/agent/dashboard/bookings', label: 'Reservas Asignadas', icon: CalendarCheck },
+  { href: '/agent/dashboard/news', label: 'Muro de Noticias', icon: Newspaper },
+  { href: '/agent/dashboard/tickets', label: 'Tickets Internos', icon: MessageSquare },
   { href: '/agent/dashboard/settings', label: 'Configuración', icon: Settings },
 ];
 
 export const ADMIN_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/dashboard/emission', label: 'Emisión de Boletos', icon: FileText },
   { href: '/admin/dashboard/bookings', label: 'Todas las Reservas', icon: CalendarCheck },
-  { href: '/admin/dashboard/flights', label: 'Gestión Vuelos', icon: Plane },
+  { href: '/admin/dashboard/flights', label: 'Vuelos & Markup', icon: Plane },
+  { href: '/admin/dashboard/offers', label: 'Ofertas Visuales', icon: Tag },
+  { href: '/admin/dashboard/quotations', label: 'Cotizaciones', icon: HelpCircle },
+  { href: '/admin/dashboard/agents', label: 'Gestores', icon: Users },
+  { href: '/admin/dashboard/news', label: 'Noticias Agentes', icon: Newspaper },
+  { href: '/admin/dashboard/tickets', label: 'Tickets Soporte', icon: MessageSquare },
   { href: '/admin/dashboard/reviews', label: 'Moderar Reseñas', icon: Star },
   { href: '/admin/dashboard/settings', label: 'Configuración', icon: Settings },
 ];

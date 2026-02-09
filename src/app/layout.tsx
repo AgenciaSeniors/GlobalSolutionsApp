@@ -1,45 +1,26 @@
 /**
  * @fileoverview Root layout — loads fonts, global styles, providers.
+ * Fonts loaded via <link> to avoid build-time fetch issues with next/font/google.
  * @module app/layout
  */
-import type { Metadata } from 'next';
-import { Roboto_Condensed, Open_Sans, Dancing_Script } from 'next/font/google';
-import './globals.css';
-import { AuthProvider } from '@/components/providers/AuthProvider';
-import ToastProvider from '@/components/providers/ToastProvider';
+import type { Metadata } from "next";
+import "./globals.css";
 
-const heading = Roboto_Condensed({
-  subsets: ['latin'],
-  variable: '--font-heading',
-  display: 'swap',
-  weight: ['400', '700'],
-});
-
-const body = Open_Sans({
-  subsets: ['latin'],
-  variable: '--font-body',
-  display: 'swap',
-  weight: ['400', '600', '700'],
-});
-
-const script = Dancing_Script({
-  subsets: ['latin'],
-  variable: '--font-script',
-  display: 'swap',
-  weight: ['400', '700'],
-});
+import { AuthProvider } from "@/components/providers/AuthProvider";
+import ToastProvider from "@/components/providers/ToastProvider";
+import ChatWidget from "@/components/features/chat/ChatWidget";
 
 export const metadata: Metadata = {
   title: {
-    default: 'Global Solutions Travel — Vuelos y Renta de Autos',
-    template: '%s | Global Solutions Travel',
+    default: "Global Solutions Travel — Vuelos y Renta de Autos",
+    template: "%s | Global Solutions Travel",
   },
   description:
-    'Reserva vuelos internacionales y renta de autos con los mejores precios. Seguridad bancaria, atención personalizada y ofertas exclusivas.',
-  keywords: ['vuelos', 'renta de autos', 'viajes', 'Cuba', 'Estambul', 'agencia de viajes'],
+    "Reserva vuelos internacionales y renta de autos con los mejores precios. Seguridad bancaria, atención personalizada y ofertas exclusivas.",
+  keywords: ["vuelos", "renta de autos", "viajes", "Cuba", "Estambul", "agencia de viajes"],
   openGraph: {
-    type: 'website',
-    siteName: 'Global Solutions Travel',
+    type: "website",
+    siteName: "Global Solutions Travel",
   },
 };
 
@@ -49,10 +30,29 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className={`${heading.variable} ${body.variable} ${script.variable}`}>
-      <body className="font-body">
+    <html lang="es">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@100..1000&display=swap"
+          rel="stylesheet"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400..900&display=swap"
+          rel="stylesheet"
+        /><link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+<link
+  href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&family=Open+Sans:wght@400;600&family=Dancing+Script:wght@400;700&display=swap"
+  rel="stylesheet"
+/>
+
+      </head>
+      <body className="font-sans">
         <AuthProvider>
           {children}
+          <ChatWidget />
           <ToastProvider />
         </AuthProvider>
       </body>
