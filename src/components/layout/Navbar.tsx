@@ -5,11 +5,12 @@
  */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Menu, X, Plane, Car, Sparkles } from 'lucide-react';
+
 import { cn } from '@/lib/utils/cn';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
@@ -49,25 +50,23 @@ export default function Navbar() {
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-all duration-300',
         scrolled
-  ? 'bg-white/90 backdrop-blur-xl border-b border-brand-100 shadow-sm'
-  : 'bg-transparent',
-
+          ? 'bg-white/90 backdrop-blur-xl border-b border-brand-100 shadow-sm'
+          : 'bg-transparent'
       )}
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
-      <Link href={ROUTES.HOME} className="flex items-center">
-  <span className="relative h-14 w-[260px]">
-    <Image
-      src="/brand/logoGrande.png"
-      alt="Global Solutions Travel"
-      fill
-      priority
-      className="object-contain"
-    />
-  </span>
-</Link>
-
+        <Link href={ROUTES.HOME} className="flex items-center">
+          <span className="relative h-14 w-[260px]">
+            <Image
+              src="/brand/logoGrande.png" 
+              alt="Global Solutions Travel"
+              fill
+              priority
+              className="object-contain"
+            />
+          </span>
+        </Link>
 
         {/* ── Desktop Links ── */}
         <ul className="hidden items-center gap-1 md:flex">
@@ -79,10 +78,9 @@ export default function Navbar() {
                   href={href}
                   className={cn(
                     'flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition-colors',
-active
-  ? 'bg-brand-50 text-brand-900'
-  : 'text-brand-700 hover:bg-brand-50 hover:text-brand-900',
-
+                    active
+                      ? 'bg-brand-50 text-brand-900'
+                      : 'text-brand-700 hover:bg-brand-50 hover:text-brand-900'
                   )}
                 >
                   {Icon && <Icon className="h-4 w-4" />}
@@ -94,16 +92,32 @@ active
         </ul>
 
         {/* ── Auth Actions ── */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           {user && profile ? (
-            <Link href={dashboardRoute[profile.role] || ROUTES.USER_DASHBOARD} className="hidden sm:block">
-              <Button size="sm" variant="outline" className="gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
-                  {profile.full_name?.charAt(0).toUpperCase() || 'U'}
-                </span>
-                Mi Panel
-              </Button>
-            </Link>
+          <Link
+  href={dashboardRoute[profile.role] || ROUTES.USER_DASHBOARD}
+  className="hidden sm:inline-flex items-center gap-2 shrink-0
+             rounded-full border-2 border-brand-200 bg-white/80
+             px-3 py-2 text-brand-900
+             hover:bg-brand-50 hover:border-brand-300
+             transition-all duration-200 ease-out
+             hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
+  aria-label="Ir a mi panel"
+>
+  <span
+    className="flex h-8 w-8 items-center justify-center shrink-0 rounded-full
+               bg-brand-100 text-xs font-bold text-brand-800 ring-1 ring-brand-200"
+    aria-hidden="true"
+  >
+    {profile.full_name?.charAt(0).toUpperCase() || 'U'}
+  </span>
+
+  <span className="whitespace-nowrap text-sm font-semibold leading-none">
+    Mi Panel
+  </span>
+</Link>
+
+
           ) : (
             <Link href={ROUTES.LOGIN} className="hidden sm:block">
               <Button size="sm">Iniciar Sesión</Button>
@@ -112,9 +126,8 @@ active
 
           {/* Mobile toggle */}
           <button
-            onClick={() => setMobileOpen(!mobileOpen)}
+            onClick={() => setMobileOpen((v) => !v)}
             className="rounded-xl p-2 text-brand-900 hover:bg-brand-50 md:hidden"
-
             aria-label="Abrir menú"
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -124,8 +137,7 @@ active
 
       {/* ── Mobile Drawer ── */}
       {mobileOpen && (
-       <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-6 shadow-xl md:hidden animate-fade-in">
-
+        <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-6 shadow-xl md:hidden animate-fade-in">
           <ul className="flex flex-col gap-2">
             {NAV_LINKS.map(({ href, label, icon: Icon }) => (
               <li key={href}>
@@ -133,10 +145,9 @@ active
                   href={href}
                   className={cn(
                     'flex items-center gap-3 rounded-xl px-4 py-3 text-base font-semibold transition-colors',
-pathname === href
-  ? 'bg-brand-50 text-brand-900'
-  : 'text-brand-800 hover:bg-brand-50',
-
+                    pathname === href
+                      ? 'bg-brand-50 text-brand-900'
+                      : 'text-brand-800 hover:bg-brand-50'
                   )}
                 >
                   {Icon && <Icon className="h-5 w-5" />}
@@ -144,10 +155,17 @@ pathname === href
                 </Link>
               </li>
             ))}
+
             <li className="mt-4">
-              <Link href={ROUTES.LOGIN}>
-                <Button className="w-full">Iniciar Sesión</Button>
-              </Link>
+              {user && profile ? (
+                <Link href={dashboardRoute[profile.role] || ROUTES.USER_DASHBOARD}>
+                  <Button className="w-full">Mi Panel</Button>
+                </Link>
+              ) : (
+                <Link href={ROUTES.LOGIN}>
+                  <Button className="w-full">Iniciar Sesión</Button>
+                </Link>
+              )}
             </li>
           </ul>
         </div>
