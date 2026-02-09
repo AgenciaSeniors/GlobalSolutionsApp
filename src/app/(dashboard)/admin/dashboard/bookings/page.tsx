@@ -25,13 +25,10 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowRight,
-  Users,
-  DollarSign,
   CheckCircle,
   XCircle,
   Clock,
   Plane,
-  FileText,
 } from 'lucide-react';
 
 /* ---------- Types ---------- */

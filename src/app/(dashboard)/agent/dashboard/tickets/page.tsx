@@ -15,7 +15,7 @@ import Input from '@/components/ui/Input';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
-import { MessageSquare, Plus, Send, AlertCircle, Clock, CheckCircle, ChevronRight } from 'lucide-react';
+import { MessageSquare, Plus, Send, AlertCircle, ChevronRight } from 'lucide-react';
 import type { AgentTicket, TicketMessage, TicketCategory, TicketPriority } from '@/types/models';
 
 const CATEGORIES: { value: TicketCategory; label: string }[] = [

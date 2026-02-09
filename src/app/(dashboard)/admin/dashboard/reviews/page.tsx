@@ -12,7 +12,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
-import { Star, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Star, CheckCircle, XCircle } from 'lucide-react';
 
 interface ReviewItem {
   id: string;

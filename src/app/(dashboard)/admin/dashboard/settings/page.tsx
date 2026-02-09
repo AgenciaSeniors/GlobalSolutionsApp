@@ -21,7 +21,6 @@ import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import {
-  Settings,
   DollarSign,
   Clock,
   Building,
@@ -31,7 +30,6 @@ import {
   RefreshCw,
   CheckCircle,
   AlertTriangle,
-  Star,
 } from 'lucide-react';
 
 /* ---------- Types ---------- */

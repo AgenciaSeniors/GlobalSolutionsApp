@@ -15,7 +15,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
   User, Mail, Phone, Shield, Key, Save, CheckCircle,
-  AlertCircle, Calendar, Star, Sparkles,
+  AlertCircle, Calendar, Sparkles,
 } from 'lucide-react';
 import type { Profile } from '@/types/models';
 

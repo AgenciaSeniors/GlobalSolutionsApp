@@ -12,14 +12,12 @@ import Sidebar, { AGENT_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
   Plane, Search, ChevronDown, ChevronUp, User, Mail, Phone,
-  DollarSign, Calendar, Clock, CheckCircle, AlertTriangle,
-  FileText, MapPin, Users as UsersIcon,
+  DollarSign, Calendar, Clock, CheckCircle, 
+  MapPin, Users as UsersIcon,
 } from 'lucide-react';
 
 type FilterType = 'all' | 'pending_emission' | 'confirmed' | 'completed' | 'cancelled';

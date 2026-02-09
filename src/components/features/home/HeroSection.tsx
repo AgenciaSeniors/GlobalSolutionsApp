@@ -3,7 +3,7 @@
  * @module components/features/home/HeroSection
  */
 import Link from 'next/link';
-import { Plane, Car, ArrowRight, Shield } from 'lucide-react';
+import { Plane, Car, Shield } from 'lucide-react';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
 

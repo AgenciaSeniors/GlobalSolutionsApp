@@ -118,6 +118,15 @@ function buildFlight(
 
   // stops: 0..2
   const stopsCandidate = (seedBase + offerIndex) % 3;
+  const stops =
+  stopsCandidate === 0
+    ? []
+    : Array.from({ length: stopsCandidate }, (_, idx) => ({
+        order: idx + 1,
+        airport_iata: `ST${idx + 1}`,
+        duration_minutes: 45,
+      }));
+
 
   // duration: 90..600
   const durationMinutes = 90 + ((seedBase >>> 3) + offerIndex * 37) % 510;
@@ -135,42 +144,37 @@ function buildFlight(
 
   // ✅ Cumplimos el contrato: id, price, duration (y extras libres)
   return {
-    id,
-    price,
-    duration: durationMinutes,
+  id,
+  price,
+  duration: durationMinutes,
 
-    offerSource: 'external-stub',
-    provider: 'external-stub',
-    legIndex,
+  final_price: price,
+  departure_datetime: depISO,
+  arrival_datetime: arrISO,
 
-    origin_iata: origin,
-    destination_iata: destination,
+  stops, // 👈 ESTO ES EL PASO 2.3
+is_exclusive_offer: false,
+  flight_number: flightNumber,
+  available_seats: 9,
 
-    departure_datetime: depISO,
-    arrival_datetime: arrISO,
+  airline: {
+    iata_code: airlineCode,
+    name: `Airline ${airlineCode}`,
+  },
+  origin_airport: {
+    iata_code: origin,
+    name: `Airport ${origin}`,
+  },
+  destination_airport: {
+    iata_code: destination,
+    name: `Airport ${destination}`,
+  },
 
-    duration_minutes: durationMinutes,
-    stops_count: stopsCandidate,
+  offerSource: 'external-stub',
+  provider: 'external-stub',
+  legIndex,
+};
 
-    currency: 'USD',
-    final_price: price,
-
-    airline: {
-      code: airlineCode,
-      name: `Airline ${airlineCode}`,
-    },
-    origin_airport: {
-      iata_code: origin,
-      name: `Airport ${origin}`,
-    },
-    destination_airport: {
-      iata_code: destination,
-      name: `Airport ${destination}`,
-    },
-
-    flight_number: flightNumber,
-    available_seats: 9,
-  };
 }
 
 function applyMaxStops(flights: Flight[], maxStops: number): Flight[] {
