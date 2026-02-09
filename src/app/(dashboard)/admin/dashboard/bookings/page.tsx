@@ -60,18 +60,20 @@ interface BookingRow {
   passengers: { id: string; first_name: string; last_name: string; ticket_number: string | null }[];
 }
 
-const STATUS_CONFIG: Record<string, { variant: 'warning' | 'success' | 'error' | 'info'; label: string; icon: typeof Clock }> = {
+// CORRECCIÓN: Se cambió 'error' por 'destructive' para coincidir con las variantes de Badge
+const STATUS_CONFIG: Record<string, { variant: 'warning' | 'success' | 'destructive' | 'info'; label: string; icon: typeof Clock }> = {
   pending_emission: { variant: 'warning', label: 'Pendiente Emisión', icon: Clock },
   confirmed: { variant: 'success', label: 'Emitida', icon: CheckCircle },
   completed: { variant: 'info', label: 'Completada', icon: CalendarCheck },
-  cancelled: { variant: 'error', label: 'Cancelada', icon: XCircle },
+  cancelled: { variant: 'destructive', label: 'Cancelada', icon: XCircle },
 };
 
-const PAYMENT_VARIANT: Record<string, 'success' | 'warning' | 'error'> = {
+// CORRECCIÓN: Se cambió 'error' por 'destructive' para coincidir con las variantes de Badge
+const PAYMENT_VARIANT: Record<string, 'success' | 'warning' | 'destructive'> = {
   paid: 'success',
   pending: 'warning',
-  failed: 'error',
-  refunded: 'error',
+  failed: 'destructive',
+  refunded: 'destructive',
 };
 
 export default function AdminBookingsPage() {

@@ -6,7 +6,7 @@
  */
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import Sidebar, { AGENT_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -53,9 +53,8 @@ export default function AgentTicketsPage() {
   const [description, setDescription] = useState('');
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => { fetchTickets(); }, []);
-
-  async function fetchTickets() {
+  // CORRECCIÓN: Función envuelta en useCallback para evitar recreaciones infinitas
+  const fetchTickets = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from('agent_tickets')
@@ -63,7 +62,12 @@ export default function AgentTicketsPage() {
       .order('created_at', { ascending: false });
     setTickets((data as AgentTicket[]) || []);
     setLoading(false);
-  }
+  }, [supabase]);
+
+  // CORRECCIÓN: fetchTickets añadido como dependencia
+  useEffect(() => { 
+    fetchTickets(); 
+  }, [fetchTickets]);
 
   async function handleCreateTicket(e: FormEvent) {
     e.preventDefault();
@@ -200,13 +204,16 @@ export default function AgentTicketsPage() {
                     <Plus className="h-5 w-5 text-brand-600" /> Nuevo Ticket
                   </h3>
                   <form onSubmit={handleCreateTicket} className="space-y-4">
-                    <Input
-                      label="Asunto"
-                      value={subject}
-                      onChange={e => setSubject(e.target.value)}
-                      placeholder="Describe brevemente tu consulta"
-                      required
-                    />
+                    {/* CORRECCIÓN: Renderizado manual de label fuera del Input */}
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-neutral-700">Asunto</label>
+                      <Input
+                        value={subject}
+                        onChange={e => setSubject(e.target.value)}
+                        placeholder="Describe brevemente tu consulta"
+                        required
+                      />
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="mb-1.5 block text-sm font-medium text-neutral-700">Categoría</label>

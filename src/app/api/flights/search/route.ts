@@ -5,8 +5,7 @@ import { flightsOrchestrator } from '@/lib/flights/orchestrator/flightsOrchestra
 
 const TTL_MINUTES = 15;
 
-// En este endpoint devolvemos objetos de vuelos “con campos extra” (joins, etc.).
-// Para evitar `any`, usamos un record genérico.
+// Sin `any`:
 type FlightRecord = Record<string, unknown>;
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
 
@@ -14,26 +13,20 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-function toUpperString(v: unknown): string {
-  return String(v ?? '').toUpperCase();
-}
-
 function normalizeFilters(raw: unknown): FlightSearchFilters | undefined {
   if (!raw || !isRecord(raw)) return undefined;
 
-  const airlineCodesRaw = raw.airlineCodes;
   const airlineCodes =
-    Array.isArray(airlineCodesRaw) && airlineCodesRaw.length
-      ? airlineCodesRaw.map((c) => toUpperString(c)).sort()
+    Array.isArray(raw.airlineCodes) && raw.airlineCodes.length
+      ? raw.airlineCodes.map((c) => String(c).toUpperCase()).sort()
       : undefined;
 
   const minPrice = raw.minPrice != null ? Number(raw.minPrice) : undefined;
   const maxPrice = raw.maxPrice != null ? Number(raw.maxPrice) : undefined;
 
-  const dtr = raw.departureTimeRange;
   const departureTimeRange =
-    isRecord(dtr) && dtr.from != null && dtr.to != null
-      ? { from: String(dtr.from), to: String(dtr.to) }
+    isRecord(raw.departureTimeRange) && raw.departureTimeRange.from && raw.departureTimeRange.to
+      ? { from: String(raw.departureTimeRange.from), to: String(raw.departureTimeRange.to) }
       : undefined;
 
   const maxStops = raw.maxStops != null ? Number(raw.maxStops) : undefined;
@@ -63,19 +56,18 @@ function normalizeToRequest(params: FlightSearchParams): {
   }
 
   // Legacy format: { origin, destination, departure_date, return_date?, passengers }
-  const origin = isRecord(anyParams) ? toUpperString(anyParams.origin) : '';
-  const destination = isRecord(anyParams) ? toUpperString(anyParams.destination) : '';
+  const origin = isRecord(anyParams) ? String(anyParams.origin ?? '').toUpperCase() : '';
+  const destination = isRecord(anyParams) ? String(anyParams.destination ?? '').toUpperCase() : '';
   const departure_date = isRecord(anyParams) ? String(anyParams.departure_date ?? '') : '';
   const passengers = isRecord(anyParams) ? Number(anyParams.passengers ?? 1) : 1;
 
   const legs: FlightLeg[] = [{ origin, destination, departure_date }];
 
-  const returnDate = isRecord(anyParams) ? anyParams.return_date : undefined;
-  if (returnDate) {
+  if (isRecord(anyParams) && anyParams.return_date) {
     legs.push({
       origin: destination,
       destination: origin,
-      departure_date: String(returnDate ?? ''),
+      departure_date: String(anyParams.return_date ?? ''),
     });
   }
 
@@ -112,6 +104,19 @@ function readNumberField(obj: FlightRecord, key: string): number | undefined {
   return Number.isNaN(n) ? undefined : n;
 }
 
+function extractProvidersUsed(results: ResultsByLeg): string[] {
+  const set = new Set<string>();
+
+  for (const leg of results) {
+    for (const f of leg.flights) {
+      const p = f.provider;
+      if (typeof p === 'string' && p.trim()) set.add(p.trim());
+    }
+  }
+
+  return Array.from(set).sort();
+}
+
 async function getAirlineIdsByCodes(
   supabase: ReturnType<typeof createAdminClient>,
   airlineCodes: string[],
@@ -125,9 +130,6 @@ async function getAirlineIdsByCodes(
     if (!error) {
       const ids = (data ?? [])
         .map((a) => {
-          if (!a) return null;
-          // `a` es un row de Supabase; tipado real depende del schema.
-          // Lo tratamos como record seguro.
           const rec = a as unknown;
           if (!isRecord(rec)) return null;
           const id = rec.id;
@@ -199,19 +201,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ source: 'cache', results: cached.response });
     }
 
-    // 2) LIVE — orchestrator (agency-first). Si el orchestrator falla, usamos fallback legacy abajo.
-    const provider = flightsOrchestrator;
-    console.info('[FLIGHTS_SEARCH] source=live', { cache_key, provider: provider.id });
-
+    // 2) LIVE — Orchestrator (agency-first)
     let resultsByLeg: ResultsByLeg | null = null;
 
     try {
-      const providerRes = await provider.search(body);
-      // provider.search puede devolver flights con más campos; lo normalizamos a FlightRecord[]
+      console.info('[FLIGHTS_SEARCH] source=live', { cache_key, provider: flightsOrchestrator.id });
+
+      const providerRes = await flightsOrchestrator.search(body);
+
+      // Convertimos a FlightRecord[] sin `any`
       resultsByLeg = providerRes.map((r) => ({
         legIndex: r.legIndex,
         flights: (r.flights as unknown[]).filter(isRecord) as FlightRecord[],
       }));
+
+      const providersUsed = extractProvidersUsed(resultsByLeg);
+      console.info('[FLIGHTS_SEARCH] providersUsed', { cache_key, providersUsed });
     } catch (e: unknown) {
       const msg = String(isRecord(e) ? e.message : e ?? '');
       if (msg.startsWith('IATA inválido')) {
@@ -220,9 +225,9 @@ export async function POST(req: Request) {
       console.warn('[FLIGHTS_SEARCH] orchestrator error, usando fallback legacy:', msg);
     }
 
-    // === FALLBACK LEGACY (TU BLOQUE LIVE ORIGINAL, SIN SIMPLIFICAR) ===
+    // === FALLBACK LEGACY (tu lógica original, intacta) ===
     if (!resultsByLeg) {
-      // 2) LIVE — B: resolver IATA -> airport_id en 1 sola query
+      // B: resolver IATA -> airport_id en 1 sola query
       const allIatas = Array.from(new Set(body.legs.flatMap((l) => [l.origin, l.destination])));
 
       const { data: airportsAll, error: airportsAllErr } = await supabase
@@ -238,9 +243,7 @@ export async function POST(req: Request) {
       for (const a of airportsAll ?? []) {
         const rec = a as unknown;
         if (!isRecord(rec)) continue;
-        const iata = rec.iata_code;
-        const id = rec.id;
-        if (iata != null && id != null) airportIdByIata.set(String(iata), String(id));
+        airportIdByIata.set(String(rec.iata_code), String(rec.id));
       }
 
       // C: airline filter (resolve once)
@@ -253,11 +256,12 @@ export async function POST(req: Request) {
         // If user asked for airlines and none exist, return empty quickly
         if (!airlineIdsFilter.length) {
           const empty: ResultsByLeg = body.legs.map((_, i) => ({ legIndex: i, flights: [] }));
+          console.info('[FLIGHTS_SEARCH] source=live', { cache_key, providersUsed: ['legacy-db'] });
           return NextResponse.json({ source: 'live', results: empty });
         }
       }
 
-      const resultsByLegLegacy: ResultsByLeg = [];
+      const legacyResults: ResultsByLeg = [];
 
       for (let i = 0; i < body.legs.length; i++) {
         const leg = body.legs[i];
@@ -282,11 +286,11 @@ export async function POST(req: Request) {
           .from('flights')
           .select(
             `
-          *,
-          airline:airlines(*),
-          origin_airport:airports!origin_airport_id(*),
-          destination_airport:airports!destination_airport_id(*)
-        `,
+            *,
+            airline:airlines(*),
+            origin_airport:airports!origin_airport_id(*),
+            destination_airport:airports!destination_airport_id(*)
+          `,
           )
           .gt('available_seats', 0)
           .eq('origin_airport_id', originId)
@@ -308,18 +312,26 @@ export async function POST(req: Request) {
           return NextResponse.json({ error: flightsErr.message }, { status: 500 });
         }
 
-        // maxStops (best-effort in-memory)
+        // maxStops (best-effort in-memory) — actualizado a schema real:
         let flights: FlightRecord[] = (flightsRaw as unknown[]).filter(isRecord) as FlightRecord[];
 
         if (body.filters?.maxStops != null) {
           const maxStops = body.filters.maxStops;
-          flights = flights.filter((f: FlightRecord) => {
+
+          flights = flights.filter((f) => {
+            // ✅ PRIORIDAD: schema real -> stops (jsonb array)
+            const rawStops = f.stops;
+            if (Array.isArray(rawStops)) {
+              return rawStops.length <= maxStops;
+            }
+
+            // fallback legacy: stops_count, number_of_stops, stop_count, etc.
             let stops =
               readNumberField(f, 'stops_count') ??
               readNumberField(f, 'number_of_stops') ??
-              readNumberField(f, 'stops') ??
               readNumberField(f, 'stop_count');
 
+            // otro legacy: segments_count - 1
             if (stops == null) {
               const seg = readNumberField(f, 'segments_count');
               if (seg != null) stops = Math.max(0, seg - 1);
@@ -330,10 +342,13 @@ export async function POST(req: Request) {
           });
         }
 
-        resultsByLegLegacy.push({ legIndex: i, flights });
+        legacyResults.push({ legIndex: i, flights });
       }
 
-      resultsByLeg = resultsByLegLegacy;
+      resultsByLeg = legacyResults;
+
+      const providersUsed = ['legacy-db'];
+      console.info('[FLIGHTS_SEARCH] source=live', { cache_key, providersUsed });
     }
 
     const finalResults = resultsByLeg as ResultsByLeg;

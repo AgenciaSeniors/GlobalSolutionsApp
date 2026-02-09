@@ -17,7 +17,7 @@ import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
   Plane, Search, ChevronDown, ChevronUp, User, Mail, Phone,
   DollarSign, Calendar, Clock, CheckCircle, 
-  MapPin, Users as UsersIcon,
+  MapPin, Users as UsersIcon, CalendarCheck // CORRECCIÓN: Se añadió la importación faltante
 } from 'lucide-react';
 
 type FilterType = 'all' | 'pending_emission' | 'confirmed' | 'completed' | 'cancelled';

@@ -136,7 +136,7 @@ export default function AdminAgentsPage() {
                       <td className="px-4 py-3">
                         <Button
                           size="sm"
-                          variant={agent.is_active ? 'outline' : 'default'}
+                          variant={agent.is_active ? 'outline' : 'primary'}
                           onClick={() => toggleAgentStatus(agent)}
                         >
                           {agent.is_active ? 'Desactivar' : 'Activar'}

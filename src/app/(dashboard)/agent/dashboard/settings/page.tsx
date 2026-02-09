@@ -60,7 +60,7 @@ export default function AgentSettingsPage() {
       setLoading(false);
     }
     loadProfile();
-  }, [user]);
+  }, [user, supabase]);
 
   async function handleSaveProfile(e: FormEvent) {
     e.preventDefault();
@@ -188,21 +188,29 @@ export default function AgentSettingsPage() {
               <User className="h-5 w-5 text-brand-500" /> Datos Personales
             </h3>
             <form onSubmit={handleSaveProfile} className="space-y-4">
-              <Input
-                label="Nombre completo"
-                value={fullName}
-                onChange={e => setFullName(e.target.value)}
-                placeholder="Tu nombre completo"
-                required
-                icon={<User className="h-4 w-4" />}
-              />
-              <Input
-                label="Teléfono"
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder="+53 5555 5555"
-                icon={<Phone className="h-4 w-4" />}
-              />
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-neutral-700 flex items-center gap-2">
+                  <User className="h-4 w-4 text-neutral-400" /> Nombre completo
+                </label>
+                <Input
+                  value={fullName}
+                  onChange={e => setFullName(e.target.value)}
+                  placeholder="Tu nombre completo"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-neutral-700 flex items-center gap-2">
+                  <Phone className="h-4 w-4 text-neutral-400" /> Teléfono
+                </label>
+                <Input
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="+53 5555 5555"
+                />
+              </div>
+
               <div className="flex justify-end">
                 <Button type="submit" isLoading={saving} className="gap-2">
                   <Save className="h-4 w-4" /> Guardar Cambios
@@ -226,26 +234,32 @@ export default function AgentSettingsPage() {
 
             {showPasswordForm ? (
               <form onSubmit={handleChangePassword} className="space-y-4">
-                <div className="relative">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-neutral-700 flex items-center gap-2">
+                    <Key className="h-4 w-4 text-neutral-400" /> Nueva contraseña
+                  </label>
                   <Input
-                    label="Nueva contraseña"
                     type={showPasswords ? 'text' : 'password'}
                     value={newPassword}
                     onChange={e => setNewPassword(e.target.value)}
                     placeholder="Mínimo 8 caracteres"
                     required
-                    icon={<Key className="h-4 w-4" />}
                   />
                 </div>
-                <Input
-                  label="Confirmar nueva contraseña"
-                  type={showPasswords ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
-                  placeholder="Repite la nueva contraseña"
-                  required
-                  icon={<Key className="h-4 w-4" />}
-                />
+
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-neutral-700 flex items-center gap-2">
+                    <Key className="h-4 w-4 text-neutral-400" /> Confirmar nueva contraseña
+                  </label>
+                  <Input
+                    type={showPasswords ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    placeholder="Repite la nueva contraseña"
+                    required
+                  />
+                </div>
+
                 <label className="flex items-center gap-2 text-sm text-neutral-600 cursor-pointer">
                   <input
                     type="checkbox"
