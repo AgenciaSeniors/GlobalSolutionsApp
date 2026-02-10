@@ -1,26 +1,19 @@
 /**
- * POST /api/payments/create-intent
- * - Recalcula totales con priceEngine (source of truth)
- * - Actualiza booking (subtotal/fees/total/status)
- * - Crea o reutiliza PaymentIntent en Stripe (de forma segura)
+ * POST /api/webhooks/stripe
+ * - Verifica firma de Stripe
+ * - Actualiza bookings.payment_status (paid/failed)
+ * - Registra eventos en public.payment_events
  */
 
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-
-import { priceEngine } from '@/lib/pricing/priceEngine';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { createClient } from '@/lib/supabase/server';
-
-type CreateIntentBody = {
-  booking_id: string;
-};
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`Falta ${name}`);
+  if (!v) throw new Error(`Missing env var: ${name}`);
   return v;
 }
 
@@ -28,176 +21,191 @@ const stripe = new Stripe(requiredEnv('STRIPE_SECRET_KEY'), {
   apiVersion: '2024-06-20',
 });
 
-// Defaults (luego puedes moverlos a app_settings)
-const DEFAULT_GATEWAY_FEE_PERCENT = 2.9;
-const DEFAULT_GATEWAY_FEE_FIXED = 0.3;
-const DEFAULT_VOLATILITY_BUFFER_PERCENT = 0; // pon 3 si quieres 3%
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 
-const REUSABLE_PI_STATUSES: ReadonlySet<Stripe.PaymentIntent.Status> = new Set([
-  // estados “vivos” donde tiene sentido reusar client_secret
-  'requires_payment_method',
-  'requires_confirmation',
-  'requires_action',
-  'processing',
-]);
+function getMetadataString(
+  metadata: Stripe.Metadata | null | undefined,
+  key: string,
+): string | null {
+  if (!metadata) return null;
+  const v = metadata[key];
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+async function logPaymentEvent(params: {
+  provider: 'stripe';
+  event: Stripe.Event;
+  bookingId: string | null;
+  paymentIntentId: string | null;
+}): Promise<void> {
+  const supabaseAdmin = createAdminClient();
+
+  // Guardamos todo el event como jsonb (útil para auditoría)
+  const row = {
+    provider: params.provider,
+    event_id: params.event.id,
+    event_type: params.event.type,
+    booking_id: params.bookingId,
+    payment_intent_id: params.paymentIntentId,
+    payload: params.event, // Stripe.Event es JSON-serializable
+  };
+
+  // ignoreDuplicates evita que un resend cause error por UNIQUE(event_id)
+  const { error } = await supabaseAdmin
+    .from('payment_events')
+    .upsert(row, { onConflict: 'event_id', ignoreDuplicates: true });
+
+  if (error) {
+    // No rompemos el webhook por logging
+    console.error('[Stripe Webhook] payment_events insert failed:', error.message);
+  }
+}
 
 export async function POST(request: NextRequest) {
+  const rawBody = await request.text();
+  const signature = request.headers.get('stripe-signature');
+
+  if (!signature) {
+    return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 });
+  }
+
+  let event: Stripe.Event;
+
   try {
-    const body = (await request.json()) as CreateIntentBody;
+    event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      requiredEnv('STRIPE_WEBHOOK_SECRET'),
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Signature verification failed';
+    console.error('[Stripe Webhook] Verification failed:', message);
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+  }
 
-    if (!body.booking_id) {
-      return NextResponse.json({ error: 'booking_id requerido' }, { status: 400 });
-    }
+  const supabaseAdmin = createAdminClient();
 
-    // Session client: solo para identificar al usuario autenticado
-    const supabaseSession = await createClient();
-    const {
-      data: { user },
-    } = await supabaseSession.auth.getUser();
+  // Para la mayoría de casos que nos importan ahora, el objeto es PaymentIntent
+  // pero aun así mantenemos el código seguro.
+  let bookingId: string | null = null;
+  let paymentIntentId: string | null = null;
 
-    if (!user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-    }
+  if (isRecord(event.data?.object) && typeof event.data.object.id === 'string') {
+    paymentIntentId = event.data.object.id;
+  }
 
-    // Admin client: para leer/escribir campos sensibles de pago sin depender de RLS
-    const supabaseAdmin = createAdminClient();
+  if (event.type.startsWith('payment_intent.')) {
+    const pi = event.data.object as Stripe.PaymentIntent;
+    bookingId = getMetadataString(pi.metadata, 'booking_id');
+    paymentIntentId = pi.id;
+  }
 
-    const { data: booking, error } = await supabaseAdmin
-      .from('bookings')
-      .select('id, booking_code, user_id, subtotal, payment_status, payment_intent_id, flight_id')
-      .eq('id', body.booking_id)
-      .single();
+  try {
+    switch (event.type) {
+      case 'payment_intent.succeeded': {
+        const pi = event.data.object as Stripe.PaymentIntent;
 
-    if (error || !booking) {
-      return NextResponse.json({ error: 'Reserva no encontrada' }, { status: 404 });
-    }
+        const targetBookingId = getMetadataString(pi.metadata, 'booking_id');
 
-    if (booking.user_id !== user.id) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
-    }
+        // Preferimos update por booking_id (más confiable que payment_intent_id)
+        const update = targetBookingId
+          ? supabaseAdmin
+              .from('bookings')
+              .update({
+                payment_status: 'paid',
+                paid_at: new Date().toISOString(),
+                payment_intent_id: pi.id,
+                payment_method: 'stripe',
+              })
+              .eq('id', targetBookingId)
+          : supabaseAdmin
+              .from('bookings')
+              .update({
+                payment_status: 'paid',
+                paid_at: new Date().toISOString(),
+                payment_intent_id: pi.id,
+                payment_method: 'stripe',
+              })
+              .eq('payment_intent_id', pi.id);
 
-    // Opcional: traer markup_percentage desde flights
-    let markupPercentage = 10;
-    if (booking.flight_id) {
-      const { data: flight } = await supabaseAdmin
-        .from('flights')
-        .select('markup_percentage')
-        .eq('id', booking.flight_id)
-        .single();
+        const { error } = await update;
 
-      const mp = flight?.markup_percentage;
-      if (typeof mp === 'number' && Number.isFinite(mp) && mp >= 0) {
-        markupPercentage = mp;
-      }
-    }
-
-    // Base: usamos booking.subtotal (ya incorpora lógica de tu booking: pax, etc.)
-    const baseAmount = Number(booking.subtotal);
-    if (!Number.isFinite(baseAmount) || baseAmount < 0) {
-      return NextResponse.json({ error: 'Subtotal inválido en booking' }, { status: 400 });
-    }
-
-    const breakdown = priceEngine({
-      base: { amount: baseAmount, currency: 'USD' },
-      markup: { type: 'percentage', percentage: markupPercentage },
-      volatility_buffer:
-        DEFAULT_VOLATILITY_BUFFER_PERCENT > 0
-          ? { type: 'percentage', percentage: DEFAULT_VOLATILITY_BUFFER_PERCENT }
-          : { type: 'none' },
-      gateway_fee: {
-        type: 'mixed',
-        percentage: DEFAULT_GATEWAY_FEE_PERCENT,
-        fixed_amount: DEFAULT_GATEWAY_FEE_FIXED,
-      },
-      gateway_fee_base: 'pre_fee_total',
-    });
-
-    const amountCents = breakdown.cents.total_amount;
-
-    // Persistir totales antes de cobrar
-    const { error: updateErr } = await supabaseAdmin
-      .from('bookings')
-      .update({
-        subtotal: breakdown.subtotal,
-        payment_gateway_fee: breakdown.gateway_fee_amount,
-        total_amount: breakdown.total_amount,
-        payment_status: 'pending',
-        payment_method: 'stripe',
-      })
-      .eq('id', booking.id);
-
-    if (updateErr) {
-      return NextResponse.json({ error: 'No se pudo actualizar totales del booking' }, { status: 500 });
-    }
-
-    /**
-     * Reuso seguro:
-     * - Solo reusamos si el PI existe, el booking está pending
-     * - El PI tiene el mismo amount
-     * - y el status del PI es “reusable” (NO canceled / NO succeeded)
-     */
-    if (booking.payment_intent_id && booking.payment_status === 'pending') {
-      try {
-        const existing = await stripe.paymentIntents.retrieve(booking.payment_intent_id);
-
-        if (
-          existing.client_secret &&
-          existing.amount === amountCents &&
-          REUSABLE_PI_STATUSES.has(existing.status)
-        ) {
-          return NextResponse.json({
-            client_secret: existing.client_secret,
-            payment_intent_id: existing.id,
-            total_amount: breakdown.total_amount,
-            currency: breakdown.currency,
-            breakdown,
-            reused: true,
-          });
+        if (error) {
+          console.error('[Stripe Webhook] DB update failed (succeeded):', error.message);
+          // Stripe debe reintentar
+          return NextResponse.json({ error: 'Database error' }, { status: 500 });
         }
 
-        // Si el PI existe pero está canceled/succeeded/etc., lo tratamos como “no reusable”
-        // y continuamos a crear uno nuevo.
-      } catch {
-        // si falla retrieve, creamos uno nuevo abajo
+        await logPaymentEvent({
+          provider: 'stripe',
+          event,
+          bookingId: targetBookingId,
+          paymentIntentId: pi.id,
+        });
+
+        break;
+      }
+
+      case 'payment_intent.payment_failed': {
+        const pi = event.data.object as Stripe.PaymentIntent;
+
+        const targetBookingId = getMetadataString(pi.metadata, 'booking_id');
+
+        const update = targetBookingId
+          ? supabaseAdmin
+              .from('bookings')
+              .update({
+                payment_status: 'failed',
+                payment_intent_id: pi.id,
+                payment_method: 'stripe',
+              })
+              .eq('id', targetBookingId)
+          : supabaseAdmin
+              .from('bookings')
+              .update({
+                payment_status: 'failed',
+                payment_intent_id: pi.id,
+                payment_method: 'stripe',
+              })
+              .eq('payment_intent_id', pi.id);
+
+        const { error } = await update;
+
+        if (error) {
+          console.error('[Stripe Webhook] DB update failed (failed):', error.message);
+          return NextResponse.json({ error: 'Database error' }, { status: 500 });
+        }
+
+        await logPaymentEvent({
+          provider: 'stripe',
+          event,
+          bookingId: targetBookingId,
+          paymentIntentId: pi.id,
+        });
+
+        break;
+      }
+
+      default: {
+        // Log de eventos no manejados (no rompe)
+        await logPaymentEvent({
+          provider: 'stripe',
+          event,
+          bookingId,
+          paymentIntentId,
+        });
+
+        console.log(`[Stripe Webhook] Unhandled event: ${event.type}`);
+        break;
       }
     }
-
-    // Crear nuevo PI (con config correcta: sin redirects)
-    const idempotencyKey = `v2_booking_${booking.id}_amount_${amountCents}`;
-
-    const paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: amountCents,
-        currency: 'usd',
-        metadata: {
-          booking_id: booking.id,
-          booking_code: booking.booking_code,
-        },
-        automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
-      },
-      { idempotencyKey },
-    );
-
-    // Guardar PI en booking (overwrite)
-    const { error: intentSaveErr } = await supabaseAdmin
-      .from('bookings')
-      .update({ payment_intent_id: paymentIntent.id })
-      .eq('id', booking.id);
-
-    if (intentSaveErr) {
-      return NextResponse.json({ error: 'No se pudo guardar payment_intent_id' }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      client_secret: paymentIntent.client_secret,
-      payment_intent_id: paymentIntent.id,
-      total_amount: breakdown.total_amount,
-      currency: breakdown.currency,
-      breakdown,
-      reused: false,
-    });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Internal Server Error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message = err instanceof Error ? err.message : 'Unhandled webhook error';
+    console.error('[Stripe Webhook] Handler failed:', message);
+    return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 });
   }
+
+  return NextResponse.json({ received: true }, { status: 200 });
 }
