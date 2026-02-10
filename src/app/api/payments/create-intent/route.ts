@@ -2,8 +2,10 @@
  * POST /api/payments/create-intent
  * - Recalcula totales con priceEngine (source of truth)
  * - Actualiza booking (subtotal/fees/total/status)
- * - Crea o reutiliza PaymentIntent en Stripe
+ * - Crea o reutiliza PaymentIntent en Stripe (de forma segura)
  */
+
+export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
@@ -31,6 +33,14 @@ const DEFAULT_GATEWAY_FEE_PERCENT = 2.9;
 const DEFAULT_GATEWAY_FEE_FIXED = 0.3;
 const DEFAULT_VOLATILITY_BUFFER_PERCENT = 0; // pon 3 si quieres 3%
 
+const REUSABLE_PI_STATUSES: ReadonlySet<Stripe.PaymentIntent.Status> = new Set([
+  // estados “vivos” donde tiene sentido reusar client_secret
+  'requires_payment_method',
+  'requires_confirmation',
+  'requires_action',
+  'processing',
+]);
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as CreateIntentBody;
@@ -49,7 +59,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    // Admin client: para escribir campos sensibles de pago sin depender de RLS
+    // Admin client: para leer/escribir campos sensibles de pago sin depender de RLS
     const supabaseAdmin = createAdminClient();
 
     const { data: booking, error } = await supabaseAdmin
@@ -120,11 +130,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No se pudo actualizar totales del booking' }, { status: 500 });
     }
 
-    // Reusar intent existente si calza
+    /**
+     * Reuso seguro:
+     * - Solo reusamos si el PI existe, el booking está pending
+     * - El PI tiene el mismo amount
+     * - y el status del PI es “reusable” (NO canceled / NO succeeded)
+     */
     if (booking.payment_intent_id && booking.payment_status === 'pending') {
       try {
         const existing = await stripe.paymentIntents.retrieve(booking.payment_intent_id);
-        if (existing.amount === amountCents && existing.client_secret) {
+
+        if (
+          existing.client_secret &&
+          existing.amount === amountCents &&
+          REUSABLE_PI_STATUSES.has(existing.status)
+        ) {
           return NextResponse.json({
             client_secret: existing.client_secret,
             payment_intent_id: existing.id,
@@ -134,12 +154,17 @@ export async function POST(request: NextRequest) {
             reused: true,
           });
         }
+
+        // Si el PI existe pero está canceled/succeeded/etc., lo tratamos como “no reusable”
+        // y continuamos a crear uno nuevo.
       } catch {
         // si falla retrieve, creamos uno nuevo abajo
       }
     }
 
-    // Crear nuevo intent
+    // Crear nuevo PI (con config correcta: sin redirects)
+    const idempotencyKey = `v2_booking_${booking.id}_amount_${amountCents}`;
+
     const paymentIntent = await stripe.paymentIntents.create(
       {
         amount: amountCents,
@@ -148,13 +173,12 @@ export async function POST(request: NextRequest) {
           booking_id: booking.id,
           booking_code: booking.booking_code,
         },
-        automatic_payment_methods: { enabled: true },
+        automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
       },
-      {
-        idempotencyKey: `booking_${booking.id}_amount_${amountCents}`,
-      },
+      { idempotencyKey },
     );
 
+    // Guardar PI en booking (overwrite)
     const { error: intentSaveErr } = await supabaseAdmin
       .from('bookings')
       .update({ payment_intent_id: paymentIntent.id })
