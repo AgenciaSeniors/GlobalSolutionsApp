@@ -23,7 +23,14 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
 /** Routes that require auth check */
-const PROTECTED_PREFIXES = ['/admin', '/agent', '/user', '/checkout'];
+const PROTECTED_PREFIXES = [
+  '/admin', 
+  '/agent', 
+  '/user', 
+  '/checkout',
+  '/api/agent', // 🛡️ Añadido por Luis: Protege los datos de los agentes
+  '/api/admin'  // 🛡️ Añadido por Luis: Protege los datos de administración
+];
 const AUTH_PREFIXES = ['/login', '/register', '/forgot-password'];
 
 function needsAuthCheck(pathname: string): boolean {
@@ -111,16 +118,25 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ─────────── Protected: Dashboard routes ─────────── */
-  if (
+ if (
     pathname.startsWith('/admin') ||
     pathname.startsWith('/agent') ||
-    pathname.startsWith('/user')
+    pathname.startsWith('/user') ||
+    pathname.startsWith('/api/agent') || // 🛡️ Protección de datos de agentes
+    pathname.startsWith('/api/admin')    // 🛡️ Protección de datos de admin
   ) {
     if (!user) {
+      // Si es una ruta de API, devolvemos un error 401 en vez de redirigir
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+      }
+      
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       return NextResponse.redirect(loginUrl);
     }
+    
+    // ... resto del código para verificar roles (admin/agent)
 
     // Fetch role for authorization
     try {
@@ -153,6 +169,14 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|images|api|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2|ttf|eot)$).*)',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - images (public images)
+     * - (eliminamos 'api' de aquí para que el middleware la proteja)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|images|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2|ttf|eot)$).*)',
   ],
 };
