@@ -11,7 +11,9 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
-import { Plane, FileText, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Plane, FileText, Clock, CheckCircle, XCircle, CreditCard } from 'lucide-react';
+
+
 
 interface UserBooking {
   id: string;
@@ -40,6 +42,8 @@ export default function UserBookingsPage() {
 
   useEffect(() => {
     if (!user) return;
+    const userId= user.id;
+
     async function load() {
       const { data } = await supabase
         .from('bookings')
@@ -48,7 +52,7 @@ export default function UserBookingsPage() {
           flight:flights(flight_number, departure_datetime, airline:airlines(name), origin_airport:airports!origin_airport_id(iata_code, city), destination_airport:airports!destination_airport_id(iata_code, city)),
           passengers:booking_passengers(first_name, last_name, ticket_number)
         `)
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('created_at', { ascending: false });
       setBookings((data as unknown as UserBooking[]) || []);
       setLoading(false);
@@ -56,11 +60,12 @@ export default function UserBookingsPage() {
     load();
   }, [user]);
 
-  const statusConfig: Record<string, { icon: typeof Clock; label: string; color: string; variant: 'warning' | 'success' | 'error' | 'info' }> = {
+  const statusConfig: Record<string, { icon: typeof Clock; label: string; color: string; variant: 'warning' | 'success' | 'destructive' | 'info' }> = {
+
     pending_emission: { icon: Clock, label: 'Procesando Emisión', color: 'text-amber-500', variant: 'warning' },
     confirmed: { icon: CheckCircle, label: 'Emitido', color: 'text-emerald-500', variant: 'success' },
     completed: { icon: CheckCircle, label: 'Completado', color: 'text-brand-500', variant: 'info' },
-    cancelled: { icon: XCircle, label: 'Cancelado', color: 'text-red-500', variant: 'error' },
+    cancelled: { icon: XCircle, label: 'Cancelado', color: 'text-red-500', variant: 'destructive' },
   };
 
   return (
@@ -106,12 +111,32 @@ export default function UserBookingsPage() {
                           )}
                         </div>
                       </div>
-                      {b.voucher_pdf_url && (
-                        <a href={b.voucher_pdf_url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-2 rounded-lg bg-brand-50 px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-100">
-                          <FileText className="h-4 w-4" /> Descargar Voucher
-                        </a>
-                      )}
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-end">
+  {/* BOTÓN PAGAR (solo si NO está pagado) */}
+  {b.payment_status !== 'PAID' && (
+    <a
+      href={`/pay?booking_id=${b.id}`}
+      className="flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+    >
+      <CreditCard className="h-4 w-4" />
+      Pagar
+    </a>
+  )}
+
+  {/* BOTÓN VOUCHER (solo si existe) */}
+  {b.voucher_pdf_url && (
+    <a
+      href={b.voucher_pdf_url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center justify-center gap-2 rounded-lg bg-brand-50 px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-100"
+    >
+      <FileText className="h-4 w-4" />
+      Descargar Voucher
+    </a>
+  )}
+</div>
+
                     </div>
                   </Card>
                 );
