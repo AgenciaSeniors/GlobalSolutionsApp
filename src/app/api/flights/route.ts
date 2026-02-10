@@ -1,12 +1,59 @@
 /**
- * @fileoverview GET /api/flights — Public flight search endpoint.
- * @module app/api/flights/route
+ * @fileoverview GET /api/flights/search — Public flight search endpoint with Rate Limiting.
+ * @module app/api/flights/search/route
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function GET(request: NextRequest) {
   try {
+    const supabaseAdmin = createAdminClient();
+    
+    // Identificación del cliente por IP
+    const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
+    const now = new Date();
+
+    // --- BLOQUE DE SEGURIDAD: RATE LIMIT ---
+    const { data: rl } = await supabaseAdmin
+      .from('search_rate_limits')
+      .select('*')
+      .eq('ip_address', ip)
+      .maybeSingle();
+
+    if (rl) {
+      const diffMs = now.getTime() - new Date(rl.last_search_at).getTime();
+      
+      // Límite: 5 búsquedas cada 30 segundos
+      if (rl.search_count >= 5 && diffMs < 30000) {
+        return NextResponse.json(
+          { error: 'Demasiadas búsquedas. Por seguridad, intente de nuevo en unos minutos.' },
+          { status: 429 }
+        );
+      }
+
+      // Si han pasado más de 30s, reiniciamos contador; si no, incrementamos
+      const newCount = diffMs > 30000 ? 1 : rl.search_count + 1;
+      await supabaseAdmin
+        .from('search_rate_limits')
+        .update({ 
+          last_search_at: now.toISOString(), 
+          search_count: newCount 
+        })
+        .eq('ip_address', ip);
+    } else {
+      // Primer registro para esta IP
+      await supabaseAdmin
+        .from('search_rate_limits')
+        .insert({ 
+          ip_address: ip, 
+          last_search_at: now.toISOString(), 
+          search_count: 1 
+        });
+    }
+    // --- FIN BLOQUE DE SEGURIDAD ---
+
+    // --- LÓGICA DE BÚSQUEDA ---
     const { searchParams } = request.nextUrl;
     const origin = searchParams.get('from');
     const destination = searchParams.get('to');
@@ -37,18 +84,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Filter by airport IATA code in application layer
+    // Filtrado por código IATA en la capa de aplicación
     let flights = data ?? [];
     if (origin) {
       flights = flights.filter(
-        (f: Record<string, unknown>) =>
-          (f.origin_airport as Record<string, unknown>)?.iata_code === origin,
+        (f: any) => f.origin_airport?.iata_code === origin
       );
     }
     if (destination) {
       flights = flights.filter(
-        (f: Record<string, unknown>) =>
-          (f.destination_airport as Record<string, unknown>)?.iata_code === destination,
+        (f: any) => f.destination_airport?.iata_code === destination
       );
     }
 
