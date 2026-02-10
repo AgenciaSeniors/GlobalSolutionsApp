@@ -190,6 +190,7 @@ export const externalStubProvider: FlightsProvider = {
   id: 'external-stub',
 
   async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
+    console.log('🔥 ExternalStubProvider HIT', req);
     const legs = req.legs ?? [];
     const filters = req.filters;
 
@@ -224,6 +225,29 @@ export const externalStubProvider: FlightsProvider = {
       let flights: Flight[] = [];
       for (let k = 0; k < count; k++) {
         flights.push(buildFlight(i, leg, filters, seed, k));
+      }
+
+      // 🔧 Caso fijo para pruebas E2E de deduplicación (agency vs external)
+      // JFK -> MIA, 2026-02-10, AA123 @ 10:30Z (debe colisionar con vuelo de agencia AA 0123)
+      if (origin === 'JFK' && destination === 'MIA' && date === '2026-02-10') {
+        flights.push({
+          id: 'ext-aa123-jfk-mia-2026-02-10T1030Z',
+          price: 240,
+          duration: 180,
+          final_price: 240,
+          departure_datetime: '2026-02-10T10:30:00Z',
+          arrival_datetime: '2026-02-10T13:30:00Z',
+          stops: [],
+          is_exclusive_offer: false,
+          flight_number: 'AA123',
+          available_seats: 9,
+          airline: { iata_code: 'AA', name: 'American Airlines' },
+          origin_airport: { iata_code: 'JFK', name: 'John F. Kennedy International' },
+          destination_airport: { iata_code: 'MIA', name: 'Miami International' },
+          offerSource: 'external-stub',
+          provider: 'external-stub',
+          legIndex: i,
+        });
       }
 
       // maxStops

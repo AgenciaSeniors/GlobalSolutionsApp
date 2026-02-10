@@ -9,15 +9,6 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-function getBool(v: unknown): boolean {
-  return v === true;
-}
-
-function getNumber(v: unknown): number | null {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
 function getString(v: unknown): string | null {
   if (v == null) return null;
   const s = String(v).trim();
@@ -33,69 +24,121 @@ function getNestedString(obj: unknown, path: string[]): string | null {
   return getString(cur);
 }
 
+function normalizeAirlineCode(f: Flight): string {
+  const rec = f as Record<string, unknown>;
+
+  const code =
+    getNestedString(rec.airline, ['iata_code']) ??
+    getNestedString(rec.airline, ['code']) ??
+    getString(rec.airline_iata) ??
+    getString(rec.airline_code) ??
+    null;
+
+  if (code) return code.trim().toUpperCase();
+
+  // fallback: extraer prefijo de flight_number (ej: "AA123")
+  const fn = getString(rec.flight_number);
+  if (fn) {
+    const m = fn.trim().toUpperCase().match(/^([A-Z]{2,3})\s*\d+/);
+    if (m?.[1]) return m[1];
+  }
+
+  return 'NAIR';
+}
+
+function normalizeFlightNumber(f: Flight): string {
+  const rec = f as Record<string, unknown>;
+  const raw = getString(rec.flight_number) ?? 'NFN';
+
+  // nos quedamos con el número: "AA 0123" -> "123"
+  const m = raw.trim().toUpperCase().match(/(\d{1,5})/);
+  if (!m?.[1]) return raw.trim().toUpperCase();
+
+  const num = String(Number(m[1])); // quita ceros a la izquierda
+  return num === 'NaN' ? m[1] : num;
+}
+
+function normalizeIata(s: string | null): string {
+  return (s ?? 'NXXX').trim().toUpperCase();
+}
+
+function normalizeDepartureDatetime(f: Flight): string {
+  const rec = f as Record<string, unknown>;
+  const raw = getString(rec.departure_datetime) ?? 'NDEP';
+
+  // Si parsea, normalizamos a ISO en precisión minuto
+  const t = Date.parse(raw);
+  if (!Number.isNaN(t)) {
+    return new Date(t).toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+  }
+
+  return raw.trim();
+}
+
 function flightDedupeKey(f: Flight): string {
-  // Intentamos crear una key lo más estable posible entre DB y externos.
-  // Preferencias:
-  // - flight_number
-  // - airline_id o airline.iata_code
-  // - origin/destination (por airports join o campos directos)
-  // - departure_datetime
-  // Si falta algo, igual generamos key con lo que haya.
+  const rec = f as Record<string, unknown>;
 
-  const flightNumber = getString((f as Record<string, unknown>).flight_number) ?? 'NFN';
-  const dep = getString((f as Record<string, unknown>).departure_datetime) ?? 'NDEP';
-
-  const airlineId = getString((f as Record<string, unknown>).airline_id);
-  const airlineIata =
-    getNestedString((f as Record<string, unknown>).airline, ['iata_code']) ??
-    getNestedString((f as Record<string, unknown>).airline, ['code']);
-
-  const airlinePart = airlineId ?? airlineIata ?? 'NAIR';
+  const airline = normalizeAirlineCode(f);
+  const flightNumber = normalizeFlightNumber(f);
 
   const origin =
-    getNestedString((f as Record<string, unknown>).origin_airport, ['iata_code']) ??
-    getString((f as Record<string, unknown>).origin_iata) ??
+    getNestedString(rec.origin_airport, ['iata_code']) ??
+    getString(rec.origin_iata) ??
     'NORIG';
 
   const dest =
-    getNestedString((f as Record<string, unknown>).destination_airport, ['iata_code']) ??
-    getString((f as Record<string, unknown>).destination_iata) ??
+    getNestedString(rec.destination_airport, ['iata_code']) ??
+    getString(rec.destination_iata) ??
     'NDEST';
 
-  return `${flightNumber}|${airlinePart}|${origin}|${dest}|${dep}`;
+  const dep = normalizeDepartureDatetime(f);
+
+  return `${airline}|${flightNumber}|${normalizeIata(origin)}|${normalizeIata(dest)}|${dep}`;
 }
 
-function rankScore(f: Flight): { tier: number; price: number } {
-  const rec = f as Record<string, unknown>;
 
-  // 0 = mejor
-  // Exclusivas de agencia primero
-  const exclusive = getBool(rec.is_exclusive_offer);
-
-  // También permitimos offerSource='agency' como señal
-  const offerSource = getString(rec.offerSource) ?? '';
-  const isAgency = offerSource === 'agency';
-
-  // tier: exclusivas primero, luego agency, luego resto
-  const tier = exclusive ? 0 : isAgency ? 1 : 2;
-
-  const p = getNumber(rec.price) ?? getNumber(rec.final_price) ?? 0;
-
-  return { tier, price: p };
+function asString(v: unknown): string {
+  return typeof v === 'string' ? v : '';
 }
+
 
 function sortFlightsAgencyFirst(a: Flight, b: Flight): number {
-  const ra = rankScore(a);
-  const rb = rankScore(b);
+  // 1️⃣ Exclusivas primero
+  if (a.is_exclusive_offer !== b.is_exclusive_offer) {
+    return a.is_exclusive_offer ? -1 : 1;
+  }
 
-  if (ra.tier !== rb.tier) return ra.tier - rb.tier;
+  // 2️⃣ Prioridad por source (agency < external)
+  const SOURCE_PRIORITY: Record<string, number> = {
+    agency: 1,
+    'agency-inventory': 1,
+    external: 2,
+    'external-stub': 2,
+  };
 
-  // precio asc
-  if (ra.price !== rb.price) return ra.price - rb.price;
+  const sourceA = asString(a.offerSource) || asString(a.provider) || 'external';
+  const sourceB = asString(b.offerSource) || asString(b.provider) || 'external';
 
-  // desempate estable
-  return String(a.id).localeCompare(String(b.id));
+  const sa = SOURCE_PRIORITY[sourceA] ?? 99;
+  const sb = SOURCE_PRIORITY[sourceB] ?? 99;
+  if (sa !== sb) return sa - sb;
+
+  // 3️⃣ Precio ascendente
+  const pa = Number(a.final_price ?? a.price ?? 0);
+  const pb = Number(b.final_price ?? b.price ?? 0);
+  if (pa !== pb) return pa - pb;
+
+  // 4️⃣ Hora de salida ascendente
+  const da = Date.parse(asString(a.departure_datetime)) || 0;
+  const db = Date.parse(asString(b.departure_datetime)) || 0;
+  if (da !== db) return da - db;
+
+  // 5️⃣ Desempate determinístico final
+  const ka = `${asString(a.provider)}:${asString(a.id)}`;
+  const kb = `${asString(b.provider)}:${asString(b.id)}`;
+  return ka.localeCompare(kb);
 }
+
 
 function mapByLegIndex(res: ProviderSearchResponse): Map<number, Flight[]> {
   const m = new Map<number, Flight[]>();
@@ -106,19 +149,27 @@ function mapByLegIndex(res: ProviderSearchResponse): Map<number, Flight[]> {
 }
 
 function mergeDedupeAndRank(primary: Flight[], secondary: Flight[]): Flight[] {
-  const seen = new Set<string>();
-  const merged: Flight[] = [];
+  const bestByKey = new Map<string, Flight>();
 
-  const pushUnique = (f: Flight) => {
+  const consider = (f: Flight) => {
     const key = flightDedupeKey(f);
-    if (seen.has(key)) return;
-    seen.add(key);
-    merged.push(f);
+    const existing = bestByKey.get(key);
+
+    if (!existing) {
+      bestByKey.set(key, f);
+      return;
+    }
+
+    // Si el nuevo es mejor que el existente según el ranking final, lo reemplaza
+    if (sortFlightsAgencyFirst(f, existing) < 0) {
+      bestByKey.set(key, f);
+    }
   };
 
-  for (const f of primary) pushUnique(f);
-  for (const f of secondary) pushUnique(f);
+  for (const f of primary) consider(f);
+  for (const f of secondary) consider(f);
 
+  const merged = Array.from(bestByKey.values());
   merged.sort(sortFlightsAgencyFirst);
   return merged;
 }
