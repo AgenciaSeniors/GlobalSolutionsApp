@@ -1,14 +1,8 @@
-/**
- * @fileoverview POST /api/webhooks/stripe
- *               Verifies Stripe webhook signature and updates booking payment status.
- * @module app/api/webhooks/stripe/route
- */
 export const runtime = 'nodejs';
+
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-
 import { createAdminClient } from '@/lib/supabase/admin';
-import { notifyBookingConfirmation, notifyPaymentReceipt } from '@/lib/email/notifications';
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
@@ -17,221 +11,202 @@ function requiredEnv(name: string): string {
 }
 
 const stripe = new Stripe(requiredEnv('STRIPE_SECRET_KEY'), {
+  // Usa una versión estable de stripe-node. Si ya fijaste otra, puedes cambiarla,
+  // pero esta es segura para PaymentIntents.
   apiVersion: '2024-06-20',
 });
 
-type BookingProfile = {
-  full_name: string;
-  email: string;
-};
+/**
+ * JSON typing estricta (sin any), para enviar payload a jsonb
+ */
+type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json }
+  | Json[];
 
-type FlightAirline = { name: string };
-type FlightAirport = { iata_code: string; city: string };
-
-type BookingFlight = {
-  flight_number: string;
-  departure_datetime: string;
-  airline: FlightAirline | null;
-  origin_airport: FlightAirport | null;
-  destination_airport: FlightAirport | null;
-};
-
-type BookingPassenger = { id: string };
-
-type BookingWithRelations = {
-  booking_code: string;
-  subtotal: number | string;
-  payment_gateway_fee: number | string | null;
-  total_amount: number | string;
-  payment_method: string | null;
-
-  profile: BookingProfile | null;
-  flight: BookingFlight | null;
-  passengers: BookingPassenger[] | null;
-};
+function toJson(value: unknown): Json {
+  // Stripe.Event es serializable; esto elimina prototypes/funciones y asegura Json puro.
+  return JSON.parse(JSON.stringify(value)) as Json;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
-function isString(value: unknown): value is string {
-  return typeof value === 'string';
-}
-function isBookingProfile(value: unknown): value is BookingProfile {
-  if (!isRecord(value)) return false;
-  return isString(value.full_name) && isString(value.email);
-}
-function isFlightAirport(value: unknown): value is FlightAirport {
-  if (!isRecord(value)) return false;
-  return isString(value.iata_code) && isString(value.city);
-}
-function isFlightAirline(value: unknown): value is FlightAirline {
-  if (!isRecord(value)) return false;
-  return isString(value.name);
-}
-function isBookingFlight(value: unknown): value is BookingFlight {
-  if (!isRecord(value)) return false;
 
-  const airlineOk = value.airline === null || value.airline === undefined || isFlightAirline(value.airline);
-  const originOk =
-    value.origin_airport === null || value.origin_airport === undefined || isFlightAirport(value.origin_airport);
-  const destOk =
-    value.destination_airport === null ||
-    value.destination_airport === undefined ||
-    isFlightAirport(value.destination_airport);
-
-  return isString(value.flight_number) && isString(value.departure_datetime) && airlineOk && originOk && destOk;
+function getMetadataString(
+  metadata: Stripe.Metadata | null | undefined,
+  key: string,
+): string | null {
+  if (!metadata) return null;
+  const v = metadata[key];
+  return typeof v === 'string' && v.length > 0 ? v : null;
 }
-function isBookingPassengerArray(value: unknown): value is BookingPassenger[] {
-  if (!Array.isArray(value)) return false;
-  return value.every((p) => isRecord(p) && isString(p.id));
+
+/**
+ * Inserta el evento una sola vez (idempotencia real) usando RPC.
+ * Devuelve true si se insertó por primera vez; false si ya existía (duplicado).
+ */
+async function logStripeEventOnce(params: {
+  event: Stripe.Event;
+  bookingId: string | null;
+  paymentIntentId: string | null;
+}): Promise<boolean> {
+  const supabaseAdmin = createAdminClient();
+
+  const payload = toJson(params.event);
+
+  const { data, error } = await supabaseAdmin.rpc('log_stripe_event_once', {
+    p_event_id: params.event.id,
+    p_event_type: params.event.type,
+    p_booking_id: params.bookingId,
+    p_payment_intent_id: params.paymentIntentId,
+    p_payload: payload,
+  });
+
+  if (error) {
+    // Si esto falla, prefiero NO romper el webhook (Stripe reintenta y puedes duplicar updates).
+    // Pero como ya tienes la tabla y la función, esto no debería fallar.
+    console.error('[Stripe Webhook] RPC log_stripe_event_once failed:', error.message);
+    // Si quieres ser más estricto: return false + 500. En dev es mejor ver el error.
+    throw new Error(`RPC failed: ${error.message}`);
+  }
+
+  // data debe ser boolean
+  return data === true;
 }
-function isBookingWithRelations(value: unknown): value is BookingWithRelations {
-  if (!isRecord(value)) return false;
 
-  const profileOk = value.profile === null || value.profile === undefined || isBookingProfile(value.profile);
-  const flightOk = value.flight === null || value.flight === undefined || isBookingFlight(value.flight);
-  const passengersOk =
-    value.passengers === null || value.passengers === undefined || isBookingPassengerArray(value.passengers);
+/**
+ * Actualiza booking a paid/failed usando Service Role.
+ * - Preferimos actualizar por booking_id si viene en metadata.
+ * - Si no viene, fallback por payment_intent_id.
+ */
+async function updateBookingPaymentStatus(params: {
+  status: 'paid' | 'failed';
+  bookingId: string | null;
+  paymentIntentId: string;
+  paidAtIso?: string;
+}): Promise<void> {
+  const supabaseAdmin = createAdminClient();
 
-  const subtotalOk = typeof value.subtotal === 'number' || typeof value.subtotal === 'string';
-  const gatewayFeeOk =
-    value.payment_gateway_fee === null ||
-    typeof value.payment_gateway_fee === 'number' ||
-    typeof value.payment_gateway_fee === 'string';
-  const totalOk = typeof value.total_amount === 'number' || typeof value.total_amount === 'string';
-  const paymentMethodOk = value.payment_method === null || typeof value.payment_method === 'string';
+  const updatePayload: Record<string, string | null> = {
+    payment_status: params.status,
+    payment_intent_id: params.paymentIntentId,
+    payment_method: 'stripe',
+  };
 
-  return (
-    isString(value.booking_code) &&
-    profileOk &&
-    flightOk &&
-    passengersOk &&
-    subtotalOk &&
-    gatewayFeeOk &&
-    totalOk &&
-    paymentMethodOk
-  );
+  if (params.status === 'paid') {
+    updatePayload.paid_at = params.paidAtIso ?? new Date().toISOString();
+  }
+
+  const q = params.bookingId
+    ? supabaseAdmin.from('bookings').update(updatePayload).eq('id', params.bookingId)
+    : supabaseAdmin.from('bookings').update(updatePayload).eq('payment_intent_id', params.paymentIntentId);
+
+  const { error } = await q;
+
+  if (error) {
+    console.error('[Stripe Webhook] DB update failed:', error.message);
+    throw new Error(`DB update failed: ${error.message}`);
+  }
 }
 
 export async function POST(request: NextRequest) {
+  const rawBody = await request.text();
   const signature = request.headers.get('stripe-signature');
+
   if (!signature) {
     return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 });
   }
 
-  const rawBody = await request.text();
-
   let event: Stripe.Event;
+
   try {
-    event = stripe.webhooks.constructEvent(rawBody, signature, requiredEnv('STRIPE_WEBHOOK_SECRET'));
+    event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      requiredEnv('STRIPE_WEBHOOK_SECRET'),
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Signature verification failed';
     console.error('[Stripe Webhook] Verification failed:', message);
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
-  // IMPORTANT: webhooks must use Service Role to bypass RLS.
-  const supabase = createAdminClient();
+  // Extraer IDs best-effort
+  let bookingId: string | null = null;
+  let paymentIntentId: string | null = null;
 
-  switch (event.type) {
-    case 'payment_intent.succeeded': {
-      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+  if (event.type.startsWith('payment_intent.')) {
+    const pi = event.data.object as Stripe.PaymentIntent;
+    bookingId = getMetadataString(pi.metadata, 'booking_id');
+    paymentIntentId = pi.id;
+  } else if (isRecord(event.data?.object) && typeof event.data.object.id === 'string') {
+    paymentIntentId = event.data.object.id;
+  }
 
-      const { error } = await supabase
-        .from('bookings')
-        .update({
-          payment_status: 'paid',
-          paid_at: new Date().toISOString(),
-        })
-        .eq('payment_intent_id', paymentIntent.id);
+  // 1) Idempotencia real: registrar evento primero
+  try {
+    const inserted = await logStripeEventOnce({
+      event,
+      bookingId,
+      paymentIntentId,
+    });
 
-      if (error) {
-        console.error('[Stripe Webhook] DB update failed:', error.message);
-        return NextResponse.json({ error: 'Database error' }, { status: 500 });
-      }
-
-      // Best-effort emails (do not fail webhook if emails fail)
-      try {
-        /**
-         * Use FK constraint joins so Supabase returns OBJECTS (not arrays).
-         * If your constraint names differ, adjust only the `!..._fkey` parts below.
-         */
-        const { data } = await supabase
-          .from('bookings')
-          .select(
-            `
-            booking_code, subtotal, payment_gateway_fee, total_amount, payment_method,
-            profile:profiles!bookings_user_id_fkey(full_name, email),
-            flight:flights!bookings_flight_id_fkey(
-              flight_number, departure_datetime,
-              airline:airlines!flights_airline_id_fkey(name),
-              origin_airport:airports!flights_origin_airport_id_fkey(iata_code, city),
-              destination_airport:airports!flights_destination_airport_id_fkey(iata_code, city)
-            ),
-            passengers:booking_passengers(id)
-          `,
-          )
-          .eq('payment_intent_id', paymentIntent.id)
-          .single();
-
-        if (!isBookingWithRelations(data) || !data.profile?.email) break;
-
-        const booking = data;
-        const p = booking.profile;
-        const f = booking.flight;
-        const passengersCount = booking.passengers?.length ?? 1;
-
-        await Promise.all([
-          notifyBookingConfirmation(p.email, {
-            clientName: p.full_name,
-            bookingCode: booking.booking_code,
-            flightNumber: f?.flight_number ?? '',
-            airline: f?.airline?.name ?? '',
-            origin: f?.origin_airport?.iata_code ?? '',
-            originCity: f?.origin_airport?.city ?? '',
-            destination: f?.destination_airport?.iata_code ?? '',
-            destinationCity: f?.destination_airport?.city ?? '',
-            departureDate: f?.departure_datetime ? new Date(f.departure_datetime).toLocaleString('es') : '',
-            passengers: passengersCount,
-            totalAmount: `$${Number(booking.total_amount).toFixed(2)}`,
-            paymentMethod: booking.payment_method ?? 'Stripe',
-          }),
-          notifyPaymentReceipt(p.email, {
-            clientName: p.full_name,
-            bookingCode: booking.booking_code,
-            subtotal: `$${Number(booking.subtotal).toFixed(2)}`,
-            gatewayFee: `$${Number(booking.payment_gateway_fee ?? 0).toFixed(2)}`,
-            total: `$${Number(booking.total_amount).toFixed(2)}`,
-            paymentMethod: booking.payment_method ?? 'Stripe',
-            paidAt: new Date().toLocaleString('es'),
-          }),
-        ]);
-      } catch (emailErr: unknown) {
-        console.error('[Stripe Webhook] Email notification failed:', emailErr);
-      }
-
-      break;
+    if (!inserted) {
+      // Evento duplicado: no tocar DB otra vez
+      console.log('[Stripe Webhook] Duplicate event ignored:', event.id, event.type);
+      return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
     }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Event logging failed';
+    console.error('[Stripe Webhook] Event logging failed:', message);
+    // Aquí sí devolvemos 500 para que Stripe reintente, porque sin log no garantizamos idempotencia.
+    return NextResponse.json({ error: 'Event logging failed' }, { status: 500 });
+  }
 
-    case 'payment_intent.payment_failed': {
-      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+  // 2) Procesar evento (solo primera vez)
+  try {
+    switch (event.type) {
+      case 'payment_intent.succeeded': {
+        const pi = event.data.object as Stripe.PaymentIntent;
 
-      const { error } = await supabase
-        .from('bookings')
-        .update({ payment_status: 'failed' })
-        .eq('payment_intent_id', paymentIntent.id);
+        const targetBookingId = getMetadataString(pi.metadata, 'booking_id');
+        await updateBookingPaymentStatus({
+          status: 'paid',
+          bookingId: targetBookingId,
+          paymentIntentId: pi.id,
+          paidAtIso: new Date().toISOString(),
+        });
 
-      if (error) {
-        console.error('[Stripe Webhook] DB update failed (failed):', error.message);
-        return NextResponse.json({ error: 'Database error' }, { status: 500 });
+        break;
       }
 
-      break;
-    }
+      case 'payment_intent.payment_failed': {
+        const pi = event.data.object as Stripe.PaymentIntent;
 
-    default:
-      // Stripe CLI triggers extra events; safe to ignore.
-      console.log(`[Stripe Webhook] Unhandled event: ${event.type}`);
+        const targetBookingId = getMetadataString(pi.metadata, 'booking_id');
+        await updateBookingPaymentStatus({
+          status: 'failed',
+          bookingId: targetBookingId,
+          paymentIntentId: pi.id,
+        });
+
+        break;
+      }
+
+      default: {
+        // No hacemos nada más (pero ya quedó auditado en payment_events por RPC)
+        console.log(`[Stripe Webhook] Unhandled event: ${event.type}`);
+        break;
+      }
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Webhook handler failed';
+    console.error('[Stripe Webhook] Handler failed:', message);
+    return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 });
   }
 
   return NextResponse.json({ received: true }, { status: 200 });
