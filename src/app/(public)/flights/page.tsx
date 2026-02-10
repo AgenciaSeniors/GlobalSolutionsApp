@@ -7,6 +7,7 @@ import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import FlightSearchForm from '@/components/forms/FlightSearchForm';
 
+
 export const metadata: Metadata = { title: 'Buscar Vuelos' };
 
 export default function FlightsPage() {
@@ -24,7 +25,8 @@ export default function FlightsPage() {
                 Encuentra tu vuelo ideal
               </h1>
             </div>
-            <FlightSearchForm />
+           <FlightSearchForm />
+
           </div>
         </section>
       </main>

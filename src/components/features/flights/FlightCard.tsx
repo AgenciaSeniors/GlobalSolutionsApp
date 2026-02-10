@@ -37,8 +37,8 @@ export default function FlightCard({
   onSelect,
 }: FlightCardProps) {
   return (
-    <article className="group grid grid-cols-1 items-center gap-6 rounded-2xl border-2 border-transparent bg-white p-6 shadow-sm transition-all duration-300 hover:border-brand-200 hover:shadow-lg hover:shadow-brand-600/[0.06] sm:grid-cols-[1fr_2fr_1fr]">
-      {/* ── Airline ── */}
+    <article className="group grid grid-cols-1 items-center gap-6 rounded-2xl border-2 border-transparent bg-white p-6 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:border-brand-200 hover:shadow-lg hover:shadow-brand-600/[0.06] sm:grid-cols-[1fr_2fr_1fr]">
+
       <div>
         <span className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 text-brand-600">
           <Plane className="h-5 w-5" />
