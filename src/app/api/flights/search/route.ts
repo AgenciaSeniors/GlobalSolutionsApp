@@ -198,11 +198,26 @@ export async function POST(req: Request) {
 
     if (cached?.response) {
       console.info('[FLIGHTS_SEARCH] source=cache', { cache_key });
-      return NextResponse.json({ source: 'cache', results: cached.response });
+
+      const cachedResults: ResultsByLeg = Array.isArray(cached.response)
+        ? (cached.response as unknown[])
+            .filter(isRecord)
+            .map((r) => ({
+              legIndex: Number((r as FlightRecord).legIndex ?? 0),
+              flights: Array.isArray((r as FlightRecord).flights)
+                ? ((r as FlightRecord).flights as unknown[]).filter(isRecord) as FlightRecord[]
+                : [],
+            }))
+        : [];
+
+      const providersUsed = extractProvidersUsed(cachedResults);
+      return NextResponse.json({ source: 'cache', providersUsed, results: cachedResults });
     }
+
 
     // 2) LIVE — Orchestrator (agency-first)
     let resultsByLeg: ResultsByLeg | null = null;
+    let providersUsedLive: string[] = [];
 
     try {
       console.info('[FLIGHTS_SEARCH] source=live', { cache_key, provider: flightsOrchestrator.id });
@@ -215,8 +230,8 @@ export async function POST(req: Request) {
         flights: (r.flights as unknown[]).filter(isRecord) as FlightRecord[],
       }));
 
-      const providersUsed = extractProvidersUsed(resultsByLeg);
-      console.info('[FLIGHTS_SEARCH] providersUsed', { cache_key, providersUsed });
+      providersUsedLive = extractProvidersUsed(resultsByLeg);
+      console.info('[FLIGHTS_SEARCH] providersUsed', { cache_key, providersUsed: providersUsedLive });
     } catch (e: unknown) {
       const msg = String(isRecord(e) ? e.message : e ?? '');
       if (msg.startsWith('IATA inválido')) {
@@ -362,7 +377,7 @@ export async function POST(req: Request) {
 
     if (upsertErr) console.warn('flight_search_cache upsert error:', upsertErr.message);
 
-    return NextResponse.json({ source: 'live', results: finalResults });
+    return NextResponse.json({ source: 'live', providersUsed: providersUsedLive, results: finalResults });
   } catch (err: unknown) {
     console.error('[FLIGHT_SEARCH_ERROR]', err);
     const msg = String(isRecord(err) ? err.message : err ?? 'Internal server error');

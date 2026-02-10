@@ -190,7 +190,6 @@ export const externalStubProvider: FlightsProvider = {
   id: 'external-stub',
 
   async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
-    console.log('🔥 ExternalStubProvider HIT', req);
     const legs = req.legs ?? [];
     const filters = req.filters;
 
