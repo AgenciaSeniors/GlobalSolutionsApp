@@ -3,6 +3,7 @@
  *               Verifies Stripe webhook signature and updates booking payment status.
  * @module app/api/webhooks/stripe/route
  */
+export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
