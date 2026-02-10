@@ -3,6 +3,16 @@ import type { FlightLeg, FlightSearchParams, FlightSearchFilters } from '@/types
 
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightWithDetails[] }>;
 
+// Helper interface for the legacy search params structure
+interface LegacySearchParams {
+  origin?: string;
+  destination?: string;
+  departure_date?: string;
+  return_date?: string;
+  passengers?: number;
+  filters?: FlightSearchFilters;
+}
+
 function normalizeFilters(filters?: FlightSearchFilters): FlightSearchFilters | undefined {
   if (!filters) return undefined;
 
@@ -29,19 +39,24 @@ function buildSearchBody(
 ): { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters } {
   // New format already
   if ('legs' in params && Array.isArray(params.legs) && params.legs.length > 0) {
+    // We cast to a shape that includes filters to avoid 'any'
+    const multiLegParams = params as { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters };
+    
     return {
-      legs: params.legs.map((l) => ({
+      legs: multiLegParams.legs.map((l) => ({
         origin: l.origin.toUpperCase(),
         destination: l.destination.toUpperCase(),
         departure_date: l.departure_date,
       })),
-      passengers: params.passengers,
-      filters: normalizeFilters((params as any).filters),
+      passengers: multiLegParams.passengers,
+      filters: normalizeFilters(multiLegParams.filters),
     };
   }
 
   // Legacy format
-  const legacy = params as any;
+  // Replaced 'as any' with the specific interface defined above
+  const legacy = params as LegacySearchParams;
+  
   const origin = String(legacy.origin ?? '').toUpperCase();
   const destination = String(legacy.destination ?? '').toUpperCase();
   const departure_date = String(legacy.departure_date ?? '');
