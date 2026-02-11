@@ -1,23 +1,17 @@
+/**
+ * @fileoverview Flight search results page — reads URL search params,
+ *               fetches matching flights and renders FlightResultsList.
+ * @module app/(public)/flights/search/page
+ */
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import FlightSearchForm from '@/components/forms/FlightSearchForm';
 import FlightResultsList from '@/components/features/flights/FlightResultsList';
 import { useFlightSearch } from '@/hooks/useFlightSearch';
-import type { FlightOffer } from '@/types/models';
-
-function formatDuration(ms: number): string {
-  const totalMinutes = Math.max(0, Math.round(ms / 60_000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours <= 0) return `${minutes}m`;
-  if (minutes === 0) return `${hours}h`;
-  return `${hours}h ${minutes}m`;
-}
 
 export default function FlightSearchResultsPage() {
   const searchParams = useSearchParams();
@@ -43,46 +37,33 @@ export default function FlightSearchResultsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  const flights: FlightOffer[] = useMemo(() => {
-    return results.map((f) => {
-      const departureMs = new Date(f.departure_datetime).getTime();
-      const arrivalMs = new Date(f.arrival_datetime).getTime();
-      const durationMs = arrivalMs - departureMs;
-
-      const duration = formatDuration(durationMs);
-
-      return {
-        id: f.id,
-        price: f.final_price,
-
-        // FlightWithDetails no trae currency/type en tu models.ts:
-        currency: 'USD',
-        type: 'oneway',
-
-        totalDuration: duration,
-
-        segments: [
-          {
-            id: `${f.id}-seg-1`,
-            origin: f.origin_airport.iata_code,
-            destination: f.destination_airport.iata_code,
-            departureTime: f.departure_datetime,
-            arrivalTime: f.arrival_datetime,
-            flightNumber: f.flight_number,
-            duration,
-
-            // FlightSegment.airline es UiAirline (id, name, code, logoUrl?)
-            airline: {
-              id: f.airline.id,
-              name: f.airline.name,
-              code: f.airline.iata_code,
-              logoUrl: f.airline.logo_url ?? undefined,
-            },
-          },
-        ],
-      };
-    });
-  }, [results]);
+  // Map FlightWithDetails → FlightCardProps with checkout navigation
+  const cards = results.map((f) => ({
+    id: f.id,
+    airline: f.airline?.name ?? 'Aerolínea',
+    flightCode: f.flight_number,
+    originCode: f.origin_airport?.iata_code ?? '',
+    destinationCode: f.destination_airport?.iata_code ?? '',
+    departureTime: new Date(f.departure_datetime).toLocaleTimeString('es', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+    arrivalTime: new Date(f.arrival_datetime).toLocaleTimeString('es', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+    duration: `${Math.round(
+      (new Date(f.arrival_datetime).getTime() -
+        new Date(f.departure_datetime).getTime()) /
+        3_600_000,
+    )}h`,
+    stops: 0,
+    price: f.final_price,
+    availableSeats: f.available_seats,
+    onSelect: () => router.push(`/checkout?flight=${f.id}&passengers=${passengerCount}`),
+  }));
 
   return (
     <>
@@ -96,13 +77,7 @@ export default function FlightSearchResultsPage() {
 
         <section className="bg-neutral-50 py-12">
           <div className="mx-auto max-w-5xl px-6">
-            <FlightResultsList
-              flights={flights}
-              isLoading={isLoading}
-              onSelectFlight={(flightId) =>
-                router.push(`/checkout?flight=${flightId}&passengers=${passengerCount}`)
-              }
-            />
+            <FlightResultsList flights={cards} isLoading={isLoading} />
           </div>
         </section>
       </main>
