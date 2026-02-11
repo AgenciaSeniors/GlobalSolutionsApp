@@ -33,10 +33,8 @@ export default function HomePage() {
       {/* ── Hero ── */}
       <HeroSection />
 
-      {/* ── Trust ── */}
-      <TrustBanner />
 
-      {/* ── Flight Search ── */}
+        {/* ── Flight Search ── */}
       <section className="bg-white py-20">
         <div className="mx-auto max-w-5xl px-6">
           <div className="mb-12 text-center">
@@ -50,6 +48,8 @@ export default function HomePage() {
           <FlightSearchForm />
         </div>
       </section>
+
+
 
       {/* ── Exclusive Offers ── */}
       <section className="bg-neutral-50 py-20">
@@ -72,6 +72,14 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+    
+
+       {/* ── Trust ── */}
+      <TrustBanner />
+
+
+      
 
       {/* ── Reviews ── */}
       <section className="bg-gradient-to-b from-neutral-50 to-brand-50 py-20">

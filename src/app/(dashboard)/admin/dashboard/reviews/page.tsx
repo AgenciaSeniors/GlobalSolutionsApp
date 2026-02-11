@@ -12,7 +12,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
-import { Star, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Star, CheckCircle, XCircle } from 'lucide-react';
 
 interface ReviewItem {
   id: string;
@@ -59,10 +59,11 @@ export default function AdminReviewsPage() {
       <Star key={i} className={`h-4 w-4 ${i < rating ? 'fill-amber-400 text-amber-400' : 'text-neutral-200'}`} />
     ));
 
-  const statusConfig: Record<string, { variant: 'success' | 'warning' | 'error'; label: string }> = {
+  // CORRECCIÓN: Se cambió 'error' por 'destructive' para coincidir con las variantes de Badge
+  const statusConfig: Record<string, { variant: 'success' | 'warning' | 'destructive'; label: string }> = {
     pending_approval: { variant: 'warning', label: 'Pendiente' },
     approved: { variant: 'success', label: 'Aprobada' },
-    rejected: { variant: 'error', label: 'Rechazada' },
+    rejected: { variant: 'destructive', label: 'Rechazada' },
   };
 
   return (

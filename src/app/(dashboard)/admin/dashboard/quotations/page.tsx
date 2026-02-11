@@ -52,12 +52,13 @@ export default function AdminQuotationsPage() {
     fetchQuotations();
   }
 
-  const statusColor: Record<string, 'warning' | 'info' | 'success' | 'error'> = {
+  // CORRECCIÓN 1: Se cambió 'error' por 'destructive' para coincidir con las variantes de Badge
+  const statusColor: Record<string, 'warning' | 'info' | 'success' | 'destructive'> = {
     pending: 'warning',
     assigned: 'info',
     quoted: 'success',
     accepted: 'success',
-    expired: 'error',
+    expired: 'destructive',
   };
 
   return (
@@ -93,7 +94,8 @@ export default function AdminQuotationsPage() {
                       <p className="text-sm text-neutral-500">
                         Salida: {q.departure_date} {q.return_date ? `· Regreso: ${q.return_date}` : '(Solo ida)'}
                       </p>
-                      {q.notes && <p className="mt-1 text-sm italic text-neutral-400">"{q.notes}"</p>}
+                      {/* CORRECCIÓN 2: Uso de entities para comillas */}
+                      {q.notes && <p className="mt-1 text-sm italic text-neutral-400">&quot;{q.notes}&quot;</p>}
                       {q.quoted_price && (
                         <p className="mt-2 flex items-center gap-1 text-lg font-bold text-emerald-600">
                           <DollarSign className="h-4 w-4" /> {q.quoted_price.toFixed(2)}
@@ -103,11 +105,27 @@ export default function AdminQuotationsPage() {
                     <div>
                       {q.status === 'pending' && (
                         replying === q.id ? (
-                          <div className="space-y-3">
-                            <Input label="Precio Cotizado ($)" type="number" value={quotedPrice} onChange={e => setQuotedPrice(e.target.value)} />
-                            <Input label="Notas" value={adminNotes} onChange={e => setAdminNotes(e.target.value)} />
-                            <div className="flex gap-2">
-                              <Button size="sm" onClick={() => handleQuote(q.id)}>Enviar Cotización</Button>
+                          <div className="space-y-3 min-w-[250px]">
+                            {/* CORRECCIÓN 3: Reemplazo de prop 'label' inexistente por estructura label + Input */}
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold text-neutral-500">Precio Cotizado ($)</label>
+                              <Input 
+                                type="number" 
+                                value={quotedPrice} 
+                                onChange={e => setQuotedPrice(e.target.value)} 
+                                placeholder="Ej: 1500.00"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold text-neutral-500">Notas para el cliente</label>
+                              <Input 
+                                value={adminNotes} 
+                                onChange={e => setAdminNotes(e.target.value)} 
+                                placeholder="Incluye equipaje..."
+                              />
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                              <Button size="sm" onClick={() => handleQuote(q.id)}>Enviar</Button>
                               <Button size="sm" variant="outline" onClick={() => setReplying(null)}>Cancelar</Button>
                             </div>
                           </div>

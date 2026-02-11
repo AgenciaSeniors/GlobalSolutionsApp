@@ -1,98 +1,99 @@
-/**
- * @fileoverview Single flight result card with route timeline, airline info and CTA.
- * @module components/features/flights/FlightCard
- */
-import { Plane, Flame } from 'lucide-react';
-import Badge from '@/components/ui/Badge';
+import type { FlightOffer } from '@/types/models';
 import Button from '@/components/ui/Button';
-import { formatCurrency } from '@/lib/utils/formatters';
+import Badge from '@/components/ui/Badge';
+import { Plane } from 'lucide-react';
 
-export interface FlightCardProps {
-  airline: string;
-  flightCode: string;
-  originCode: string;
-  destinationCode: string;
-  departureTime: string;
-  arrivalTime: string;
-  duration: string;
-  stops: number;
-  stopCities?: string;
-  price: number;
-  availableSeats: number;
-  onSelect?: () => void;
+interface FlightCardProps {
+  flight: FlightOffer;
+  onSelect?: (id: string) => void;
 }
 
-export default function FlightCard({
-  airline,
-  flightCode,
-  originCode,
-  destinationCode,
-  departureTime,
-  arrivalTime,
-  duration,
-  stops,
-  stopCities,
-  price,
-  availableSeats,
-  onSelect,
-}: FlightCardProps) {
+function formatTime(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+export default function FlightCard({ flight, onSelect }: FlightCardProps) {
+  const segments = flight.segments ?? [];
+  const firstSegment = segments[0];
+  const lastSegment = segments[segments.length - 1];
+
+  // Si por alguna razón llega vacío, no reventamos la UI
+  if (!firstSegment || !lastSegment) return null;
+
+  const airlineName = firstSegment.airline?.name ?? 'Aerolínea';
+  const airlineCode = firstSegment.airline?.code ?? '';
+  const flightNumber = firstSegment.flightNumber ?? '';
+  const originCode = firstSegment.origin ?? '';
+  const destinationCode = lastSegment.destination ?? '';
+
+  const departureTime = formatTime(firstSegment.departureTime);
+  const arrivalTime = formatTime(lastSegment.arrivalTime);
+
+  const isDirect = segments.length <= 1;
+  const stopsCount = Math.max(0, segments.length - 1);
+
+  const stopsLabel = isDirect ? 'Directo' : `${stopsCount} Escala${stopsCount === 1 ? '' : 's'}`;
+
   return (
-    <article className="group grid grid-cols-1 items-center gap-6 rounded-2xl border-2 border-transparent bg-white p-6 shadow-sm transition-all duration-300 hover:border-brand-200 hover:shadow-lg hover:shadow-brand-600/[0.06] sm:grid-cols-[1fr_2fr_1fr]">
-      {/* ── Airline ── */}
+    <article className="group grid grid-cols-1 items-center gap-6 rounded-2xl border-2 border-transparent bg-white p-6 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:border-brand-200 hover:shadow-lg hover:shadow-brand-600/[0.06] sm:grid-cols-[1fr_2fr_1fr]">
+      {/* 1) Aerolínea */}
       <div>
         <span className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 text-brand-600">
           <Plane className="h-5 w-5" />
         </span>
-        <p className="text-[15px] font-bold text-neutral-900">{airline}</p>
+
+        <p className="text-[15px] font-bold text-neutral-900">{airlineName}</p>
+
         <p className="text-sm text-neutral-500">
-          {flightCode} · Economy
+          {airlineCode}
+          {airlineCode && flightNumber ? ' · ' : ''}
+          {flightNumber ? `Vuelo ${flightNumber}` : ''}
         </p>
       </div>
 
-      {/* ── Route Timeline ── */}
-      <div className="flex items-center gap-4">
-        <div className="text-center">
-          <p className="text-2xl font-extrabold text-neutral-900">
-            {departureTime}
-          </p>
-          <p className="text-sm font-semibold text-neutral-500">{originCode}</p>
+      {/* 2) Horarios + ruta */}
+      <div className="grid grid-cols-3 items-center gap-4">
+        {/* Salida */}
+        <div className="text-left">
+          <p className="text-2xl font-bold text-neutral-900">{departureTime}</p>
+          <p className="text-sm text-neutral-500">{originCode}</p>
         </div>
 
-        <div className="flex-1 text-center">
-          <p className="mb-1.5 text-xs text-neutral-400">{duration}</p>
-          <div className="relative h-0.5 rounded bg-neutral-200">
-            <span className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-500" />
+        {/* Duración + escalas */}
+        <div className="flex flex-col items-center">
+          <p className="text-xs text-neutral-400">{flight.totalDuration}</p>
+
+          <div className="relative mt-2 w-full">
+            <div className="h-[2px] w-full bg-neutral-200" />
+            <Plane className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 bg-white px-1 text-neutral-300" />
           </div>
-          <p className="mt-1.5 text-xs font-medium text-brand-500">
-            {stops === 0
-              ? 'Directo'
-              : `${stops} escala${stops > 1 ? 's' : ''}${stopCities ? ` · ${stopCities}` : ''}`}
-          </p>
+
+          <div className="mt-2">
+            <Badge variant={isDirect ? 'success' : 'warning'}>{stopsLabel}</Badge>
+          </div>
         </div>
 
-        <div className="text-center">
-          <p className="text-2xl font-extrabold text-neutral-900">
-            {arrivalTime}
-          </p>
-          <p className="text-sm font-semibold text-neutral-500">
-            {destinationCode}
-          </p>
+        {/* Llegada */}
+        <div className="text-right">
+          <p className="text-2xl font-bold text-neutral-900">{arrivalTime}</p>
+          <p className="text-sm text-neutral-500">{destinationCode}</p>
         </div>
       </div>
 
-      {/* ── Price + CTA ── */}
-      <div className="text-right">
-        {availableSeats < 6 && (
-          <Badge variant="destructive" className="mb-1.5 animate-pulse">
-            <Flame className="h-3 w-3" />
-            ¡{availableSeats} cupos!
-          </Badge>
-        )}
-        <p className="text-3xl font-extrabold text-brand-700">
-          {formatCurrency(price)}
-        </p>
-        <p className="mb-3 text-xs text-neutral-500">por persona</p>
-        <Button size="sm" onClick={onSelect}>
+      {/* 3) Precio + CTA */}
+      <div className="flex flex-row items-center justify-between gap-4 sm:flex-col sm:items-end sm:justify-center">
+        <div className="text-right">
+          <span className="text-xs text-neutral-400">Total por pasajero</span>
+          <p className="text-3xl font-extrabold text-[#FF4757]">${flight.price}</p>
+        </div>
+
+        <Button
+          onClick={() => onSelect?.(flight.id)}
+          variant="primary"
+          className="w-full sm:w-auto"
+        >
           Seleccionar
         </Button>
       </div>

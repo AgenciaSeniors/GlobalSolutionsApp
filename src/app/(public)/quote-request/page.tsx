@@ -87,20 +87,45 @@ export default function QuoteRequestPage() {
               <Card variant="bordered">
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <Input label="Nombre" value={form.name} onChange={update('name')} placeholder="Tu nombre completo" required />
-                    <Input label="Email" type="email" value={form.email} onChange={update('email')} placeholder="correo@ejemplo.com" required />
+                    <div className="space-y-1">
+                      <label className="mb-1 block text-sm font-medium text-neutral-700">Nombre</label>
+                      <Input value={form.name} onChange={update('name')} placeholder="Tu nombre completo" required />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="mb-1 block text-sm font-medium text-neutral-700">Email</label>
+                      <Input type="email" value={form.email} onChange={update('email')} placeholder="correo@ejemplo.com" required />
+                    </div>
                   </div>
 
-                  <Input label="Teléfono (opcional)" type="tel" value={form.phone} onChange={update('phone')} placeholder="+53 5555 5555" />
+                  <div className="space-y-1">
+                    <label className="mb-1 block text-sm font-medium text-neutral-700">Teléfono (opcional)</label>
+                    <Input type="tel" value={form.phone} onChange={update('phone')} placeholder="+53 5555 5555" />
+                  </div>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <Input label="Origen" value={form.origin} onChange={update('origin')} placeholder="Ej: La Habana (HAV)" required />
-                    <Input label="Destino" value={form.destination} onChange={update('destination')} placeholder="Ej: Estambul (IST)" required />
+                    <div className="space-y-1">
+                      <label className="mb-1 block text-sm font-medium text-neutral-700">Origen</label>
+                      <Input value={form.origin} onChange={update('origin')} placeholder="Ej: La Habana (HAV)" required />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="mb-1 block text-sm font-medium text-neutral-700">Destino</label>
+                      <Input value={form.destination} onChange={update('destination')} placeholder="Ej: Estambul (IST)" required />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                    <Input label="Fecha de Salida" type="date" value={form.departure_date} onChange={update('departure_date')} required />
-                    <Input label="Fecha de Regreso" type="date" value={form.return_date} onChange={update('return_date')} />
+                    <div className="space-y-1">
+                      <label className="mb-1 block text-sm font-medium text-neutral-700">Fecha de Salida</label>
+                      <Input type="date" value={form.departure_date} onChange={update('departure_date')} required />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="mb-1 block text-sm font-medium text-neutral-700">Fecha de Regreso</label>
+                      <Input type="date" value={form.return_date} onChange={update('return_date')} />
+                    </div>
+
                     <div>
                       <label className="mb-1 block text-sm font-medium text-neutral-700">Pasajeros</label>
                       <select value={form.passengers} onChange={update('passengers')} className="w-full rounded-xl border border-neutral-300 px-4 py-3 text-sm">

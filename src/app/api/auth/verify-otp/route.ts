@@ -11,13 +11,30 @@ function sha256(input: string) {
   return crypto.createHash('sha256').update(input).digest('hex');
 }
 
+type VerifyOtpBody = {
+  email?: unknown;
+  code?: unknown;
+};
+
 export async function POST(req: Request) {
   try {
-    const { email, code } = await req.json();
+    const body: VerifyOtpBody = await req.json();
+    const email = typeof body.email === 'string' ? body.email : '';
+    const code = typeof body.code === 'string' ? body.code : '';
+
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedCode = code.trim();
+
+    if (!normalizedEmail || !normalizedCode) {
+      return NextResponse.json(
+        { error: 'Email y código son requeridos.' },
+        { status: 400 },
+      );
+    }
+
     const now = new Date();
 
-    // 1. Buscar el código en la tabla
+    // 1) Buscar el código en la tabla
     const { data: otpRow, error: fetchErr } = await supabaseAdmin
       .from('auth_otps')
       .select('*')
@@ -27,28 +44,53 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle();
 
-    if (fetchErr || !otpRow) return NextResponse.json({ error: 'Código no encontrado o ya usado.' }, { status: 400 });
+    if (fetchErr || !otpRow) {
+      return NextResponse.json(
+        { error: 'Código no encontrado o ya usado.' },
+        { status: 400 },
+      );
+    }
 
-    // 2. Validar
-    if (new Date(otpRow.expires_at) < now) return NextResponse.json({ error: 'Código expirado.' }, { status: 400 });
-    if (sha256(code.trim()) !== otpRow.code_hash) return NextResponse.json({ error: 'Código incorrecto.' }, { status: 400 });
+    // 2) Validar
+    if (new Date(otpRow.expires_at) < now) {
+      return NextResponse.json({ error: 'Código expirado.' }, { status: 400 });
+    }
 
-    // 3. Marcar como verificado
-    await supabaseAdmin.from('auth_otps').update({ used_at: now.toISOString(), verified_at: now.toISOString() }).eq('id', otpRow.id);
+    if (sha256(normalizedCode) !== otpRow.code_hash) {
+      return NextResponse.json(
+        { error: 'Código incorrecto.' },
+        { status: 400 },
+      );
+    }
 
-    // 4. GENERAR SESIÓN REAL (IMPORTANTE)
-    // Usamos el método de Supabase para crear un link de acceso temporal
-    const { data, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'magiclink',
-      email: normalizedEmail,
-      options: { redirectTo: '/dashboard' }
-    });
+    // 3) Marcar como verificado
+    await supabaseAdmin
+      .from('auth_otps')
+      .update({ used_at: now.toISOString(), verified_at: now.toISOString() })
+      .eq('id', otpRow.id);
+
+    // 4) Generar link de sesión
+    const { data, error: linkErr } =
+      await supabaseAdmin.auth.admin.generateLink({
+        type: 'magiclink',
+        email: normalizedEmail,
+        options: { redirectTo: '/dashboard' },
+      });
 
     if (linkErr) throw linkErr;
 
-    // Devolvemos el link que el frontend debe "navegar" para loguearse
-    return NextResponse.json({ ok: true, sessionLink: data.properties.action_link });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    const sessionLink =
+      data?.properties?.action_link && typeof data.properties.action_link === 'string'
+        ? data.properties.action_link
+        : null;
+
+    return NextResponse.json({
+      ok: true,
+      verified: true,
+      sessionLink,
+    });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -16,8 +16,8 @@ import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
-  User, Mail, Phone, Shield, Key, Save, CheckCircle,
-  AlertCircle, Hash, Calendar, Eye, EyeOff,
+  User, Mail, Shield, Key, Save, CheckCircle,
+  AlertCircle, Hash, Calendar,
 } from 'lucide-react';
 import type { Profile } from '@/types/models';
 
@@ -36,7 +36,6 @@ export default function AgentSettingsPage() {
 
   // Password change
   const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);
@@ -60,7 +59,7 @@ export default function AgentSettingsPage() {
       setLoading(false);
     }
     loadProfile();
-  }, [user]);
+  }, [user, supabase]);
 
   async function handleSaveProfile(e: FormEvent) {
     e.preventDefault();
@@ -108,7 +107,6 @@ export default function AgentSettingsPage() {
     } else {
       setMessage({ type: 'success', text: 'Contraseña actualizada correctamente.' });
       setShowPasswordForm(false);
-      setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     }
@@ -188,21 +186,25 @@ export default function AgentSettingsPage() {
               <User className="h-5 w-5 text-brand-500" /> Datos Personales
             </h3>
             <form onSubmit={handleSaveProfile} className="space-y-4">
-              <Input
-                label="Nombre completo"
-                value={fullName}
-                onChange={e => setFullName(e.target.value)}
-                placeholder="Tu nombre completo"
-                required
-                icon={<User className="h-4 w-4" />}
-              />
-              <Input
-                label="Teléfono"
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder="+53 5555 5555"
-                icon={<Phone className="h-4 w-4" />}
-              />
+              <div>
+                <label className="mb-1 block text-sm font-medium text-neutral-700">Nombre completo</label>
+                <Input
+                  value={fullName}
+                  onChange={e => setFullName(e.target.value)}
+                  placeholder="Tu nombre completo"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="mb-1 block text-sm font-medium text-neutral-700">Teléfono</label>
+                <Input
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="+53 5555 5555"
+                />
+              </div>
+
               <div className="flex justify-end">
                 <Button type="submit" isLoading={saving} className="gap-2">
                   <Save className="h-4 w-4" /> Guardar Cambios
@@ -227,25 +229,25 @@ export default function AgentSettingsPage() {
             {showPasswordForm ? (
               <form onSubmit={handleChangePassword} className="space-y-4">
                 <div className="relative">
+                  <label className="mb-1 block text-sm font-medium text-neutral-700">Nueva contraseña</label>
                   <Input
-                    label="Nueva contraseña"
                     type={showPasswords ? 'text' : 'password'}
                     value={newPassword}
                     onChange={e => setNewPassword(e.target.value)}
                     placeholder="Mínimo 8 caracteres"
                     required
-                    icon={<Key className="h-4 w-4" />}
                   />
                 </div>
-                <Input
-                  label="Confirmar nueva contraseña"
-                  type={showPasswords ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
-                  placeholder="Repite la nueva contraseña"
-                  required
-                  icon={<Key className="h-4 w-4" />}
-                />
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-neutral-700">Confirmar nueva contraseña</label>
+                  <Input
+                    type={showPasswords ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    placeholder="Repite la nueva contraseña"
+                    required
+                  />
+                </div>
                 <label className="flex items-center gap-2 text-sm text-neutral-600 cursor-pointer">
                   <input
                     type="checkbox"

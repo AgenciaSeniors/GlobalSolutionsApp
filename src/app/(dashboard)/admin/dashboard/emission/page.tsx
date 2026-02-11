@@ -455,13 +455,22 @@ export default function EmissionPage() {
                                   <Plane className="h-5 w-5" /> Datos de Emisión
                                 </h4>
 
-                                <Input
-                                  label="PNR de la Aerolínea (Código de Confirmación)"
-                                  placeholder="Ej: ABCDEF"
-                                  value={pnr}
-                                  onChange={(e) => setPnr(e.target.value.toUpperCase())}
-                                  required
-                                />
+                                {/* FIX: Input no soporta prop `label` */}
+                                <div className="space-y-1">
+                                  <label
+                                    htmlFor="airline_pnr"
+                                    className="mb-1 block text-sm font-medium text-neutral-700"
+                                  >
+                                    PNR de la Aerolínea (Código de Confirmación)
+                                  </label>
+                                  <Input
+                                    id="airline_pnr"
+                                    placeholder="Ej: ABCDEF"
+                                    value={pnr}
+                                    onChange={(e) => setPnr(e.target.value.toUpperCase())}
+                                    required
+                                  />
+                                </div>
 
                                 <div className="mt-4 space-y-3">
                                   <p className="flex items-center gap-2 text-sm font-semibold text-neutral-700">

@@ -54,7 +54,22 @@ export default function ForgotPasswordPage() {
               <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
             )}
             <form onSubmit={handleSubmit} className="space-y-4">
-              <Input label="Correo Electrónico" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="correo@ejemplo.com" required />
+              <div className="space-y-1">
+                <label
+                  htmlFor="forgot-email"
+                  className="mb-1 block text-sm font-medium text-neutral-700"
+                >
+                  Correo Electrónico
+                </label>
+                <Input
+                  id="forgot-email"
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="correo@ejemplo.com"
+                  required
+                />
+              </div>
               <Button type="submit" isLoading={isLoading} className="w-full">Enviar Enlace</Button>
             </form>
             <p className="mt-4 text-center text-sm text-neutral-600">

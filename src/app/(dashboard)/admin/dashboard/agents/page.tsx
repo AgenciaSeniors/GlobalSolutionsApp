@@ -12,7 +12,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
-import { Users, UserCheck, UserX, Shield, Search } from 'lucide-react';
+import { Users, UserCheck, UserX, Search } from 'lucide-react';
 import type { Profile } from '@/types/models';
 
 export default function AdminAgentsPage() {
@@ -39,15 +39,6 @@ export default function AdminAgentsPage() {
       .from('profiles')
       .update({ is_active: !agent.is_active })
       .eq('id', agent.id);
-    fetchAgents();
-  }
-
-  async function promoteToAgent(email: string) {
-    const agentCode = 'AG-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-    await supabase
-      .from('profiles')
-      .update({ role: 'agent', agent_code: agentCode })
-      .eq('email', email);
     fetchAgents();
   }
 
@@ -145,7 +136,7 @@ export default function AdminAgentsPage() {
                       <td className="px-4 py-3">
                         <Button
                           size="sm"
-                          variant={agent.is_active ? 'outline' : 'default'}
+                          variant={agent.is_active ? 'outline' : 'primary'}
                           onClick={() => toggleAgentStatus(agent)}
                         >
                           {agent.is_active ? 'Desactivar' : 'Activar'}
