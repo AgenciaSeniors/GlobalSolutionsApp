@@ -3,7 +3,7 @@
  * @module components/features/home/HeroSection
  */
 import Link from 'next/link';
-import { Plane, Car, Shield } from 'lucide-react';
+import { Plane, Car, ArrowRight, Shield } from 'lucide-react';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
 
@@ -54,8 +54,8 @@ export default function HeroSection() {
             <Link href={ROUTES.FLIGHTS}>
               <Button size="lg" className="gap-2.5 animate-pulse-glow">
                 <Plane className="h-5 w-5" />
-               
                 Buscar Vuelos
+                <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
             <Link href={ROUTES.CARS}>
@@ -65,8 +65,6 @@ export default function HeroSection() {
               </Button>
             </Link>
           </div>
-        
-
 
           {/* Stats */}
           <div className="mt-14 flex flex-wrap gap-10 animate-fade-in-up [animation-delay:400ms] opacity-0">
