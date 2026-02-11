@@ -1,193 +1,227 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-import Navbar from '@/components/layout/Navbar';
-import Footer from '@/components/layout/Footer';
-import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
+import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements } from "@stripe/react-stripe-js";
 
-import { useAuthContext } from '@/components/providers/AuthProvider';
-import { createPaymentIntent, type PaymentBreakdown } from '@/services/payments.service';
+import Navbar from "@/components/layout/Navbar";
+import Footer from "@/components/layout/Footer";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
 
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements } from '@stripe/react-stripe-js';
-import PaymentForm from '@/components/features/payments/PaymentForm';
+import PaymentForm from "@/components/features/payments/PaymentForm";
 
-function formatMoney(amount?: number, currency?: string) {
-  if (amount == null) return '-';
-  const c = currency ?? 'USD';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: c }).format(amount);
+type PaymentMethod = "stripe" | "paypal";
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
 }
+
+function getStringField(obj: unknown, key: string): string | null {
+  if (!isRecord(obj)) return null;
+  const v = obj[key];
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "");
 
 export default function PayPage() {
   const router = useRouter();
-  const sp = useSearchParams();
-  const { user } = useAuthContext();
+  const searchParams = useSearchParams();
 
-  // 1) leer booking_id de la URL: /pay?booking_id=123
-  const bookingId = sp.get('booking_id');
+  const bookingId = searchParams.get("booking_id");
+  const methodParam = searchParams.get("method");
 
-  // 2) Stripe key (frontend)
-  const stripePromise = useMemo(() => {
-    const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-    if (!key) return null;
-    return loadStripe(key);
-  }, []);
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(
+    methodParam === "paypal" ? "paypal" : "stripe"
+  );
 
-  // 3) estados UI
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [stripeLoading, setStripeLoading] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
 
-  // 4) respuesta del backend
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [currency, setCurrency] = useState<string>('USD');
-  const [totalAmount, setTotalAmount] = useState<number | null>(null);
-  const [breakdown, setBreakdown] = useState<PaymentBreakdown | null>(null);
+  const paypalClientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
 
-  // A) exigir login (si no hay user, mandarlo al login)
+  const paypalOptions = useMemo(() => {
+    return {
+      clientId: paypalClientId ?? "",
+      currency: "USD",
+      intent: "capture",
+    };
+  }, [paypalClientId]);
+
   useEffect(() => {
-    if (user === null) return; // auth todavía cargando
-    if (!user) {
-      const redirect = `/pay?booking_id=${encodeURIComponent(bookingId ?? '')}`;
-      router.push(`/login?redirect=${encodeURIComponent(redirect)}`);
-    }
-  }, [user, bookingId, router]);
-
-  // B) crear intent (NO calcular precios)
-  useEffect(() => {
-    if (!user) return;
-
-    if (!bookingId) {
-      setError('Falta booking_id en la URL. Ejemplo: /pay?booking_id=...');
-      setLoading(false);
-      return;
-    }
+    const id = bookingId;
+    if (!id) return;
+    if (selectedMethod !== "stripe") return;
 
     let cancelled = false;
 
-    async function run() {
+    async function createIntent() {
       try {
-        setLoading(true);
-        setCreating(true);
         setError(null);
+        setStripeLoading(true);
 
-        const res = await createPaymentIntent(bookingId as string);
+        const res = await fetch("/api/payments/create-intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ booking_id: id }),
+        });
 
+        const raw: unknown = await res.json().catch(() => null);
 
-        if (cancelled) return;
-
-        setClientSecret(res.client_secret);
-        if (res.currency) setCurrency(res.currency);
-        if (typeof res.total_amount === 'number') setTotalAmount(res.total_amount);
-        if (res.breakdown) setBreakdown(res.breakdown);
-      } catch (e: any) {
-        if (cancelled) return;
-        setError(e?.message ?? 'Error creando el pago. Intenta nuevamente.');
-      } finally {
-        if (!cancelled) {
-          setCreating(false);
-          setLoading(false);
+        if (!res.ok) {
+          const msg = getStringField(raw, "error") ?? "No se pudo iniciar el pago con Stripe.";
+          throw new Error(msg);
         }
+
+        const clientSecret = getStringField(raw, "client_secret");
+        if (!clientSecret) {
+          throw new Error("Stripe: falta client_secret en la respuesta del servidor.");
+        }
+
+        if (!cancelled) setStripeClientSecret(clientSecret);
+      } catch (e: unknown) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Error inesperado");
+      } finally {
+        if (!cancelled) setStripeLoading(false);
       }
     }
 
-    run();
+    createIntent();
     return () => {
       cancelled = true;
     };
-  }, [user, bookingId]);
+  }, [bookingId, selectedMethod]);
+
+  useEffect(() => {
+    if (methodParam === "paypal") setSelectedMethod("paypal");
+    if (methodParam === "stripe") setSelectedMethod("stripe");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!bookingId) {
+    return (
+      <>
+        <Navbar />
+        <div className="mx-auto max-w-3xl p-6 pt-24">
+          <Card variant="bordered" className="p-6">
+            <p className="text-sm text-red-600">Falta booking_id en la URL.</p>
+            <div className="mt-4">
+              <Button onClick={() => router.push("/flights")}>Volver</Button>
+            </div>
+          </Card>
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  if (!paypalClientId) {
+    return (
+      <>
+        <Navbar />
+        <div className="mx-auto max-w-3xl p-6 pt-24">
+          <Card variant="bordered" className="p-6">
+            <p className="text-sm text-red-600">Falta NEXT_PUBLIC_PAYPAL_CLIENT_ID en .env.local</p>
+          </Card>
+        </div>
+        <Footer />
+      </>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <>
       <Navbar />
+      <div className="mx-auto max-w-3xl p-6 pt-24">
+        <Card variant="bordered" className="p-6 space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-semibold">Pago</h1>
+              <p className="mt-1 text-xs text-neutral-500">
+                Booking: <span className="font-mono">{bookingId}</span>
+              </p>
+            </div>
 
-      <main className="flex-1 pt-24">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setSelectedMethod("stripe")}
+                className={selectedMethod === "stripe" ? "border-brand-500 bg-brand-50" : ""}
+              >
+                Tarjeta (Stripe)
+              </Button>
 
-        <div className="mx-auto max-w-3xl p-6">
-          <h1 className="text-2xl font-bold text-neutral-900">Pago</h1>
-          <p className="mt-1 text-neutral-500">Completa el pago de tu reserva.</p>
-
-          <div className="mt-6 space-y-4">
-            {loading ? (
-              <Card variant="bordered" className="p-6">
-                <p className="text-neutral-500">Preparando pago...</p>
-              </Card>
-            ) : error ? (
-              <Card variant="bordered" className="p-6">
-                <p className="text-red-600 font-semibold">Error</p>
-                <p className="mt-2 text-neutral-700">{error}</p>
-                <div className="mt-4">
-                  <Button onClick={() => router.refresh()} disabled={creating}>
-                    Reintentar
-                  </Button>
-                </div>
-              </Card>
-            ) : (
-              <>
-                {/* Resumen de monto */}
-                <Card variant="bordered" className="p-6">
-                  <div className="flex items-center justify-between">
-                    <span className="text-neutral-600">Total</span>
-                    <span className="text-lg font-bold text-neutral-900">
-                      {formatMoney(
-                        totalAmount ?? (breakdown?.total_amount as number | undefined),
-                        currency
-                      )}
-                    </span>
-                  </div>
-
-                  {/* Breakdown opcional */}
-                  {breakdown && (
-                    <div className="mt-4 text-sm text-neutral-700 space-y-2">
-                      {'subtotal' in breakdown && (
-                        <div className="flex justify-between">
-                          <span>Subtotal</span>
-                          <span>{formatMoney(breakdown.subtotal as number | undefined, currency)}</span>
-                        </div>
-                      )}
-                      {'markup' in breakdown && (
-                        <div className="flex justify-between">
-                          <span>Markup</span>
-                          <span>{formatMoney(breakdown.markup as number | undefined, currency)}</span>
-                        </div>
-                      )}
-                      {'gateway_fee' in breakdown && (
-                        <div className="flex justify-between">
-                          <span>Fee pasarela</span>
-                          <span>{formatMoney(breakdown.gateway_fee as number | undefined, currency)}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </Card>
-
-                {/* Stripe Elements */}
-                {!stripePromise ? (
-                  <Card variant="bordered" className="p-6">
-                    <p className="text-red-600 font-semibold">Falta configuración de Stripe</p>
-                    <p className="mt-2 text-neutral-700">
-                      No existe NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY en .env.local
-                    </p>
-                  </Card>
-                ) : !clientSecret ? (
-                  <Card variant="bordered" className="p-6">
-                    <p className="text-neutral-500">No se recibió client_secret.</p>
-                  </Card>
-                ) : (
-                  <Elements stripe={stripePromise} options={{ clientSecret }}>
-                    <PaymentForm />
-                  </Elements>
-                )}
-              </>
-            )}
+              <Button
+                variant="outline"
+                onClick={() => setSelectedMethod("paypal")}
+                className={selectedMethod === "paypal" ? "border-brand-500 bg-brand-50" : ""}
+              >
+                PayPal
+              </Button>
+            </div>
           </div>
-        </div>
-      </main>
 
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          {selectedMethod === "stripe" ? (
+            <div className="space-y-3">
+              {stripeLoading && <p className="text-sm text-neutral-500">Preparando pago con Stripe…</p>}
+
+              {!stripeLoading && stripeClientSecret && (
+                <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
+                  <PaymentForm />
+                </Elements>
+              )}
+            </div>
+          ) : (
+            <PayPalScriptProvider options={paypalOptions}>
+              <PayPalButtons
+                style={{ layout: "vertical" }}
+                createOrder={async () => {
+                  setError(null);
+
+                  const res = await fetch("/api/payments/paypal/create-order", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ booking_id: bookingId }),
+                  });
+
+                  const raw: unknown = await res.json().catch(() => null);
+
+                  if (!res.ok) {
+                    const msg = getStringField(raw, "error") ?? "No se pudo crear la orden de PayPal.";
+                    throw new Error(msg);
+                  }
+
+                  const orderId = getStringField(raw, "order_id");
+                  if (!orderId) throw new Error("PayPal: falta order_id en la respuesta del servidor.");
+
+                  return orderId;
+                }}
+                onApprove={async () => {
+                  // Paid real: webhook backend. Aquí solo UX.
+                  router.push("/user/dashboard/bookings");
+                }}
+                onError={(err: unknown) => {
+                  console.error(err);
+                  setError("PayPal falló. Intenta nuevamente o usa Stripe.");
+                }}
+              />
+            </PayPalScriptProvider>
+          )}
+        </Card>
+      </div>
       <Footer />
-    </div>
+    </>
   );
 }
