@@ -20,7 +20,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import type { FlightWithDetails } from '@/types/models';
 import {
-  Plane, Clock, MapPin, Calendar, Users, Shield,
+  Plane, MapPin, Calendar, Users, Shield,
   Luggage, ArrowRight, ArrowLeft, CreditCard, ChevronDown
 } from 'lucide-react';
 

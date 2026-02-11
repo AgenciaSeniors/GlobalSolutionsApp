@@ -1,7 +1,6 @@
 /**
- * @fileoverview Agent News Wall — Private community intranet.
- * Per spec §2.2: Exclusive panel not visible to clients.
- * Agents see admin updates, promotions, alerts.
+ * @fileoverview Agent News Feed — Read-only view of the intranet wall.
+ * Agents can view pinned and recent news published by admins.
  */
 'use client';
 
@@ -9,9 +8,8 @@ import { useEffect, useState } from 'react';
 import Sidebar, { AGENT_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
-import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
-import { Pin, Bell, Megaphone, AlertTriangle, Gift } from 'lucide-react';
+import { Pin, Megaphone } from 'lucide-react';
 import type { AgentNews } from '@/types/models';
 
 export default function AgentNewsPage() {
@@ -19,62 +17,78 @@ export default function AgentNewsPage() {
   const [news, setNews] = useState<AgentNews[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const catColors: Record<string, string> = {
+    update: 'bg-blue-100 text-blue-700',
+    promo: 'bg-emerald-100 text-emerald-700',
+    alert: 'bg-red-100 text-red-700',
+  };
+
   useEffect(() => {
-    async function load() {
+    async function fetchNews() {
+      setLoading(true);
       const { data } = await supabase
         .from('agent_news')
         .select('*')
         .order('is_pinned', { ascending: false })
         .order('created_at', { ascending: false });
+      
       setNews((data as AgentNews[]) || []);
       setLoading(false);
     }
-    load();
-  }, []);
 
-  const catIcons: Record<string, typeof Bell> = {
-    update: Megaphone,
-    promo: Gift,
-    alert: AlertTriangle,
-  };
+    fetchNews();
+    // FIX: Added 'supabase' to the dependency array
+  }, [supabase]);
 
   return (
     <div className="flex min-h-screen">
       <Sidebar links={AGENT_SIDEBAR_LINKS} />
       <div className="flex-1">
-        <Header title="Muro de Noticias" subtitle="Comunidad privada Global Solutions — Sin WhatsApp" />
+        <Header title="Noticias" subtitle="Actualizaciones y comunicados importantes" />
         <div className="p-8">
-          <div className="mb-6 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-            <strong>Recordatorio:</strong> Toda comunicación laboral debe realizarse a través de esta plataforma.
-            El uso de WhatsApp para temas laborales está prohibido.
-          </div>
-
-          {loading ? <p className="text-neutral-500">Cargando noticias...</p> : (
-            <div className="space-y-4">
-              {news.map(n => {
-                const Icon = catIcons[n.category || 'update'] || Megaphone;
-                return (
-                  <Card key={n.id} variant="bordered" className={n.is_pinned ? 'border-l-4 border-l-amber-400 bg-amber-50/30' : ''}>
-                    <div className="flex gap-4">
-                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-50">
-                        <Icon className="h-5 w-5 text-brand-600" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          {n.is_pinned && <Pin className="h-4 w-4 text-amber-500" />}
-                          <h3 className="font-bold text-neutral-900">{n.title}</h3>
-                        </div>
-                        <p className="mt-1 text-sm text-neutral-600 whitespace-pre-wrap">{n.content}</p>
-                        <p className="mt-2 text-xs text-neutral-400">
-                          {new Date(n.created_at).toLocaleDateString('es', {
-                            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+          
+          {loading ? (
+            <p className="text-neutral-500">Cargando noticias...</p>
+          ) : news.length === 0 ? (
+            <Card className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="mb-4 rounded-full bg-neutral-100 p-4">
+                <Megaphone className="h-8 w-8 text-neutral-400" />
+              </div>
+              <h3 className="text-lg font-medium text-neutral-900">No hay noticias recientes</h3>
+              <p className="text-neutral-500">Mantente atento a nuevas actualizaciones.</p>
+            </Card>
+          ) : (
+            <div className="space-y-4 max-w-4xl">
+              {news.map(n => (
+                <Card 
+                  key={n.id} 
+                  variant="bordered" 
+                  className={n.is_pinned ? 'border-l-4 border-l-amber-400 shadow-sm bg-amber-50/10' : ''}
+                >
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {n.is_pinned && <Pin className="h-4 w-4 text-amber-500 fill-amber-500" />}
+                        {n.category && (
+                          <span className={`rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wider ${catColors[n.category] || 'bg-gray-100 text-gray-700'}`}>
+                            {n.category}
+                          </span>
+                        )}
+                        <span className="text-xs text-neutral-400">
+                          {new Date(n.created_at).toLocaleDateString('es', { 
+                            day: 'numeric', month: 'long' 
                           })}
-                        </p>
+                        </span>
                       </div>
                     </div>
-                  </Card>
-                );
-              })}
+
+                    <h4 className="text-lg font-bold text-neutral-900">{n.title}</h4>
+                    <p className="text-sm text-neutral-600 whitespace-pre-wrap leading-relaxed">
+                      {n.content}
+                    </p>
+                  </div>
+                </Card>
+              ))}
             </div>
           )}
         </div>

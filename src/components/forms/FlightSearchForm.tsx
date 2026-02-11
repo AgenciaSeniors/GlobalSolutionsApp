@@ -15,7 +15,23 @@ import { ROUTES } from '@/lib/constants/routes';
 
 type TripType = 'roundtrip' | 'oneway';
 
-export default function FlightSearchForm() {
+type FlightSearchParams = {
+  from: string;
+  to: string;
+  departure: string;
+  passengers: string;
+  return?: string;
+};
+
+type Props = {
+  /**
+   * If provided, the form will call this callback instead of navigating
+   * to /flights/search. Useful for same-page results + scroll.
+   */
+  onSearch?: (params: FlightSearchParams) => void;
+};
+
+export default function FlightSearchForm({ onSearch }: Props) {
   const router = useRouter();
   const [tripType, setTripType] = useState<TripType>('roundtrip');
   const [form, setForm] = useState({
@@ -25,44 +41,46 @@ export default function FlightSearchForm() {
     returnDate: '',
     passengers: '1',
   });
-   const [useStopsMode, setUseStopsMode] = useState(false);
+
+  const [useStopsMode, setUseStopsMode] = useState(false);
   const [stops, setStops] = useState<string[]>([]);
-  
-  //funciones nuevas para escalas
-  function addStop() {
-  setStops((prev) => [...prev, '']);
-}
-
-function updateStop(index: number, value: string) {
-  setStops((prev) =>
-    prev.map((stop, i) => (i === index ? value : stop))
-  );
-}
-
-function removeStop(index: number) {
-  setStops((prev) => prev.filter((_, i) => i !== index));
-}
 
   const update =
     (field: keyof typeof form) =>
     (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setForm((prev) => ({ ...prev, [field]: e.target.value }));
     };
-    
-
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
-    const params = new URLSearchParams({
+    const payload: FlightSearchParams = {
       from: form.origin,
       to: form.destination,
       departure: form.departure,
       passengers: form.passengers,
-    });
+    };
 
     if (tripType === 'roundtrip' && form.returnDate) {
-      params.set('return', form.returnDate);
+      payload.return = form.returnDate;
+    }
+
+    // ✅ NEW: if onSearch exists, do not navigate
+    if (onSearch) {
+      onSearch(payload);
+      return;
+    }
+
+    // ✅ OLD behavior (unchanged): navigate to /flights/search?...
+    const params = new URLSearchParams({
+      from: payload.from,
+      to: payload.to,
+      departure: payload.departure,
+      passengers: payload.passengers,
+    });
+
+    if (payload.return) {
+      params.set('return', payload.return);
     }
 
     router.push(`${ROUTES.FLIGHT_SEARCH}?${params.toString()}`);
@@ -74,10 +92,7 @@ function removeStop(index: number) {
       className="rounded-3xl border border-neutral-200 bg-white p-8 shadow-xl shadow-black/[0.06]"
     >
       {/* Trip type toggle */}
-             
-
       <div className="mb-7 inline-flex gap-1 rounded-xl bg-neutral-100 p-1">
-        
         <button
           type="button"
           onClick={() => setTripType('roundtrip')}
@@ -101,23 +116,24 @@ function removeStop(index: number) {
         >
           Solo Ida
         </button>
-         
       </div>
+
+      {/* Stops toggle */}
       <button
-          type="button"
-          onClick={() => {
-            setUseStopsMode((prev) => !prev);
-            // si lo apagas, borra escalas
-            if (useStopsMode) setStops([]);
-          }}
-          className={`rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
-            useStopsMode
-              ? 'bg-white text-brand-600 shadow-sm'
-              : 'text-neutral-600 hover:text-neutral-900'
-          }`}
-        >
-          Escalas
-        </button>
+        type="button"
+        onClick={() => {
+          setUseStopsMode((prev) => !prev);
+          // si lo apagas, borra escalas
+          if (useStopsMode) setStops([]);
+        }}
+        className={`mb-6 rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
+          useStopsMode
+            ? 'bg-white text-brand-600 shadow-sm'
+            : 'text-neutral-600 hover:text-neutral-900'
+        }`}
+      >
+        Escalas
+      </button>
 
       {/* Fields grid */}
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -138,10 +154,7 @@ function removeStop(index: number) {
               <option key={a.code} value={a.code}>
                 {a.city} ({a.code}) – {a.country}
               </option>
-
-              
             ))}
-
           </select>
         </div>
 
@@ -188,6 +201,7 @@ function removeStop(index: number) {
           />
         </div>
       </div>
+
       {useStopsMode && (
         <MultiLegEditor
           stops={stops}
@@ -206,7 +220,7 @@ function removeStop(index: number) {
           <select
             value={form.passengers}
             onChange={update('passengers')}
-            className="w-full h-12 rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 text-[15px]
+            className="h-12 w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 text-[15px]
                        focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           >
             {Array.from({ length: 9 }, (_, i) => i + 1).map((n) => (
@@ -217,19 +231,18 @@ function removeStop(index: number) {
           </select>
         </div>
 
-        <Button 
-  type="submit"
-  size="lg"
-  className="flex-1 h-12 gap-2.5 justify-center
-             transition-all duration-200 ease-out
-             hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
->
-  <span className="flex items-center justify-center gap-2.5">
-    <span>Buscar Vuelos</span>
-    <Search className="h-5 w-5" />
-  </span>
-</Button>
-
+        <Button
+          type="submit"
+          size="lg"
+          className="flex-1 h-12 justify-center gap-2.5
+                     transition-all duration-200 ease-out
+                     hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
+        >
+          <span className="flex items-center justify-center gap-2.5">
+            <Search className="h-5 w-5" />
+            <span>Buscar Vuelos</span>
+          </span>
+        </Button>
       </div>
     </form>
   );

@@ -100,5 +100,27 @@ export function useAuth() {
     window.location.href = ROUTES.HOME;
   }
 
-  return { login, register, logout, isLoading };
+  /**
+   * Send password recovery email.
+   *
+   * Supabase will email a recovery link. The link should redirect back to your
+   * site so the user can set a new password.
+   */
+  async function resetPassword(email: string) {
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        // TODO: consider adding a dedicated reset-password page.
+        redirectTo: `${window.location.origin}${ROUTES.LOGIN}`,
+      });
+      if (error) throw error;
+    } catch (error) {
+      console.error('Reset password error:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return { login, register, resetPassword, logout, isLoading };
 }

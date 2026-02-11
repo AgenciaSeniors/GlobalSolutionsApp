@@ -22,7 +22,6 @@ const base =
 const variants: Record<ButtonVariant, string> = {
  primary: "bg-coral text-white shadow-sm hover:brightness-[0.98] active:translate-y-[0.5px]",
 
-
   outline:
     "bg-white text-brand-900 border-2 border-brand-200 " +
     "hover:border-brand-300 hover:bg-brand-50 active:translate-y-[0.5px]",
@@ -86,4 +85,3 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 });
 
 export default Button;
-

@@ -7,14 +7,20 @@ import { cn } from "@/lib/utils/cn";
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string;
+  label?: string;
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { className, error, ...props },
+  { className, error, label, ...props },
   ref
 ) {
   return (
     <div className="w-full space-y-1">
+      {label && (
+        <label className="block text-sm font-medium text-brand-700">
+          {label}
+        </label>
+      )}
       <input
         ref={ref}
         className={cn(

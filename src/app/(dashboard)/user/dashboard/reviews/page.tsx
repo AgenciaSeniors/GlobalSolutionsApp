@@ -242,12 +242,14 @@ export default function UserReviewsPage() {
                           <label className="block text-sm font-medium text-neutral-700 mb-2">Tu calificación</label>
                           <StarRating value={rating} interactive />
                         </div>
-                        <Input
-                          label="Título (opcional)"
-                          value={title}
-                          onChange={e => setTitle(e.target.value)}
-                          placeholder="Ej: Excelente servicio"
-                        />
+                                <div className="space-y-1">
+                          <label className="block text-sm font-medium text-neutral-700">Título (opcional)</label>
+                          <Input
+                            value={title}
+                            onChange={e => setTitle(e.target.value)}
+                            placeholder="Ej: Excelente servicio"
+                          />
+                        </div>
                         <div>
                           <label className="mb-1.5 block text-sm font-medium text-neutral-700">Tu experiencia *</label>
                           <textarea

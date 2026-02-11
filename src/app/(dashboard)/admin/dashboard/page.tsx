@@ -125,11 +125,12 @@ export default function AdminDashboardPage() {
     setLoading(false);
   }
 
-  const statusVariant: Record<string, 'warning' | 'success' | 'error' | 'info'> = {
+  // FIX: Changed 'error' to 'destructive' to match Badge props
+  const statusVariant: Record<string, 'warning' | 'success' | 'destructive' | 'info'> = {
     pending_emission: 'warning',
     confirmed: 'success',
     completed: 'info',
-    cancelled: 'error',
+    cancelled: 'destructive', // Changed from 'error'
   };
 
   const statusLabel: Record<string, string> = {

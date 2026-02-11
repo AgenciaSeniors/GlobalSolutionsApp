@@ -4,9 +4,9 @@ import { AIRPORTS } from '@/lib/constants/config';
 
 type Props = {
   stops: string[];
-  onChange: (next: string[]) => void;
-  origin: string;
-  destination: string;
+  onChange: (nextStops: string[]) => void;
+  origin?: string;
+  destination?: string;
 };
 
 export default function MultiLegEditor({ stops, onChange, origin, destination }: Props) {
@@ -14,24 +14,25 @@ export default function MultiLegEditor({ stops, onChange, origin, destination }:
     onChange([...stops, '']);
   }
 
-  function removeStop(index: number) {
-    const copy = [...stops];
-    copy.splice(index, 1);
-    onChange(copy);
-  }
-
   function updateStop(index: number, value: string) {
-    const copy = [...stops];
-    copy[index] = value;
-    onChange(copy);
+    onChange(stops.map((stop, i) => (i === index ? value : stop)));
   }
 
-  const forbidden = new Set([origin, destination].filter(Boolean));
+  function removeStop(index: number) {
+    onChange(stops.filter((_, i) => i !== index));
+  }
+
+  const forbidden = new Set([origin, destination].filter(Boolean) as string[]);
 
   return (
     <div className="mt-6 rounded-2xl border-2 border-neutral-200 bg-neutral-50 p-4">
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-semibold text-neutral-800">Tramos / Escalas</p>
+        <div>
+          <p className="text-sm font-semibold text-neutral-800">Tramos / Escalas</p>
+          <p className="text-xs text-neutral-600">
+            Opcional. Origen: {origin || '—'} · Destino: {destination || '—'}
+          </p>
+        </div>
 
         <button
           type="button"
@@ -49,7 +50,7 @@ export default function MultiLegEditor({ stops, onChange, origin, destination }:
       ) : (
         <div className="space-y-3">
           {stops.map((stop, index) => (
-            <div key={index} className="flex gap-3">
+            <div key={`${index}-${stop}`} className="flex gap-3">
               <select
                 value={stop}
                 onChange={(e) => updateStop(index, e.target.value)}

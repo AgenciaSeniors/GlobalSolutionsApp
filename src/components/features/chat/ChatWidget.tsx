@@ -45,7 +45,7 @@ function getAIResponse(userMessage: string): string {
 }
 
 export default function ChatWidget() {
-  const { user, profile } = useAuthContext();
+  const { user } = useAuthContext();
   const supabase = createClient();
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);

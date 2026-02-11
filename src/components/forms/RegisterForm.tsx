@@ -138,48 +138,73 @@ export default function RegisterForm() {
         </div>
       )}
 
-      <Input
-        label="Nombre Completo"
-        placeholder="María García"
-        value={fullName}
-        onChange={e => setFullName(e.target.value)}
-        required
-      />
+      <div className="space-y-1">
+        <label htmlFor="fullName" className="mb-1 block text-sm font-medium text-neutral-700">
+          Nombre Completo
+        </label>
+        <Input
+          id="fullName"
+          placeholder="María García"
+          value={fullName}
+          onChange={e => setFullName(e.target.value)}
+          required
+        />
+      </div>
 
-      <Input
-        label="Correo Electrónico"
-        type="email"
-        placeholder="correo@ejemplo.com"
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-        required
-      />
+      <div className="space-y-1">
+        <label htmlFor="email" className="mb-1 block text-sm font-medium text-neutral-700">
+          Correo Electrónico
+        </label>
+        <Input
+          id="email"
+          type="email"
+          placeholder="correo@ejemplo.com"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          required
+        />
+      </div>
 
-      <Input
-        label="Teléfono (opcional)"
-        type="tel"
-        placeholder="+53 5555 5555"
-        value={phone}
-        onChange={e => setPhone(e.target.value)}
-      />
+      <div className="space-y-1">
+        <label htmlFor="phone" className="mb-1 block text-sm font-medium text-neutral-700">
+          Teléfono (opcional)
+        </label>
+        <Input
+          id="phone"
+          type="tel"
+          placeholder="+53 5555 5555"
+          value={phone}
+          onChange={e => setPhone(e.target.value)}
+        />
+      </div>
 
-      <Input
-        label="Contraseña"
-        type="password"
-        placeholder="Mínimo 8 caracteres"
-        value={password}
-        onChange={e => setPassword(e.target.value)}
-        required
-      />
+      <div className="space-y-1">
+        <label htmlFor="password" className="mb-1 block text-sm font-medium text-neutral-700">
+          Contraseña
+        </label>
+        <Input
+          id="password"
+          type="password"
+          placeholder="Mínimo 8 caracteres"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          required
+        />
+      </div>
 
-      <Input
-        label="Confirmar Contraseña"
-        type="password"
-        placeholder="Repetir contraseña"
-        value={confirmPassword}
-        onChange={e => setConfirmPassword(e.target.value)}
-        required
-      />
+      <div className="space-y-1">
+        <label htmlFor="confirmPassword" className="mb-1 block text-sm font-medium text-neutral-700">
+          Confirmar Contraseña
+        </label>
+        <Input
+          id="confirmPassword"
+          type="password"
+          placeholder="Repetir contraseña"
+          value={confirmPassword}
+          onChange={e => setConfirmPassword(e.target.value)}
+          required
+        />
+      </div>
 
       <Button type="submit" isLoading={isLoading} className="w-full">
         {isLoading ? 'Creando cuenta...' : 'Crear Cuenta'}

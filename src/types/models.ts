@@ -354,3 +354,30 @@ export interface RegisterState {
   password: string;
   confirm_password: string;
 }
+// -------- UI types for Flight Results (Liannah) --------
+export interface UiAirline {
+  id: string;
+  name: string;
+  code: string;
+  logoUrl?: string;
+}
+
+export interface FlightSegment {
+  id: string;
+  origin: string;
+  destination: string;
+  departureTime: string;
+  arrivalTime: string;
+  airline: UiAirline;
+  flightNumber: string;
+  duration: string;
+}
+
+export interface FlightOffer {
+  id: string;
+  price: number;
+  currency: string;
+  segments: FlightSegment[];
+  totalDuration: string;
+  type: 'oneway' | 'roundtrip' | 'multicity';
+}

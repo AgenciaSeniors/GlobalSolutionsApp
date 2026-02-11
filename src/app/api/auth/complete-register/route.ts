@@ -78,7 +78,8 @@ export async function POST(req: Request) {
       .eq('id', otpRow.id);
 
     return NextResponse.json({ ok: true, userId: created.user?.id });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'Error' }, { status: 500 });
-  }
+  } catch (e: unknown) {
+  const message = e instanceof Error ? e.message : 'Error';
+  return NextResponse.json({ error: message }, { status: 500 });
+}
 }
