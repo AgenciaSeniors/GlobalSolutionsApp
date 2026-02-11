@@ -2,7 +2,7 @@ import { FlightOffer } from '@/types/models';
 // CORRECCIÓN AQUÍ: Quitamos las llaves {} porque son export default
 import Button from '@/components/ui/Button'; 
 import Badge from '@/components/ui/Badge';
-import { Clock, Plane } from 'lucide-react'; 
+import { Plane } from 'lucide-react'; 
 
 interface FlightCardProps {
   flight: FlightOffer;

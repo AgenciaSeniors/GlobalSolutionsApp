@@ -7,8 +7,16 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
-import { Search, Filter, Plane, Calendar, User, DollarSign, FileText } from 'lucide-react';
-import Link from 'next/link';
+import { Search, Plane, Calendar, User, FileText } from 'lucide-react';
+
+type BadgeVariant =
+  | 'default'
+  | 'warning'
+  | 'success'
+  | 'destructive'
+  | 'info'
+  | 'offer'
+  | 'outline';
 
 interface Booking {
   id: string;
@@ -17,32 +25,32 @@ interface Booking {
   booking_status: string;
   payment_status: string;
   total_amount: number;
-  profile: { full_name: string; email: string };
+  profile?: { full_name: string; email: string } | null;
   flight?: {
-    airline: { name: string };
-    origin_airport: { iata_code: string };
-    destination_airport: { iata_code: string };
+    airline?: { name: string } | null;
+    origin_airport?: { iata_code: string } | null;
+    destination_airport?: { iata_code: string } | null;
     departure_datetime: string;
-  };
+  } | null;
 }
 
 export default function AgentBookingsPage() {
   const supabase = createClient();
   const { user } = useAuthContext();
-  
+
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all'); // all, pending_emission, confirmed, cancelled
+  const [filter, setFilter] = useState<'all' | 'pending_emission' | 'confirmed' | 'cancelled'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
   const fetchBookings = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    
-    // Consulta base: Traer reservas asignadas a mí
+
     let query = supabase
       .from('bookings')
-      .select(`
+      .select(
+        `
         id, booking_code, created_at, booking_status, payment_status, total_amount,
         profile:profiles!user_id(full_name, email),
         flight:flights!flight_id(
@@ -51,20 +59,21 @@ export default function AgentBookingsPage() {
           destination_airport:airports!destination_airport_id(iata_code),
           departure_datetime
         )
-      `)
+      `,
+      )
       .eq('assigned_agent_id', user.id)
       .order('created_at', { ascending: false });
 
-    // Aplicar filtros si no es "todos"
     if (filter !== 'all') {
       query = query.eq('booking_status', filter);
     }
 
     const { data, error } = await query;
-    
+
     if (!error && data) {
-      setBookings(data as any);
+      setBookings(data as unknown as Booking[]);
     }
+
     setLoading(false);
   }, [user, filter, supabase]);
 
@@ -72,31 +81,31 @@ export default function AgentBookingsPage() {
     fetchBookings();
   }, [fetchBookings]);
 
-  // Filtrado en cliente por buscador (nombre o código)
-  const filteredBookings = bookings.filter(b => 
-    b.booking_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    b.profile?.full_name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredBookings = bookings.filter((b) => {
+    const code = (b.booking_code ?? '').toLowerCase();
+    const name = (b.profile?.full_name ?? '').toLowerCase();
+    const q = searchTerm.toLowerCase();
+    return code.includes(q) || name.includes(q);
+  });
 
-  // Utilidades de estilo
-  const getStatusColor = (status: string) => {
-    const map: any = {
+  const getStatusColor = (status: string): BadgeVariant => {
+    const map: Record<string, BadgeVariant> = {
       pending_emission: 'warning',
       confirmed: 'success',
       cancelled: 'destructive',
-      completed: 'default'
+      completed: 'default',
     };
-    return map[status] || 'default';
+    return map[status] ?? 'default';
   };
 
-  const getStatusLabel = (status: string) => {
-    const map: any = {
+  const getStatusLabel = (status: string): string => {
+    const map: Record<string, string> = {
       pending_emission: 'Pendiente Emisión',
       confirmed: 'Confirmada',
       cancelled: 'Cancelada',
-      completed: 'Completada'
+      completed: 'Completada',
     };
-    return map[status] || status;
+    return map[status] ?? status;
   };
 
   return (
@@ -104,21 +113,18 @@ export default function AgentBookingsPage() {
       <Sidebar links={AGENT_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Gestión de Reservas" subtitle="Historial completo de tus ventas" />
-        
+
         <div className="p-8 space-y-6">
-          
           {/* BARRA DE CONTROL */}
           <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-            {/* Filtros Tabs */}
+            {/* Filtros */}
             <div className="flex gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
-              {['all', 'pending_emission', 'confirmed', 'cancelled'].map((f) => (
+              {(['all', 'pending_emission', 'confirmed', 'cancelled'] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${
-                    filter === f 
-                    ? 'bg-brand-600 text-white shadow-md' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    filter === f ? 'bg-brand-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
                   {f === 'all' ? 'Todas' : getStatusLabel(f)}
@@ -129,9 +135,9 @@ export default function AgentBookingsPage() {
             {/* Buscador */}
             <div className="relative w-full md:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input 
-                type="text" 
-                placeholder="Buscar cliente o código..." 
+              <input
+                type="text"
+                placeholder="Buscar cliente o código..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
@@ -155,12 +161,12 @@ export default function AgentBookingsPage() {
               {filteredBookings.map((booking) => (
                 <Card key={booking.id} className="p-5 hover:border-brand-300 transition group">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    
                     {/* Info Principal */}
                     <div className="flex items-start gap-4">
                       <div className="p-3 bg-blue-50 text-blue-600 rounded-xl hidden sm:block">
                         <Plane className="h-6 w-6" />
                       </div>
+
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-mono font-bold text-gray-900">{booking.booking_code}</span>
@@ -168,41 +174,44 @@ export default function AgentBookingsPage() {
                             {getStatusLabel(booking.booking_status)}
                           </Badge>
                         </div>
+
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-gray-500">
-                           <span className="flex items-center gap-1">
-                              <User size={14} /> {booking.profile?.full_name || 'Sin nombre'}
-                           </span>
-                           {booking.flight && (
-                             <span className="flex items-center gap-1">
-                                <Calendar size={14} /> 
-                                {new Date(booking.flight.departure_datetime).toLocaleDateString()}
-                             </span>
-                           )}
+                          <span className="flex items-center gap-1">
+                            <User size={14} /> {booking.profile?.full_name || 'Sin nombre'}
+                          </span>
+
+                          {booking.flight?.departure_datetime ? (
+                            <span className="flex items-center gap-1">
+                              <Calendar size={14} />
+                              {new Date(booking.flight.departure_datetime).toLocaleDateString()}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                     </div>
 
                     {/* Ruta y Precio */}
                     <div className="flex flex-col md:items-end gap-1">
-                       {booking.flight ? (
-                         <div className="font-medium text-gray-800 flex items-center gap-2">
-                            {booking.flight.origin_airport?.iata_code} 
-                            <span className="text-gray-400">➝</span> 
-                            {booking.flight.destination_airport?.iata_code}
-                         </div>
-                       ) : (
-                         <span className="text-gray-400 text-sm italic">Vuelo no disponible</span>
-                       )}
-                       <div className="font-bold text-lg text-emerald-700">
-                          ${booking.total_amount.toLocaleString()}
-                       </div>
+                      {booking.flight?.origin_airport?.iata_code && booking.flight?.destination_airport?.iata_code ? (
+                        <div className="font-medium text-gray-800 flex items-center gap-2">
+                          {booking.flight.origin_airport.iata_code}
+                          <span className="text-gray-400">➝</span>
+                          {booking.flight.destination_airport.iata_code}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-sm italic">Vuelo no disponible</span>
+                      )}
+
+                      <div className="font-bold text-lg text-emerald-700">
+                        ${Number(booking.total_amount ?? 0).toLocaleString()}
+                      </div>
                     </div>
                   </div>
-                  
-                  {/* Footer de Acciones (Opcional, para futura expansión) */}
+
+                  {/* Footer */}
                   <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end">
                     <button className="text-sm font-medium text-brand-600 hover:text-brand-800 transition">
-                       Ver detalles completos →
+                      Ver detalles completos →
                     </button>
                   </div>
                 </Card>
