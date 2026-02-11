@@ -1,225 +1,149 @@
-/**
- * @fileoverview Registration form — Email + Password with email confirmation.
- * Uses supabase.auth.signUp() which works with default Supabase config.
- * After signup, user receives confirmation email (magic link from Supabase).
- * Once confirmed, user can login normally.
- * @module components/forms/RegisterForm
- */
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { Shield, Mail } from 'lucide-react';
+import { Shield, ArrowLeft } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants/routes';
-import { createClient } from '@/lib/supabase/client';
+import { authService } from '@/services/auth.service';
 
-type Step = 'form' | 'success';
-
-export default function RegisterForm() {
-  const supabase = createClient();
-
-  const [step, setStep] = useState<Step>('form');
-  const [email, setEmail] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+export default function LoginForm() {
+  // Estados de flujo
+  const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  // Datos del formulario
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+
+  const otpDigits = useMemo(() => otpCode.replace(/\D/g, '').slice(0, 6), [otpCode]);
+  const canSubmit =
+    step === 'credentials'
+      ? email.trim().length > 0 && password.length > 0
+      : email.trim().length > 0 && otpDigits.length === 6;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError(null);
-
-    // Validations
-    if (!fullName.trim() || !email.trim()) {
-      setError('Nombre y correo son obligatorios.');
-      return;
-    }
-    if (password.length < 8) {
-      setError('La contraseña debe tener mínimo 8 caracteres.');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError('Las contraseñas no coinciden.');
-      return;
-    }
-
+    setServerError(null);
     setIsLoading(true);
+
     try {
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            full_name: fullName.trim(),
-            role: 'client',
-          },
-          emailRedirectTo: `${window.location.origin}/login?confirmed=true`,
-        },
-      });
+      if (step === 'credentials') {
+        // PASO 1: Validar correo/contraseña y pedir el código
+        await authService.signInStepOne(email, password);
+        setStep('otp');
+      } else {
+        // PASO 2: Verificar el código y obtener la sesión definitiva
+        const result = await authService.verifyLoginOtp(email, otpDigits);
 
-      if (signUpError) throw signUpError;
-
-      // If user already exists but unconfirmed, Supabase returns user with identities = []
-      if (data.user && data.user.identities?.length === 0) {
-        setError(
-          'Este correo ya está registrado. Revisa tu bandeja de entrada para confirmar tu cuenta, o intenta iniciar sesión.',
-        );
-        return;
-      }
-
-      // Update phone in profile if provided
-      if (phone.trim() && data.user) {
-        try {
-          await supabase
-            .from('profiles')
-            .update({ phone: phone.trim() })
-            .eq('id', data.user.id);
-        } catch {
-          // Ignore if profile not yet created
+        if (result?.ok && typeof result.sessionLink === 'string' && result.sessionLink.trim()) {
+          // Redirigimos al link de sesión para que Supabase guarde las cookies
+          window.location.href = result.sessionLink;
+          return;
         }
-      }
 
-      setStep('success');
+        // Si el backend solo devuelve verified (compat), mostramos error claro:
+        setServerError('No se pudo establecer la sesión. Intenta de nuevo.');
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error al crear cuenta');
+      const message = err instanceof Error ? err.message : 'Error al intentar iniciar sesión';
+      setServerError(message);
     } finally {
       setIsLoading(false);
     }
   }
 
-  /* ── Success screen ── */
-  if (step === 'success') {
-    return (
-      <div className="text-center space-y-4">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-          <Mail className="h-8 w-8 text-emerald-600" />
-        </div>
-        <h2 className="text-2xl font-bold text-brand-950">¡Revisa tu correo!</h2>
-        <p className="text-neutral-600">
-          Hemos enviado un enlace de confirmación a{' '}
-          <strong className="text-brand-600">{email}</strong>
-        </p>
-        <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-          <p className="font-semibold mb-1">📧 Pasos para completar tu registro:</p>
-          <ol className="text-left space-y-1 ml-4 list-decimal">
-            <li>Abre tu correo electrónico</li>
-            <li>Busca el email de <strong>Global Solutions Travel</strong></li>
-            <li>
-              Haz clic en <strong>&quot;Confirm your mail&quot;</strong>
-            </li>
-            <li>Vuelve aquí e inicia sesión</li>
-          </ol>
-        </div>
-        <p className="text-xs text-neutral-400">
-          ¿No lo ves? Revisa tu carpeta de spam o correo no deseado.
-        </p>
-        <Link
-          href={ROUTES.LOGIN}
-          className="inline-flex items-center justify-center rounded-xl bg-brand-600 px-6 py-3 font-semibold text-white hover:bg-brand-700 transition-colors"
-        >
-          Ir a Iniciar Sesión
-        </Link>
-      </div>
-    );
-  }
-
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {error && (
-        <div
-          className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600"
-          role="alert"
-        >
-          {error}
+      <div className="text-center mb-6">
+        <h1 className="text-2xl font-bold text-brand-950">
+          {step === 'credentials' ? 'Bienvenido de nuevo' : 'Verificación de Seguridad'}
+        </h1>
+        <p className="text-neutral-600 text-sm">
+          {step === 'credentials'
+            ? 'Ingresa tus credenciales para acceder'
+            : 'Introduce el código de 6 dígitos enviado a tu correo'}
+        </p>
+      </div>
+
+      {serverError && (
+        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{serverError}</div>
+      )}
+
+      {step === 'credentials' ? (
+        <>
+          <Input
+            id="email"
+            label="Correo Electrónico"
+            type="email"
+            placeholder="correo@ejemplo.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            disabled={isLoading}
+          />
+          <Input
+            id="password"
+            label="Contraseña"
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            disabled={isLoading}
+          />
+        </>
+      ) : (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => {
+              setStep('credentials');
+              setOtpCode('');
+              setServerError(null);
+            }}
+            className="flex items-center gap-1 text-xs text-brand-600 hover:underline"
+            disabled={isLoading}
+          >
+            <ArrowLeft className="h-3 w-3" /> Cambiar correo o contraseña
+          </button>
+
+          <Input
+            id="otp"
+            label="Código de Seguridad"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="000000"
+            maxLength={6}
+            value={otpDigits}
+            onChange={(e) => setOtpCode(e.target.value)}
+            required
+            disabled={isLoading}
+            className="text-center text-2xl tracking-[0.5em] font-mono"
+          />
         </div>
       )}
 
-      <div className="space-y-1">
-        <label htmlFor="fullName" className="mb-1 block text-sm font-medium text-neutral-700">
-          Nombre Completo
-        </label>
-        <Input
-          id="fullName"
-          placeholder="María García"
-          value={fullName}
-          onChange={e => setFullName(e.target.value)}
-          required
-        />
-      </div>
-
-      <div className="space-y-1">
-        <label htmlFor="email" className="mb-1 block text-sm font-medium text-neutral-700">
-          Correo Electrónico
-        </label>
-        <Input
-          id="email"
-          type="email"
-          placeholder="correo@ejemplo.com"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          required
-        />
-      </div>
-
-      <div className="space-y-1">
-        <label htmlFor="phone" className="mb-1 block text-sm font-medium text-neutral-700">
-          Teléfono (opcional)
-        </label>
-        <Input
-          id="phone"
-          type="tel"
-          placeholder="+53 5555 5555"
-          value={phone}
-          onChange={e => setPhone(e.target.value)}
-        />
-      </div>
-
-      <div className="space-y-1">
-        <label htmlFor="password" className="mb-1 block text-sm font-medium text-neutral-700">
-          Contraseña
-        </label>
-        <Input
-          id="password"
-          type="password"
-          placeholder="Mínimo 8 caracteres"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          required
-        />
-      </div>
-
-      <div className="space-y-1">
-        <label htmlFor="confirmPassword" className="mb-1 block text-sm font-medium text-neutral-700">
-          Confirmar Contraseña
-        </label>
-        <Input
-          id="confirmPassword"
-          type="password"
-          placeholder="Repetir contraseña"
-          value={confirmPassword}
-          onChange={e => setConfirmPassword(e.target.value)}
-          required
-        />
-      </div>
-
-      <Button type="submit" isLoading={isLoading} className="w-full">
-        {isLoading ? 'Creando cuenta...' : 'Crear Cuenta'}
+      <Button type="submit" isLoading={isLoading} className="w-full" disabled={!canSubmit}>
+        {step === 'credentials' ? 'Continuar' : 'Verificar e Ingresar'}
       </Button>
 
-      <p className="text-center text-sm text-neutral-600">
-        ¿Ya tienes cuenta?{' '}
-        <Link href={ROUTES.LOGIN} className="font-semibold text-brand-600 hover:underline">
-          Inicia sesión
-        </Link>
-      </p>
+      {step === 'credentials' && (
+        <p className="text-center text-sm text-neutral-600">
+          ¿No tienes cuenta?{' '}
+          <Link href={ROUTES.REGISTER} className="font-semibold text-brand-600 hover:underline">
+            Regístrate
+          </Link>
+        </p>
+      )}
 
       <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">
         <Shield className="h-3 w-3" />
-        Conexión segura · Datos encriptados con AES-256
+        Autenticación de dos factores activa
       </p>
     </form>
   );

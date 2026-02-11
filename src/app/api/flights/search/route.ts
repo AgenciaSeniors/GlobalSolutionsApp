@@ -1,3 +1,6 @@
+/**
+ * POST /api/flights/search — Buscador de vuelos con tipos estrictos, protección, caché y fallback DB.
+ */
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { FlightSearchParams, FlightLeg, FlightSearchFilters } from '@/types/api.types';
@@ -5,12 +8,35 @@ import { flightsOrchestrator } from '@/lib/flights/orchestrator/flightsOrchestra
 
 const TTL_MINUTES = 15;
 
-// Sin `any`:
+// Strict types (no `any`)
 type FlightRecord = Record<string, unknown>;
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
+}
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+function isValidIATA(x: string): boolean {
+  return /^[A-Z]{3}$/.test(x);
+}
+
+function isValidDateYYYYMMDD(x: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(x);
+}
+
+function isValidHHMM(x: string): boolean {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
+}
+
+function readNumberField(obj: FlightRecord, key: string): number | undefined {
+  const v = obj[key];
+  if (v == null) return undefined;
+  const n = Number(v);
+  return Number.isNaN(n) ? undefined : n;
 }
 
 function normalizeFilters(raw: unknown): FlightSearchFilters | undefined {
@@ -31,7 +57,15 @@ function normalizeFilters(raw: unknown): FlightSearchFilters | undefined {
 
   const maxStops = raw.maxStops != null ? Number(raw.maxStops) : undefined;
 
-  return { airlineCodes, minPrice, maxPrice, departureTimeRange, maxStops };
+  // Sanitización final
+  const cleaned: FlightSearchFilters = {};
+  if (airlineCodes?.length) cleaned.airlineCodes = airlineCodes;
+  if (Number.isFinite(minPrice as number)) cleaned.minPrice = minPrice;
+  if (Number.isFinite(maxPrice as number)) cleaned.maxPrice = maxPrice;
+  if (departureTimeRange?.from && departureTimeRange?.to) cleaned.departureTimeRange = departureTimeRange;
+  if (Number.isFinite(maxStops as number)) cleaned.maxStops = maxStops;
+
+  return Object.keys(cleaned).length ? cleaned : undefined;
 }
 
 function normalizeToRequest(params: FlightSearchParams): {
@@ -42,20 +76,18 @@ function normalizeToRequest(params: FlightSearchParams): {
   const anyParams: unknown = params;
   const filters = normalizeFilters(isRecord(anyParams) ? anyParams.filters : undefined);
 
-  // New format: { legs: [...], passengers }
+  // New format: { legs, passengers, filters }
   if ('legs' in params && Array.isArray(params.legs) && params.legs.length > 0) {
-    return {
-      legs: params.legs.map((l) => ({
-        origin: String(l.origin).toUpperCase(),
-        destination: String(l.destination).toUpperCase(),
-        departure_date: l.departure_date,
-      })),
-      passengers: params.passengers,
-      filters,
-    };
+    const legs = params.legs.map((l) => ({
+      origin: String(l.origin).toUpperCase(),
+      destination: String(l.destination).toUpperCase(),
+      departure_date: String(l.departure_date),
+    }));
+
+    return { legs, passengers: Number(params.passengers ?? 1), filters };
   }
 
-  // Legacy format: { origin, destination, departure_date, return_date?, passengers }
+  // Legacy format: { origin, destination, departure_date, return_date?, passengers, filters? }
   const origin = isRecord(anyParams) ? String(anyParams.origin ?? '').toUpperCase() : '';
   const destination = isRecord(anyParams) ? String(anyParams.destination ?? '').toUpperCase() : '';
   const departure_date = isRecord(anyParams) ? String(anyParams.departure_date ?? '') : '';
@@ -67,14 +99,14 @@ function normalizeToRequest(params: FlightSearchParams): {
     legs.push({
       origin: destination,
       destination: origin,
-      departure_date: String(anyParams.return_date ?? ''),
+      departure_date: String(anyParams.return_date),
     });
   }
 
   return { legs, passengers, filters };
 }
 
-function makeCacheKey(body: { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters }) {
+function makeCacheKey(body: { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters }): string {
   const legsKey = body.legs
     .map((l) => `${l.origin.toUpperCase()}-${l.destination.toUpperCase()}-${l.departure_date}`)
     .join('|');
@@ -93,35 +125,44 @@ function makeCacheKey(body: { legs: FlightLeg[]; passengers: number; filters?: F
   return `flights:${legsKey}:p${body.passengers}${filtersKey}`;
 }
 
-function isValidHHMM(x: string) {
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
-}
-
-function readNumberField(obj: FlightRecord, key: string): number | undefined {
-  const v = obj[key];
-  if (v == null) return undefined;
-  const n = Number(v);
-  return Number.isNaN(n) ? undefined : n;
-}
-
 function extractProvidersUsed(results: ResultsByLeg): string[] {
   const set = new Set<string>();
-
   for (const leg of results) {
     for (const f of leg.flights) {
       const p = f.provider;
       if (typeof p === 'string' && p.trim()) set.add(p.trim());
     }
   }
-
   return Array.from(set).sort();
+}
+
+function validateRequest(body: { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters }): string | null {
+  if (!Array.isArray(body.legs) || body.legs.length === 0) return 'Parámetros inválidos: legs vacío.';
+  if (!Number.isFinite(body.passengers) || body.passengers < 1 || body.passengers > 9)
+    return 'Parámetros inválidos: passengers fuera de rango.';
+
+  for (let i = 0; i < body.legs.length; i++) {
+    const leg = body.legs[i];
+    if (!isValidIATA(String(leg.origin ?? '')) || !isValidIATA(String(leg.destination ?? ''))) {
+      return `IATA inválido en tramo ${i + 1}`;
+    }
+    if (!isValidDateYYYYMMDD(String(leg.departure_date ?? ''))) {
+      return `Fecha inválida en tramo ${i + 1} (usa YYYY-MM-DD)`;
+    }
+  }
+
+  const tr = body.filters?.departureTimeRange;
+  if (tr) {
+    if (!isValidHHMM(tr.from) || !isValidHHMM(tr.to)) return 'Rango horario inválido (usa HH:MM).';
+  }
+
+  return null;
 }
 
 async function getAirlineIdsByCodes(
   supabase: ReturnType<typeof createAdminClient>,
   airlineCodes: string[],
 ): Promise<{ ids: string[]; error?: string }> {
-  // Try common column names: iata_code first, then code.
   const tryCols = ['iata_code', 'code'] as const;
 
   for (const col of tryCols) {
@@ -140,61 +181,65 @@ async function getAirlineIdsByCodes(
       return { ids };
     }
 
-    // if the column doesn't exist, try next
     const msg = String((error as unknown as { message?: unknown }).message ?? '');
     if (!msg.includes(col)) return { ids: [], error: msg };
   }
 
-  return { ids: [], error: 'No se pudo filtrar aerolíneas: falta columna iata_code/code en airlines.' };
+  return { ids: [], error: 'No se pudo filtrar aerolíneas: error de esquema.' };
 }
 
 export async function POST(req: Request) {
   const supabase = createAdminClient();
 
   try {
+    // 1) RATE LIMIT (robusto, sin casting a interfaces)
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1';
+    const now = new Date();
+
+    const { data: rlData } = await supabase
+      .from('search_rate_limits')
+      .select('ip_address,last_search_at,search_count')
+      .eq('ip_address', ip)
+      .maybeSingle();
+
+    const rl = rlData as unknown;
+
+    if (isRecord(rl) && isNonEmptyString(rl.last_search_at) && typeof rl.search_count === 'number') {
+      const diffMs = now.getTime() - new Date(rl.last_search_at).getTime();
+
+      if (rl.search_count >= 5 && diffMs < 30_000) {
+        return NextResponse.json({ error: 'Demasiadas búsquedas. Intente de nuevo en breve.' }, { status: 429 });
+      }
+
+      const newCount = diffMs > 30_000 ? 1 : rl.search_count + 1;
+
+      await supabase
+        .from('search_rate_limits')
+        .update({ last_search_at: now.toISOString(), search_count: newCount })
+        .eq('ip_address', ip);
+    } else {
+      await supabase
+        .from('search_rate_limits')
+        .upsert({ ip_address: ip, last_search_at: now.toISOString(), search_count: 1 }, { onConflict: 'ip_address' });
+    }
+
+    // 2) Parse + normalize
     const raw = (await req.json()) as FlightSearchParams;
     const body = normalizeToRequest(raw);
 
-    if (
-      !body.legs.length ||
-      !body.legs[0].origin ||
-      !body.legs[0].destination ||
-      !body.legs[0].departure_date ||
-      !Number.isFinite(body.passengers) ||
-      body.passengers < 1
-    ) {
-      return NextResponse.json(
-        { error: 'Parámetros inválidos (legs/origin/destination/departure_date/passengers)' },
-        { status: 400 },
-      );
-    }
-
-    // Validate time range if provided (same-day window)
-    if (body.filters?.departureTimeRange) {
-      const { from, to } = body.filters.departureTimeRange;
-      if (!isValidHHMM(from) || !isValidHHMM(to)) {
-        return NextResponse.json({ error: 'departureTimeRange inválido. Use "HH:MM" 24h.' }, { status: 400 });
-      }
-      if (from > to) {
-        return NextResponse.json(
-          { error: 'departureTimeRange inválido: "from" debe ser <= "to" (mismo día).' },
-          { status: 400 },
-        );
-      }
-    }
+    const validationErr = validateRequest(body);
+    if (validationErr) return NextResponse.json({ error: validationErr }, { status: 400 });
 
     const cache_key = makeCacheKey(body);
     const nowIso = new Date().toISOString();
 
-    // 1) CACHE HIT
-    const { data: cached, error: cacheErr } = await supabase
+    // 3) CACHE HIT
+    const { data: cached } = await supabase
       .from('flight_search_cache')
       .select('response, expires_at')
       .eq('cache_key', cache_key)
       .gt('expires_at', nowIso)
       .maybeSingle();
-
-    if (cacheErr) console.warn('flight_search_cache read error:', cacheErr.message);
 
     if (cached?.response) {
       console.info('[FLIGHTS_SEARCH] source=cache', { cache_key });
@@ -205,7 +250,7 @@ export async function POST(req: Request) {
             .map((r) => ({
               legIndex: Number((r as FlightRecord).legIndex ?? 0),
               flights: Array.isArray((r as FlightRecord).flights)
-                ? ((r as FlightRecord).flights as unknown[]).filter(isRecord) as FlightRecord[]
+                ? (((r as FlightRecord).flights as unknown[]).filter(isRecord) as FlightRecord[])
                 : [],
             }))
         : [];
@@ -214,35 +259,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ source: 'cache', providersUsed, results: cachedResults });
     }
 
-
-    // 2) LIVE — Orchestrator (agency-first)
+    // 4) LIVE — Orchestrator
     let resultsByLeg: ResultsByLeg | null = null;
-    let providersUsedLive: string[] = [];
+    let providersUsed: string[] = [];
 
     try {
       console.info('[FLIGHTS_SEARCH] source=live', { cache_key, provider: flightsOrchestrator.id });
 
       const providerRes = await flightsOrchestrator.search(body);
 
-      // Convertimos a FlightRecord[] sin `any`
       resultsByLeg = providerRes.map((r) => ({
         legIndex: r.legIndex,
         flights: (r.flights as unknown[]).filter(isRecord) as FlightRecord[],
       }));
 
-      providersUsedLive = extractProvidersUsed(resultsByLeg);
-      console.info('[FLIGHTS_SEARCH] providersUsed', { cache_key, providersUsed: providersUsedLive });
+      providersUsed = extractProvidersUsed(resultsByLeg);
     } catch (e: unknown) {
       const msg = String(isRecord(e) ? e.message : e ?? '');
-      if (msg.startsWith('IATA inválido')) {
-        return NextResponse.json({ error: msg }, { status: 400 });
-      }
-      console.warn('[FLIGHTS_SEARCH] orchestrator error, usando fallback legacy:', msg);
+      if (msg.startsWith('IATA inválido')) return NextResponse.json({ error: msg }, { status: 400 });
+      console.warn('[FLIGHTS_SEARCH] orchestrator error, fallback DB:', msg);
     }
 
-    // === FALLBACK LEGACY (tu lógica original, intacta) ===
+    // 5) FALLBACK DB (mejor de luis: joins + stops flexible)
     if (!resultsByLeg) {
-      // B: resolver IATA -> airport_id en 1 sola query
+      // A) Resolver airports en 1 query
       const allIatas = Array.from(new Set(body.legs.flatMap((l) => [l.origin, l.destination])));
 
       const { data: airportsAll, error: airportsAllErr } = await supabase
@@ -250,9 +290,7 @@ export async function POST(req: Request) {
         .select('id, iata_code')
         .in('iata_code', allIatas);
 
-      if (airportsAllErr) {
-        return NextResponse.json({ error: airportsAllErr.message }, { status: 500 });
-      }
+      if (airportsAllErr) return NextResponse.json({ error: airportsAllErr.message }, { status: 500 });
 
       const airportIdByIata = new Map<string, string>();
       for (const a of airportsAll ?? []) {
@@ -261,18 +299,16 @@ export async function POST(req: Request) {
         airportIdByIata.set(String(rec.iata_code), String(rec.id));
       }
 
-      // C: airline filter (resolve once)
+      // B) Airline filter (resolve once)
       let airlineIdsFilter: string[] | null = null;
       if (body.filters?.airlineCodes?.length) {
         const { ids, error } = await getAirlineIdsByCodes(supabase, body.filters.airlineCodes);
         if (error) return NextResponse.json({ error }, { status: 500 });
         airlineIdsFilter = ids;
 
-        // If user asked for airlines and none exist, return empty quickly
         if (!airlineIdsFilter.length) {
           const empty: ResultsByLeg = body.legs.map((_, i) => ({ legIndex: i, flights: [] }));
-          console.info('[FLIGHTS_SEARCH] source=live', { cache_key, providersUsed: ['legacy-db'] });
-          return NextResponse.json({ source: 'live', results: empty });
+          return NextResponse.json({ source: 'live', providersUsed: ['legacy-db'], results: empty });
         }
       }
 
@@ -288,7 +324,6 @@ export async function POST(req: Request) {
           return NextResponse.json({ error: `IATA inválido en tramo ${i + 1}` }, { status: 400 });
         }
 
-        // Date window (full day) or narrowed by time range
         let start = `${leg.departure_date}T00:00:00`;
         let end = `${leg.departure_date}T23:59:59`;
 
@@ -314,45 +349,36 @@ export async function POST(req: Request) {
           .lte('departure_datetime', end)
           .order('final_price', { ascending: true });
 
-        // Price filters (SQL)
         if (body.filters?.minPrice != null) q = q.gte('final_price', body.filters.minPrice);
         if (body.filters?.maxPrice != null) q = q.lte('final_price', body.filters.maxPrice);
-
-        // Airline filter (SQL)
         if (airlineIdsFilter?.length) q = q.in('airline_id', airlineIdsFilter);
 
         const { data: flightsRaw, error: flightsErr } = await q;
+        if (flightsErr) return NextResponse.json({ error: flightsErr.message }, { status: 500 });
 
-        if (flightsErr) {
-          return NextResponse.json({ error: flightsErr.message }, { status: 500 });
-        }
-
-        // maxStops (best-effort in-memory) — actualizado a schema real:
         let flights: FlightRecord[] = (flightsRaw as unknown[]).filter(isRecord) as FlightRecord[];
 
+        // maxStops: mejor de los 2 (stops array + varios nombres legacy)
         if (body.filters?.maxStops != null) {
           const maxStops = body.filters.maxStops;
 
           flights = flights.filter((f) => {
-            // ✅ PRIORIDAD: schema real -> stops (jsonb array)
             const rawStops = f.stops;
-            if (Array.isArray(rawStops)) {
-              return rawStops.length <= maxStops;
-            }
+            if (Array.isArray(rawStops)) return rawStops.length <= maxStops;
 
-            // fallback legacy: stops_count, number_of_stops, stop_count, etc.
             let stops =
               readNumberField(f, 'stops_count') ??
               readNumberField(f, 'number_of_stops') ??
-              readNumberField(f, 'stop_count');
+              readNumberField(f, 'stops') ??
+              readNumberField(f, 'stop_count') ??
+              readNumberField(f, 'segments_count');
 
-            // otro legacy: segments_count - 1
-            if (stops == null) {
-              const seg = readNumberField(f, 'segments_count');
-              if (seg != null) stops = Math.max(0, seg - 1);
+            // segments_count -> segments-1 (si venía como segmentos)
+            if (stops != null && (f.segments_count != null || f['segments_count'] != null)) {
+              stops = Math.max(0, stops - 1);
             }
 
-            if (stops == null) return true; // can't evaluate; keep
+            if (stops == null) return true; // no evaluable, lo dejamos
             return stops <= maxStops;
           });
         }
@@ -361,14 +387,13 @@ export async function POST(req: Request) {
       }
 
       resultsByLeg = legacyResults;
-
-      const providersUsed = ['legacy-db'];
+      providersUsed = ['legacy-db'];
       console.info('[FLIGHTS_SEARCH] source=live', { cache_key, providersUsed });
     }
 
     const finalResults = resultsByLeg as ResultsByLeg;
 
-    // 3) Cache store (TTL 15 min)
+    // 6) CACHE STORE
     const expires_at = new Date(Date.now() + TTL_MINUTES * 60 * 1000).toISOString();
 
     const { error: upsertErr } = await supabase
@@ -377,7 +402,7 @@ export async function POST(req: Request) {
 
     if (upsertErr) console.warn('flight_search_cache upsert error:', upsertErr.message);
 
-    return NextResponse.json({ source: 'live', providersUsed: providersUsedLive, results: finalResults });
+    return NextResponse.json({ source: 'live', providersUsed, results: finalResults });
   } catch (err: unknown) {
     console.error('[FLIGHT_SEARCH_ERROR]', err);
     const msg = String(isRecord(err) ? err.message : err ?? 'Internal server error');
