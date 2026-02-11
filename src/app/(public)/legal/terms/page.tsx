@@ -25,7 +25,8 @@ export default function TermsPage() {
             <section>
               <h2 className="text-lg font-bold text-brand-900">1. Generalidades</h2>
               <p>
-                Global Solutions Travel (en adelante "GST") es una agencia de viajes digital
+                Global Solutions Travel (en adelante &quot;GST&quot;)
+                 es una agencia de viajes digital
                 que opera como intermediaria entre el cliente y las aerolíneas, proveedores de
                 renta de autos y servicios turísticos. Al utilizar nuestra plataforma, usted
                 acepta estos términos en su totalidad.

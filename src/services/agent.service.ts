@@ -3,7 +3,6 @@
  * Maneja estadísticas, recuperación de reservas asignadas y tickets.
  */
 import { createClient } from '@/lib/supabase/client';
-import { type Database } from '@/types/database.types';
 
 // Tipos para las respuestas
 export interface AgentDashboardStats {
@@ -113,16 +112,30 @@ export const agentService = {
     if (error) throw error;
 
     // Transformar datos para que el componente los consuma fácil
-    return (data || []).map((b: any) => ({
-      id: b.id,
-      booking_code: b.booking_code,
-      status: b.booking_status,
-      total_amount: b.total_amount,
-      created_at: b.created_at,
-      passenger_name: b.profiles?.full_name || 'Cliente Desconocido',
-      route: b.flights 
-        ? `${b.flights.origin_airport?.iata_code} ➝ ${b.flights.destination_airport?.iata_code}`
-        : 'Ruta no disponible'
-    }));
+    type RecentBookingRow = {
+  id: string;
+  booking_code: string;
+  booking_status: string;
+  total_amount: number | null;
+  created_at: string;
+  profiles?: { full_name?: string | null } | null;
+  flights?: {
+    origin_airport?: { iata_code?: string | null } | null;
+    destination_airport?: { iata_code?: string | null } | null;
+  } | null;
+};
+
+return (data as unknown as RecentBookingRow[]).map((b) => ({
+  id: b.id,
+  booking_code: b.booking_code,
+  status: b.booking_status,
+  total_amount: b.total_amount ?? 0,
+  created_at: b.created_at,
+  passenger_name: b.profiles?.full_name || 'Cliente Desconocido',
+  route: b.flights
+    ? `${b.flights.origin_airport?.iata_code} ➝ ${b.flights.destination_airport?.iata_code}`
+    : 'Ruta no disponible',
+}));
+
   }
 };
