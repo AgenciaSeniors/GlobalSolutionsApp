@@ -1,13 +1,21 @@
 'use client';
 
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, useCallback, FormEvent } from 'react';
 import Sidebar, { AGENT_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { ticketService, Ticket } from '@/services/tickets.service';
-import { MessageSquare, Plus, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+// 1. Import LucideIcon type for strict typing
+import { MessageSquare, Plus, AlertCircle, CheckCircle, Clock, LucideIcon } from 'lucide-react';
+
+// 2. Define the style interface to avoid 'any'
+interface StatusStyle {
+  label: string;
+  color: string;
+  icon: LucideIcon;
+}
 
 export default function AgentTicketsPage() {
   const { user } = useAuthContext();
@@ -20,12 +28,8 @@ export default function AgentTicketsPage() {
   const [message, setMessage] = useState('');
   const [priority, setPriority] = useState('medium');
 
-  // Cargar tickets al iniciar
-  useEffect(() => {
-    if (user) loadTickets();
-  }, [user]);
-
-  async function loadTickets() {
+  // 3. Wrap loadTickets in useCallback to stabilize the reference
+  const loadTickets = useCallback(async () => {
     if (!user) return;
     try {
       setLoading(true);
@@ -36,7 +40,12 @@ export default function AgentTicketsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [user]);
+
+  // 4. Add loadTickets to dependency array
+  useEffect(() => {
+    if (user) loadTickets();
+  }, [user, loadTickets]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -53,14 +62,15 @@ export default function AgentTicketsPage() {
       setIsCreating(false);
       setSubject('');
       setMessage('');
-      loadTickets(); // Recargar la lista para ver el nuevo
-    } catch (error) {
+      loadTickets();
+    } catch { 
+      // 5. Removed unused 'error' variable
       alert('Error creando el ticket. Intenta de nuevo.');
     }
   }
 
-  // Diccionario de estilos para los estados
-  const statusStyles: any = {
+  // 6. Apply strict typing instead of 'any'
+  const statusStyles: Record<string, StatusStyle> = {
     open: { label: 'Abierto', color: 'bg-blue-100 text-blue-700', icon: AlertCircle },
     in_progress: { label: 'En Proceso', color: 'bg-purple-100 text-purple-700', icon: Clock },
     closed: { label: 'Resuelto', color: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -74,7 +84,6 @@ export default function AgentTicketsPage() {
 
         <div className="p-8 max-w-5xl mx-auto space-y-6">
           
-          {/* Cabecera con Botón de Crear */}
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-bold text-gray-800">Mis Tickets</h2>
             <Button onClick={() => setIsCreating(!isCreating)} variant={isCreating ? 'outline' : 'primary'}>
@@ -84,7 +93,6 @@ export default function AgentTicketsPage() {
             </Button>
           </div>
 
-          {/* FORMULARIO DE CREACIÓN (Solo se ve si das click a Nuevo Ticket) */}
           {isCreating && (
             <Card className="p-6 border-l-4 border-l-brand-500 animate-fade-in-up">
               <h3 className="font-bold mb-4">Nueva Solicitud de Soporte</h3>
@@ -136,7 +144,6 @@ export default function AgentTicketsPage() {
             </Card>
           )}
 
-          {/* LISTA DE TICKETS */}
           <div className="space-y-4">
             {loading ? (
               <p className="text-gray-500 text-center py-10">Cargando tickets...</p>

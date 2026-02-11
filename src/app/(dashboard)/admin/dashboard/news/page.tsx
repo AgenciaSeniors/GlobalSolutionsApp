@@ -4,7 +4,8 @@
  */
 'use client';
 
-import { useEffect, useState } from 'react';
+// 1. Import useCallback
+import { useEffect, useState, useCallback } from 'react';
 import Sidebar, { ADMIN_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -24,9 +25,8 @@ export default function AdminNewsPage() {
   const [category, setCategory] = useState<'update' | 'promo' | 'alert'>('update');
   const [isPinned, setIsPinned] = useState(false);
 
-  useEffect(() => { fetchNews(); }, []);
-
-  async function fetchNews() {
+  // 2. Wrap fetchNews in useCallback to stabilize the function reference
+  const fetchNews = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from('agent_news')
@@ -35,7 +35,12 @@ export default function AdminNewsPage() {
       .order('created_at', { ascending: false });
     setNews((data as AgentNews[]) || []);
     setLoading(false);
-  }
+  }, [supabase]);
+
+  // 3. Add fetchNews to the dependency array
+  useEffect(() => { 
+    fetchNews(); 
+  }, [fetchNews]);
 
   async function handlePublish() {
     if (!title.trim() || !content.trim()) return;
@@ -86,7 +91,16 @@ export default function AdminNewsPage() {
                 <Megaphone className="h-5 w-5 text-blue-600" /> Publicar Noticia
               </h3>
               <div className="space-y-4">
-                <Input label="Título" value={title} onChange={e => setTitle(e.target.value)} placeholder="Ej: Nuevas tarifas Turkish Airlines" />
+                {/* 4. Removed 'label' prop and added manual label styling */}
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-neutral-700">Título</label>
+                  <Input 
+                    value={title} 
+                    onChange={e => setTitle(e.target.value)} 
+                    placeholder="Ej: Nuevas tarifas Turkish Airlines" 
+                  />
+                </div>
+                
                 <div>
                   <label className="mb-1 block text-sm font-medium text-neutral-700">Contenido</label>
                   <textarea
