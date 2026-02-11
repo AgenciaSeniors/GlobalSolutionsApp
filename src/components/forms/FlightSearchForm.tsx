@@ -28,21 +28,6 @@ export default function FlightSearchForm() {
    const [useStopsMode, setUseStopsMode] = useState(false);
   const [stops, setStops] = useState<string[]>([]);
   
-  //funciones nuevas para escalas
-  function addStop() {
-  setStops((prev) => [...prev, '']);
-}
-
-function updateStop(index: number, value: string) {
-  setStops((prev) =>
-    prev.map((stop, i) => (i === index ? value : stop))
-  );
-}
-
-function removeStop(index: number) {
-  setStops((prev) => prev.filter((_, i) => i !== index));
-}
-
   const update =
     (field: keyof typeof form) =>
     (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
