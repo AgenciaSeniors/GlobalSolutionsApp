@@ -392,20 +392,30 @@ export default function AdminFlightsPage() {
                     </div>
                   )}
 
-                  <Input
-                    label="Nº de Vuelo"
-                    placeholder="TK1800"
+                  <div className="space-y-1">
+                    <label htmlFor="n_de_vuelo" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Nº de Vuelo
+                    </label>
+                    <Input
+placeholder="TK1800"
                     value={form.flight_number}
                     onChange={(e) => updateField('flight_number', e.target.value)}
                     required
-                  />
+                    id="n_de_vuelo"
+                    />
+                  </div>
 
-                  <Input
-                    label="Tipo de Aeronave"
-                    placeholder="Boeing 777-300ER"
+                  <div className="space-y-1">
+                    <label htmlFor="tipo_de_aeronave" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Tipo de Aeronave
+                    </label>
+                    <Input
+placeholder="Boeing 777-300ER"
                     value={form.aircraft_type}
                     onChange={(e) => updateField('aircraft_type', e.target.value)}
-                  />
+                    id="tipo_de_aeronave"
+                    />
+                  </div>
 
                   {/* Origin/Destination */}
                   {!editId && (
@@ -449,20 +459,30 @@ export default function AdminFlightsPage() {
                     </>
                   )}
 
-                  <Input
-                    label="Salida"
-                    type="datetime-local"
+                  <div className="space-y-1">
+                    <label htmlFor="salida" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Salida
+                    </label>
+                    <Input
+type="datetime-local"
                     value={form.departure_datetime}
                     onChange={(e) => updateField('departure_datetime', e.target.value)}
                     required
-                  />
-                  <Input
-                    label="Llegada"
-                    type="datetime-local"
+                    id="salida"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="llegada" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Llegada
+                    </label>
+                    <Input
+type="datetime-local"
                     value={form.arrival_datetime}
                     onChange={(e) => updateField('arrival_datetime', e.target.value)}
                     required
-                  />
+                    id="llegada"
+                    />
+                  </div>
                 </div>
 
                 {/* Pricing Section */}
@@ -471,19 +491,27 @@ export default function AdminFlightsPage() {
                     <DollarSign className="h-4 w-4" /> Motor de Precios (Markup)
                   </h4>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-                    <Input
-                      label="Precio Base ($)"
-                      type="number"
+                    <div className="space-y-1">
+                      <label htmlFor="precio_base" className="mb-1 block text-sm font-medium text-neutral-700">
+                        Precio Base ($)
+                      </label>
+                      <Input
+type="number"
                       min="0"
                       step="0.01"
                       placeholder="1050.00"
                       value={form.base_price}
                       onChange={(e) => updateField('base_price', e.target.value)}
                       required
-                    />
-                    <Input
-                      label="Markup (%)"
-                      type="number"
+                      id="precio_base"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="markup" className="mb-1 block text-sm font-medium text-neutral-700">
+                        Markup (%)
+                      </label>
+                      <Input
+type="number"
                       min="0"
                       max="100"
                       step="0.5"
@@ -491,7 +519,9 @@ export default function AdminFlightsPage() {
                       value={form.markup_percentage}
                       onChange={(e) => updateField('markup_percentage', e.target.value)}
                       required
-                    />
+                      id="markup"
+                      />
+                    </div>
                     <div>
                       <label className="mb-2 block text-sm font-semibold text-emerald-700">
                         Precio Final (automático)
@@ -516,28 +546,43 @@ export default function AdminFlightsPage() {
 
                 {/* Seats + Baggage */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <Input
-                    label="Total Asientos"
-                    type="number"
+                  <div className="space-y-1">
+                    <label htmlFor="total_asientos" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Total Asientos
+                    </label>
+                    <Input
+type="number"
                     min="1"
                     value={form.total_seats}
                     onChange={(e) => updateField('total_seats', e.target.value)}
                     required
-                  />
-                  <Input
-                    label="Asientos Disponibles"
-                    type="number"
+                    id="total_asientos"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="asientos_disponibles" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Asientos Disponibles
+                    </label>
+                    <Input
+type="number"
                     min="0"
                     value={form.available_seats}
                     onChange={(e) => updateField('available_seats', e.target.value)}
                     required
-                  />
-                  <Input
-                    label="Equipaje Incluido"
-                    placeholder="23kg checked + 8kg carry-on"
+                    id="asientos_disponibles"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="equipaje_incluido" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Equipaje Incluido
+                    </label>
+                    <Input
+placeholder="23kg checked + 8kg carry-on"
                     value={form.baggage_included}
                     onChange={(e) => updateField('baggage_included', e.target.value)}
-                  />
+                    id="equipaje_incluido"
+                    />
+                  </div>
                 </div>
 
                 {/* Flags */}

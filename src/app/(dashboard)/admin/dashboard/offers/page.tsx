@@ -146,12 +146,60 @@ export default function AdminOffersPage() {
               </h3>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Input label="Destino" value={destination} onChange={e => setDestination(e.target.value)} placeholder="Estambul, Turquía" required />
-                  <Input label="URL Imagen destino" value={destinationImg} onChange={e => setDestinationImg(e.target.value)} placeholder="https://..." />
-                  <Input label="Precio Original ($)" type="number" step="0.01" value={originalPrice} onChange={e => setOriginalPrice(e.target.value)} required />
-                  <Input label="Precio Oferta ($)" type="number" step="0.01" value={offerPrice} onChange={e => setOfferPrice(e.target.value)} required />
-                  <Input label="Max Cupos" type="number" value={maxSeats} onChange={e => setMaxSeats(e.target.value)} />
-                  <Input label="Etiqueta de Urgencia" value={urgencyLabel} onChange={e => setUrgencyLabel(e.target.value)} placeholder="¡Quedan pocos cupos!" />
+                  <div className="space-y-1">
+                    <label htmlFor="destino" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Destino
+                    </label>
+                    <Input
+value={destination} onChange={e => setDestination(e.target.value)} placeholder="Estambul, Turquía" required
+                    id="destino"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="url_imagen_destino" className="mb-1 block text-sm font-medium text-neutral-700">
+                      URL Imagen destino
+                    </label>
+                    <Input
+value={destinationImg} onChange={e => setDestinationImg(e.target.value)} placeholder="https://..."
+                    id="url_imagen_destino"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="precio_original" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Precio Original ($)
+                    </label>
+                    <Input
+type="number" step="0.01" value={originalPrice} onChange={e => setOriginalPrice(e.target.value)} required
+                    id="precio_original"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="precio_oferta" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Precio Oferta ($)
+                    </label>
+                    <Input
+type="number" step="0.01" value={offerPrice} onChange={e => setOfferPrice(e.target.value)} required
+                    id="precio_oferta"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="max_cupos" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Max Cupos
+                    </label>
+                    <Input
+type="number" value={maxSeats} onChange={e => setMaxSeats(e.target.value)}
+                    id="max_cupos"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="etiqueta_de_urgencia" className="mb-1 block text-sm font-medium text-neutral-700">
+                      Etiqueta de Urgencia
+                    </label>
+                    <Input
+value={urgencyLabel} onChange={e => setUrgencyLabel(e.target.value)} placeholder="¡Quedan pocos cupos!"
+                    id="etiqueta_de_urgencia"
+                    />
+                  </div>
                 </div>
 
                 {/* Date selector */}

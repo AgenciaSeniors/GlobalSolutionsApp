@@ -40,6 +40,10 @@ export default function UserBookingsPage() {
 
   useEffect(() => {
     if (!user) return;
+    
+    // Capture ID here to satisfy TypeScript null checks inside the async function
+    const userId = user.id;
+
     async function load() {
       const { data } = await supabase
         .from('bookings')
@@ -48,7 +52,7 @@ export default function UserBookingsPage() {
           flight:flights(flight_number, departure_datetime, airline:airlines(name), origin_airport:airports!origin_airport_id(iata_code, city), destination_airport:airports!destination_airport_id(iata_code, city)),
           passengers:booking_passengers(first_name, last_name, ticket_number)
         `)
-        .eq('user_id', user.id)
+        .eq('user_id', userId) // Use the captured userId
         .order('created_at', { ascending: false });
       setBookings((data as unknown as UserBooking[]) || []);
       setLoading(false);
@@ -56,11 +60,12 @@ export default function UserBookingsPage() {
     load();
   }, [user]);
 
-  const statusConfig: Record<string, { icon: typeof Clock; label: string; color: string; variant: 'warning' | 'success' | 'error' | 'info' }> = {
+  // Updated 'variant' type to match Badge props (changed 'error' to 'destructive')
+  const statusConfig: Record<string, { icon: typeof Clock; label: string; color: string; variant: 'warning' | 'success' | 'destructive' | 'info' }> = {
     pending_emission: { icon: Clock, label: 'Procesando Emisión', color: 'text-amber-500', variant: 'warning' },
     confirmed: { icon: CheckCircle, label: 'Emitido', color: 'text-emerald-500', variant: 'success' },
     completed: { icon: CheckCircle, label: 'Completado', color: 'text-brand-500', variant: 'info' },
-    cancelled: { icon: XCircle, label: 'Cancelado', color: 'text-red-500', variant: 'error' },
+    cancelled: { icon: XCircle, label: 'Cancelado', color: 'text-red-500', variant: 'destructive' }, // Changed variant
   };
 
   return (

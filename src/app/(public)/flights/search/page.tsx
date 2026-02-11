@@ -86,10 +86,9 @@ export default function FlightSearchResultsPage() {
         passengers: passengerCount,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLeg, from, to, departure, returnDate, passengerCount]);
+  }, [activeLeg, from, to, departure, returnDate, passengerCount, search]);
 
-  // Map a FlightOffer para UI cards
+  // Map a FlightOffer para UI cards (defensivo para evitar null/undefined)
   const flights: FlightOffer[] = useMemo(() => {
     return results.map((f) => {
       const departureMs = new Date(f.departure_datetime).getTime();
@@ -107,17 +106,17 @@ export default function FlightSearchResultsPage() {
         segments: [
           {
             id: `${f.id}-seg-1`,
-            origin: f.origin_airport.iata_code,
-            destination: f.destination_airport.iata_code,
+            origin: f.origin_airport?.iata_code ?? '',
+            destination: f.destination_airport?.iata_code ?? '',
             departureTime: f.departure_datetime,
             arrivalTime: f.arrival_datetime,
             flightNumber: f.flight_number,
             duration,
             airline: {
-              id: f.airline.id,
-              name: f.airline.name,
-              code: f.airline.iata_code,
-              logoUrl: f.airline.logo_url ?? undefined,
+              id: f.airline?.id ?? f.airline_id,
+              name: f.airline?.name ?? 'Aerolínea',
+              code: f.airline?.iata_code ?? '',
+              logoUrl: f.airline?.logo_url ?? undefined,
             },
           },
         ],
@@ -181,11 +180,7 @@ export default function FlightSearchResultsPage() {
 
             {/* Tabs Ida/Regreso */}
             {legs.length > 0 && (
-              <FlightLegTabs
-                legs={legs}
-                activeLeg={activeLeg}
-                onLegChange={setActiveLeg}
-              />
+              <FlightLegTabs legs={legs} activeLeg={activeLeg} onLegChange={setActiveLeg} />
             )}
 
             {/* Layout: filtros izquierda + lista derecha */}
