@@ -204,14 +204,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     request.requestBody({
       intent: 'CAPTURE',
       purchase_units: [
-        {
-          reference_id: booking.id, // nos sirve en webhook
-          amount: {
-            currency_code: 'USD',
-            value: formatMoney2(breakdown.total_amount),
-          },
-        },
-      ],
+  {
+    reference_id: booking.id,
+    custom_id: booking.id, // ✅ ayuda al webhook a mapear siempre
+    amount: { currency_code: 'USD', value: formatMoney2(breakdown.total_amount) },
+  },
+],
+
     });
 
     type PayPalCreateOrderResult = { id?: string };
