@@ -1,13 +1,10 @@
-/**
- * @fileoverview Login form with OTP security factor.
- * @module components/forms/LoginForm
- */
 'use client';
 
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { Shield, ArrowLeft } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+// ✅ IMPORTACIÓN CORREGIDA: Incluimos ArrowLeft y Lock
+import { ArrowLeft, Lock, ShieldCheck } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { loginSchema, type LoginFormValues } from '@/lib/validations/auth.schema';
@@ -15,19 +12,13 @@ import { ROUTES } from '@/lib/constants/routes';
 import { authService } from '@/services/auth.service';
 
 export default function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect');
   const confirmed = searchParams.get('confirmed') === 'true';
 
-  // Estados del formulario
   const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
   const [form, setForm] = useState<LoginFormValues>({ email: '', password: '' });
   const [otpCode, setOtpCode] = useState('');
-  
-  // Estados de carga y error
   const [isLoading, setIsLoading] = useState(false);
-  const [errors, setErrors] = useState<Partial<Record<keyof LoginFormValues, string>>>({});
   const [serverError, setServerError] = useState<string | null>(null);
 
   async function handleSubmit(e: FormEvent) {
@@ -37,116 +28,108 @@ export default function LoginForm() {
 
     try {
       if (step === 'credentials') {
-        // PASO 1: Validar credenciales y disparar OTP
-        const result = loginSchema.safeParse(form);
-        if (!result.success) {
-          const fieldErrors: typeof errors = {};
-          result.error.issues.forEach((issue) => {
-            const key = issue.path[0] as keyof LoginFormValues;
-            fieldErrors[key] = issue.message;
-          });
-          setErrors(fieldErrors);
+        const validation = loginSchema.safeParse(form);
+        if (!validation.success) {
+          setServerError("Correo o contraseña inválidos");
           setIsLoading(false);
           return;
         }
-
-        setErrors({});
         await authService.signInStepOne(form.email, form.password);
-        setStep('otp'); // Saltamos al campo del código
+        setStep('otp'); 
       } else {
-        // PASO 2: Verificar el código de 6 dígitos
-        await authService.verifyLoginOtp(form.email, otpCode);
-        
-        // Si todo sale bien, redirigimos
-        router.push(redirect || '/dashboard');
+        const result = await authService.verifyLoginOtp(form.email, otpCode);
+        if (result.ok && result.sessionLink) {
+          // Redirección forzada para inyectar cookies
+          window.location.href = result.sessionLink;
+        } else {
+          setServerError('Error al verificar el código.');
+        }
       }
     } catch (err: unknown) {
-      setServerError(
-        err instanceof Error ? err.message : 'Error en la autenticación',
-      );
+      // ✅ MANEJO DE ERROR SIN 'ANY'
+      const message = err instanceof Error ? err.message : 'Error en la autenticación';
+      setServerError(message);
     } finally {
       setIsLoading(false);
     }
   }
 
-  const update = (field: keyof LoginFormValues) => (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
-
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Notificaciones de estado */}
       {confirmed && !serverError && (
         <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 border border-emerald-200">
-          ✅ <strong>¡Correo confirmado!</strong> Ahora puedes iniciar sesión.
+          ✅ Correo confirmado. Ya puedes ingresar.
         </div>
       )}
 
       {serverError && (
-        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-accent-red" role="alert">
+        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600 border border-red-100">
           {serverError}
         </div>
       )}
 
-      {/* Renderizado condicional según el paso */}
       {step === 'credentials' ? (
         <>
-          <Input
-            label="Correo Electrónico"
-            type="email"
-            placeholder="correo@ejemplo.com"
-            value={form.email}
-            onChange={update('email')}
-            error={errors.email}
-            required
-          />
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-neutral-700">Correo Electrónico</label>
+            <Input
+              type="email"
+              placeholder="correo@ejemplo.com"
+              value={form.email}
+              onChange={(e) => setForm({...form, email: e.target.value})}
+              required
+            />
+          </div>
 
-          <Input
-            label="Contraseña"
-            type="password"
-            placeholder="••••••••"
-            value={form.password}
-            onChange={update('password')}
-            error={errors.password}
-            required
-          />
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-neutral-700">Contraseña</label>
+            <Input
+              type="password"
+              placeholder="••••••••"
+              value={form.password}
+              onChange={(e) => setForm({...form, password: e.target.value})}
+              required
+            />
+          </div>
 
-          <div className="flex items-center justify-end">
-            <Link
-              href={ROUTES.FORGOT_PASSWORD}
-              className="text-sm font-medium text-brand-600 hover:underline"
-            >
-              ¿Olvidaste tu contraseña?
+          <div className="flex items-center justify-between py-1">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" defaultChecked className="rounded border-neutral-300" />
+              <span className="text-sm text-neutral-600">Mantener sesión activa</span>
+            </label>
+            <Link href={ROUTES.FORGOT_PASSWORD} className="text-sm font-medium text-brand-600">
+              ¿Olvidaste tu clave?
             </Link>
           </div>
         </>
       ) : (
-        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+        <div className="space-y-4 animate-in slide-in-from-right-4">
           <button 
             type="button" 
-            onClick={() => setStep('credentials')}
+            onClick={() => setStep('credentials')} 
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-brand-600"
           >
-            <ArrowLeft className="h-3 w-3" /> Volver a contraseña
+            <ArrowLeft className="h-3 w-3" /> {/* 👈 Aquí estaba el error */}
+            Volver
           </button>
           
-          <div className="text-center pb-2">
-            <p className="text-sm text-neutral-600">
-              Hemos enviado un código de seguridad a: <br/>
-              <span className="font-semibold text-neutral-900">{form.email}</span>
-            </p>
+          <div className="text-center bg-brand-50 rounded-xl p-4 border border-brand-100">
+            <Lock className="h-5 w-5 text-brand-600 mx-auto mb-2" />
+            <p className="text-sm text-neutral-600">Código enviado a <b>{form.email}</b></p>
           </div>
 
-          <Input
-            label="Código de 6 dígitos"
-            type="text"
-            placeholder="000000"
-            maxLength={6}
-            value={otpCode}
-            onChange={(e) => setOtpCode(e.target.value)}
-            required
-            className="text-center text-2xl tracking-widest"
-          />
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-neutral-700">Código de Verificación</label>
+            <Input
+              type="text"
+              placeholder="000000"
+              maxLength={6}
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value)}
+              required
+              className="text-center text-2xl tracking-[0.4em] font-mono"
+            />
+          </div>
         </div>
       )}
 
@@ -155,16 +138,13 @@ export default function LoginForm() {
       </Button>
 
       <p className="text-center text-sm text-neutral-600">
-        ¿No tienes cuenta?{' '}
-        <Link href={ROUTES.REGISTER} className="font-semibold text-brand-600 hover:underline">
-          Regístrate
-        </Link>
+        ¿No tienes cuenta? <Link href={ROUTES.REGISTER} className="font-semibold text-brand-600 underline">Regístrate</Link>
       </p>
-
-      <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">
-        <Shield className="h-3 w-3" />
-        Seguridad de nivel bancario · AES-256
-      </p>
+      
+      <div className="flex items-center justify-center gap-1.5 pt-2 opacity-50">
+        <ShieldCheck className="h-3.5 w-3.5" />
+        <span className="text-[10px] uppercase tracking-widest font-bold">Secure Auth</span>
+      </div>
     </form>
   );
 }

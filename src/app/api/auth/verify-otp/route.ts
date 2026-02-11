@@ -13,80 +13,42 @@ function sha256(input: string) {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-
-    // ✅ Normalizar email (debe coincidir con request-otp)
-    const email = String(body?.email ?? '').trim().toLowerCase();
-    const code  = String(body?.code  ?? '').trim();
-
-    if (!email || !code) {
-      return NextResponse.json(
-        { error: 'Email y código son requeridos' },
-        { status: 400 },
-      );
-    }
-
-    // ✅ Validar formato: exactamente 6 dígitos
-    if (!/^\d{6}$/.test(code)) {
-      return NextResponse.json(
-        { error: 'El código debe ser de 6 dígitos' },
-        { status: 400 },
-      );
-    }
-
+    const { email, code } = await req.json();
+    const normalizedEmail = email.trim().toLowerCase();
     const now = new Date();
 
-    // ✅ Buscar el OTP más reciente para este email que NO haya sido usado
+    // 1. Buscar el código en la tabla
     const { data: otpRow, error: fetchErr } = await supabaseAdmin
       .from('auth_otps')
       .select('*')
-      .eq('email', email)
+      .eq('email', normalizedEmail)
       .is('used_at', null)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (fetchErr) {
-      return NextResponse.json({ error: fetchErr.message }, { status: 500 });
-    }
+    if (fetchErr || !otpRow) return NextResponse.json({ error: 'Código no encontrado o ya usado.' }, { status: 400 });
 
-    if (!otpRow) {
-      return NextResponse.json(
-        { error: 'No hay código pendiente. Solicita uno nuevo.' },
-        { status: 400 },
-      );
-    }
+    // 2. Validar
+    if (new Date(otpRow.expires_at) < now) return NextResponse.json({ error: 'Código expirado.' }, { status: 400 });
+    if (sha256(code.trim()) !== otpRow.code_hash) return NextResponse.json({ error: 'Código incorrecto.' }, { status: 400 });
 
-    // ✅ Verificar que no haya expirado
-    if (new Date(otpRow.expires_at) < now) {
-      return NextResponse.json(
-        { error: 'El código ha expirado. Solicita uno nuevo.' },
-        { status: 400 },
-      );
-    }
+    // 3. Marcar como verificado
+    await supabaseAdmin.from('auth_otps').update({ used_at: now.toISOString(), verified_at: now.toISOString() }).eq('id', otpRow.id);
 
-    // ✅ Comparar hash del código enviado con el hash almacenado
-    const submittedHash = sha256(code);
+    // 4. GENERAR SESIÓN REAL (IMPORTANTE)
+    // Usamos el método de Supabase para crear un link de acceso temporal
+    const { data, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
+      type: 'magiclink',
+      email: normalizedEmail,
+      options: { redirectTo: '/dashboard' }
+    });
 
-    if (submittedHash !== otpRow.code_hash) {
-      return NextResponse.json(
-        { error: 'Código incorrecto.' },
-        { status: 400 },
-      );
-    }
+    if (linkErr) throw linkErr;
 
-    // ✅ Marcar como verificado (verified_at) — complete-register lo necesita
-    const { error: updateErr } = await supabaseAdmin
-      .from('auth_otps')
-      .update({ verified_at: now.toISOString() })
-      .eq('id', otpRow.id);
-
-    if (updateErr) {
-      return NextResponse.json({ error: updateErr.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ ok: true, verified: true });
+    // Devolvemos el link que el frontend debe "navegar" para loguearse
+    return NextResponse.json({ ok: true, sessionLink: data.properties.action_link });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'Error' }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
