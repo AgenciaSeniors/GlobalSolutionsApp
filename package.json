@@ -14,7 +14,8 @@
     "db:reset": "supabase db reset"
   },
   "dependencies": {
-    "@stripe/stripe-js": "^4.5.0",
+    "@stripe/react-stripe-js": "^5.6.0",
+    "@stripe/stripe-js": "^8.7.0",
     "@supabase/ssr": "^0.5.1",
     "@supabase/supabase-js": "^2.45.4",
     "clsx": "^2.1.1",

@@ -10,6 +10,7 @@ import { MapPin, Calendar, Users, Search } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { AIRPORTS } from '@/lib/constants/config';
+import MultiLegEditor from '@/components/forms/MultiLegEditor';
 import { ROUTES } from '@/lib/constants/routes';
 
 type TripType = 'roundtrip' | 'oneway';
@@ -40,6 +41,9 @@ export default function FlightSearchForm({ onSearch }: Props) {
     returnDate: '',
     passengers: '1',
   });
+
+  const [useStopsMode, setUseStopsMode] = useState(false);
+  const [stops, setStops] = useState<string[]>([]);
 
   const update =
     (field: keyof typeof form) =>
@@ -114,6 +118,23 @@ export default function FlightSearchForm({ onSearch }: Props) {
         </button>
       </div>
 
+      {/* Stops toggle */}
+      <button
+        type="button"
+        onClick={() => {
+          setUseStopsMode((prev) => !prev);
+          // si lo apagas, borra escalas
+          if (useStopsMode) setStops([]);
+        }}
+        className={`mb-6 rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
+          useStopsMode
+            ? 'bg-white text-brand-600 shadow-sm'
+            : 'text-neutral-600 hover:text-neutral-900'
+        }`}
+      >
+        Escalas
+      </button>
+
       {/* Fields grid */}
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
         {/* Origin */}
@@ -181,6 +202,15 @@ export default function FlightSearchForm({ onSearch }: Props) {
         </div>
       </div>
 
+      {useStopsMode && (
+        <MultiLegEditor
+          stops={stops}
+          onChange={setStops}
+          origin={form.origin}
+          destination={form.destination}
+        />
+      )}
+
       {/* Passengers + Search */}
       <div className="mt-5 flex flex-col gap-5 sm:flex-row sm:items-end">
         <div className="w-40">
@@ -190,7 +220,7 @@ export default function FlightSearchForm({ onSearch }: Props) {
           <select
             value={form.passengers}
             onChange={update('passengers')}
-            className="w-full h-12 rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 text-[15px]
+            className="h-12 w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 text-[15px]
                        focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           >
             {Array.from({ length: 9 }, (_, i) => i + 1).map((n) => (
@@ -204,12 +234,14 @@ export default function FlightSearchForm({ onSearch }: Props) {
         <Button
           type="submit"
           size="lg"
-          className="flex-1 h-12 gap-2.5 justify-center
+          className="flex-1 h-12 justify-center gap-2.5
                      transition-all duration-200 ease-out
                      hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
         >
-          <Search className="h-5 w-5" />
-          Buscar Vuelos
+          <span className="flex items-center justify-center gap-2.5">
+            <Search className="h-5 w-5" />
+            <span>Buscar Vuelos</span>
+          </span>
         </Button>
       </div>
     </form>

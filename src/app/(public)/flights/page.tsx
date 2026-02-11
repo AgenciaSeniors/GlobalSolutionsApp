@@ -63,9 +63,7 @@ export default function FlightsPage() {
   // Construye legs a partir de la última búsqueda
   const legs = useMemo(() => {
     if (!lastSearch) return [];
-    const base = [
-      { origin: lastSearch.from, destination: lastSearch.to, date: lastSearch.departure },
-    ];
+    const base = [{ origin: lastSearch.from, destination: lastSearch.to, date: lastSearch.departure }];
 
     if (lastSearch.return) {
       base.push({
@@ -107,8 +105,7 @@ export default function FlightsPage() {
         passengers: passengersCount,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLeg, lastSearch]);
+  }, [activeLeg, lastSearch, search]);
 
   // Map results -> FlightOffer para la UI
   const flights: FlightOffer[] = useMemo(() => {
@@ -128,17 +125,17 @@ export default function FlightsPage() {
         segments: [
           {
             id: `${f.id}-seg-1`,
-            origin: f.origin_airport.iata_code,
-            destination: f.destination_airport.iata_code,
+            origin: f.origin_airport?.iata_code ?? '',
+            destination: f.destination_airport?.iata_code ?? '',
             departureTime: f.departure_datetime,
             arrivalTime: f.arrival_datetime,
             flightNumber: f.flight_number,
             duration,
             airline: {
-              id: f.airline.id,
-              name: f.airline.name,
-              code: f.airline.iata_code,
-              logoUrl: f.airline.logo_url ?? undefined,
+              id: f.airline?.id ?? f.airline_id,
+              name: f.airline?.name ?? 'Aerolínea',
+              code: f.airline?.iata_code ?? '',
+              logoUrl: f.airline?.logo_url ?? undefined,
             },
           },
         ],
@@ -211,7 +208,7 @@ export default function FlightsPage() {
               </h1>
             </div>
 
-            {/* ✅ ahora NO navega: llama handleSearch */}
+            {/* Importante: NO navegar, solo disparar búsqueda */}
             <FlightSearchForm onSearch={handleSearch} />
           </div>
         </section>
@@ -225,11 +222,7 @@ export default function FlightsPage() {
 
             {/* Tabs Ida/Regreso */}
             {legs.length > 0 && (
-              <FlightLegTabs
-                legs={legs}
-                activeLeg={activeLeg}
-                onLegChange={setActiveLeg}
-              />
+              <FlightLegTabs legs={legs} activeLeg={activeLeg} onLegChange={setActiveLeg} />
             )}
 
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
