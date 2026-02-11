@@ -1,101 +1,93 @@
-/**
- * @fileoverview Single flight result card with route timeline, airline info and CTA.
- * @module components/features/flights/FlightCard
- */
-import { Plane, Flame } from 'lucide-react';
+import { FlightOffer } from '@/types/models';
+// CORRECCIÓN AQUÍ: Quitamos las llaves {} porque son export default
+import Button from '@/components/ui/Button'; 
 import Badge from '@/components/ui/Badge';
-import Button from '@/components/ui/Button';
-import { formatCurrency } from '@/lib/utils/formatters';
+import { Clock, Plane } from 'lucide-react'; 
 
-export interface FlightCardProps {
-  airline: string;
-  flightCode: string;
-  originCode: string;
-  destinationCode: string;
-  departureTime: string;
-  arrivalTime: string;
-  duration: string;
-  stops: number;
-  stopCities?: string;
-  price: number;
-  availableSeats: number;
-  onSelect?: () => void;
+interface FlightCardProps {
+  flight: FlightOffer;
+  onSelect?: (id: string) => void;
 }
 
-export default function FlightCard({
-  airline,
-  flightCode,
-  originCode,
-  destinationCode,
-  departureTime,
-  arrivalTime,
-  duration,
-  stops,
-  stopCities,
-  price,
-  availableSeats,
-  onSelect,
-}: FlightCardProps) {
+export default function FlightCard({ flight, onSelect }: FlightCardProps) {
+  // Tomamos el primer tramo para mostrar la info principal (salida)
+  const firstSegment = flight.segments[0];
+  // Tomamos el último para la llegada
+  const lastSegment = flight.segments[flight.segments.length - 1];
+  
+  const isDirect = flight.segments.length === 1;
+
   return (
-    <article className="group grid grid-cols-1 items-center gap-6 rounded-2xl border-2 border-transparent bg-white p-6 shadow-sm transition-all duration-300 hover:border-brand-200 hover:shadow-lg hover:shadow-brand-600/[0.06] sm:grid-cols-[1fr_2fr_1fr]">
-      {/* ── Airline ── */}
-      <div>
-        <span className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 text-brand-600">
-          <Plane className="h-5 w-5" />
-        </span>
-        <p className="text-[15px] font-bold text-neutral-900">{airline}</p>
-        <p className="text-sm text-neutral-500">
-          {flightCode} · Economy
-        </p>
-      </div>
-
-      {/* ── Route Timeline ── */}
-      <div className="flex items-center gap-4">
-        <div className="text-center">
-          <p className="text-2xl font-extrabold text-neutral-900">
-            {departureTime}
-          </p>
-          <p className="text-sm font-semibold text-neutral-500">{originCode}</p>
-        </div>
-
-        <div className="flex-1 text-center">
-          <p className="mb-1.5 text-xs text-neutral-400">{duration}</p>
-          <div className="relative h-0.5 rounded bg-neutral-200">
-            <span className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-500" />
+    <div className="w-full bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow p-5 mb-4">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+        
+        {/* 1. Info de la Aerolínea */}
+        <div className="flex items-center gap-3 w-full md:w-1/4">
+          <div className="h-10 w-10 bg-gray-50 rounded-full flex items-center justify-center text-xs font-bold text-[#0F2545]">
+             {/* Si hay logo lo mostramos, si no, las siglas */}
+             {firstSegment.airline.code}
           </div>
-          <p className="mt-1.5 text-xs font-medium text-brand-500">
-            {stops === 0
-              ? 'Directo'
-              : `${stops} escala${stops > 1 ? 's' : ''}${stopCities ? ` · ${stopCities}` : ''}`}
-          </p>
+          <div>
+            <p className="font-bold text-[#0F2545]">{firstSegment.airline.name}</p>
+            <p className="text-xs text-gray-400">Vuelo {firstSegment.flightNumber}</p>
+          </div>
         </div>
 
-        <div className="text-center">
-          <p className="text-2xl font-extrabold text-neutral-900">
-            {arrivalTime}
-          </p>
-          <p className="text-sm font-semibold text-neutral-500">
-            {destinationCode}
-          </p>
-        </div>
-      </div>
+        {/* 2. Horarios y Ruta */}
+        <div className="flex-1 w-full flex justify-between items-center px-4">
+          {/* Salida */}
+          <div className="text-center">
+            <p className="text-xl font-bold text-[#0F2545]">
+              {new Date(firstSegment.departureTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            </p>
+            <p className="text-sm text-gray-500">{firstSegment.origin}</p>
+          </div>
 
-      {/* ── Price + CTA ── */}
-      <div className="text-right">
-        {availableSeats < 6 && (
-          <Badge variant="destructive" className="mb-1.5 animate-pulse">
-            <Flame className="h-3 w-3" />
-            ¡{availableSeats} cupos!
-          </Badge>
-        )}
-        <p className="text-3xl font-extrabold text-brand-700">
-          {formatCurrency(price)}
-        </p>
-        <p className="mb-3 text-xs text-neutral-500">por persona</p>
-        <Button size="sm" onClick={onSelect}>
-          Seleccionar
-        </Button>
+          {/* Duración y Escalas */}
+          <div className="flex flex-col items-center px-4 w-full">
+            <p className="text-xs text-gray-400 mb-1">{flight.totalDuration}</p>
+            <div className="w-full h-[2px] bg-gray-200 relative flex items-center justify-center">
+               {/* Icono de avión en medio de la línea */}
+               <Plane className="w-4 h-4 text-gray-300 absolute bg-white px-1" />
+            </div>
+            
+            {/* CORRECCIÓN AQUÍ: Usamos el Badge correctamente importado */}
+            <div className="mt-2">
+                <Badge variant={isDirect ? "success" : "warning"}>
+                    {isDirect ? 'Directo' : `${flight.segments.length - 1} Escala(s)`}
+                </Badge>
+            </div>
+          </div>
+
+          {/* Llegada */}
+          <div className="text-center">
+            <p className="text-xl font-bold text-[#0F2545]">
+              {new Date(lastSegment.arrivalTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            </p>
+            <p className="text-sm text-gray-500">{lastSegment.destination}</p>
+          </div>
+        </div>
+
+        {/* 3. Precio y Botón */}
+        <div className="w-full md:w-auto flex md:flex-col items-center justify-between gap-2 border-t md:border-t-0 md:border-l border-gray-100 pt-4 md:pt-0 md:pl-6">
+          <div className="text-right">
+             <span className="text-xs text-gray-400">Total por pasajero</span>
+             <p className="text-2xl font-bold text-[#FF4757]">
+               ${flight.price}
+             </p>
+          </div>
+          
+          <Button 
+            onClick={() => onSelect?.(flight.id)}
+            // CORRECCIÓN: 'primary' es una variante válida según tu archivo Button.tsx
+            variant="primary"
+            className="w-full md:w-auto"
+          >
+            Seleccionar
+          </Button>
+        </div>
+
       </div>
-    </article>
+    </div>
   );
 }
