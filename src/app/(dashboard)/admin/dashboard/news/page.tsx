@@ -10,7 +10,6 @@ import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { Plus, Pin, Trash2, Megaphone } from 'lucide-react';
 import type { AgentNews } from '@/types/models';

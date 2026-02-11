@@ -17,7 +17,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
   User, Mail, Phone, Shield, Key, Save, CheckCircle,
-  AlertCircle, Hash, Calendar, Eye, EyeOff,
+  AlertCircle, Hash, Calendar,
 } from 'lucide-react';
 import type { Profile } from '@/types/models';
 
@@ -36,7 +36,6 @@ export default function AgentSettingsPage() {
 
   // Password change
   const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);

@@ -9,7 +9,7 @@ import { useAuthContext } from '@/components/providers/AuthProvider';
 import AgentNewsWall from "@/components/agent/AgentNewsWall";
 import { agentService } from '@/services/agent.service'; // <--- Importamos tu nuevo servicio
 import {
-  CalendarCheck, Clock, Users, MessageSquare, 
+   Clock, Users, MessageSquare, 
   TrendingUp, Search, CheckCircle, ArrowRight
 } from 'lucide-react';
 import Link from 'next/link';

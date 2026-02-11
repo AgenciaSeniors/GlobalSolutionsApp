@@ -9,7 +9,6 @@ import { useEffect, useState } from 'react';
 import Sidebar, { AGENT_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
-import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { Pin, Bell, Megaphone, AlertTriangle, Gift } from 'lucide-react';
 import type { AgentNews } from '@/types/models';

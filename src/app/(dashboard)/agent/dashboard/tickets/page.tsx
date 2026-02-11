@@ -5,7 +5,6 @@ import Sidebar, { AGENT_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import Badge from '@/components/ui/Badge';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { ticketService, Ticket } from '@/services/tickets.service';
 import { MessageSquare, Plus, AlertCircle, CheckCircle, Clock } from 'lucide-react';
