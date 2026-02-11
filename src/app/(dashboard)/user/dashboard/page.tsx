@@ -1,9 +1,10 @@
 /**
  * @fileoverview Client Dashboard — Real-time KPIs, recent bookings, loyalty points.
+ * Module 6: Dashboard & Loyalty (endpoint real for bookings).
  */
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
@@ -12,6 +13,8 @@ import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { CalendarCheck, Plane, Star, Clock, ArrowRight, DollarSign } from 'lucide-react';
+
+import { bookingsService, type BookingWithDetails } from '@/services/bookings.service';
 
 interface DashboardStats {
   totalBookings: number;
@@ -23,25 +26,23 @@ interface DashboardStats {
   pendingReviews: number;
 }
 
-interface RecentBooking {
-  id: string;
-  booking_code: string;
-  booking_status: string;
-  payment_status: string;
-  total_amount: number;
-  airline_pnr: string | null;
-  created_at: string;
-  flight?: {
-    flight_number: string;
-    departure_datetime: string;
-    airline: { name: string } | null;
-    origin_airport: { iata_code: string; city: string } | null;
-    destination_airport: { iata_code: string; city: string } | null;
-  } | null;
+type BadgeVariant = 'warning' | 'success' | 'info' | 'destructive';
+
+function isoDateSafe(input: string): string {
+  const d = new Date(input);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+}
+
+function isActiveStatus(status: string): boolean {
+  return status === 'pending_emission' || status === 'confirmed';
+}
+
+function isPaidStatus(status: string): boolean {
+  return status === 'paid';
 }
 
 export default function UserDashboardPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { user } = useAuthContext();
 
   const [stats, setStats] = useState<DashboardStats>({
@@ -54,7 +55,7 @@ export default function UserDashboardPage() {
     pendingReviews: 0,
   });
 
-  const [recentBookings, setRecentBookings] = useState<RecentBooking[]>([]);
+  const [recentBookings, setRecentBookings] = useState<BookingWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -62,86 +63,70 @@ export default function UserDashboardPage() {
     setLoading(true);
 
     try {
-      const [bookingsRes, profileRes, reviewsRes, recentRes, completedNoReviewRes] =
-        await Promise.all([
-          supabase
-            .from('bookings')
-            .select('id, booking_status, payment_status, total_amount')
-            .eq('user_id', user.id),
+      // ✅ Módulo 6: bookings desde endpoint real (service)
+      const [allBookings, profileRes, reviewsRes, completedNoReviewRes] = await Promise.all([
+        bookingsService.listWithDetails(),
 
-          // ✅ IMPORTANTE: profiles se busca por profiles.user_id (auth uid)
-          supabase
-            .from('profiles')
-            .select('loyalty_points')
-            .eq('user_id', user.id)
-            .single(),
+        // ✅ IMPORTANTE: profiles se busca por profiles.user_id (auth uid)
+        supabase
+          .from('profiles')
+          .select('loyalty_points')
+          .eq('user_id', user.id)
+          .single<{ loyalty_points: number | null }>(),
 
-          supabase.from('reviews').select('id').eq('user_id', user.id),
+        supabase.from('reviews').select('id').eq('user_id', user.id),
 
-          supabase
-            .from('bookings')
-            .select(
-              `
-              id, booking_code, booking_status, payment_status, total_amount, airline_pnr, created_at,
-              flight:flights!flight_id(
-                flight_number, departure_datetime,
-                airline:airlines!airline_id(name),
-                origin_airport:airports!origin_airport_id(iata_code, city),
-                destination_airport:airports!destination_airport_id(iata_code, city)
-              )
-            `,
-            )
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(5),
+        supabase
+          .from('bookings')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('booking_status', 'completed')
+          .eq('review_requested', false),
+      ]);
 
-          supabase
-            .from('bookings')
-            .select('id')
-            .eq('user_id', user.id)
-            .eq('booking_status', 'completed')
-            .eq('review_requested', false),
-        ]);
+      // Orden por created_at DESC para recentBookings
+      const sortedBookings = [...allBookings].sort((a, b) =>
+        isoDateSafe(b.created_at).localeCompare(isoDateSafe(a.created_at)),
+      );
 
-      // Logs útiles (podés borrar cuando quede ok)
-      console.log('DASHBOARD auth uid:', user.id);
-      console.log('bookingsRes', bookingsRes.status, bookingsRes.error);
-      console.log('profileRes', profileRes.status, profileRes.error);
-      console.log('reviewsRes', reviewsRes.status, reviewsRes.error);
-      console.log('recentRes', recentRes.status, recentRes.error);
-      console.log('completedNoReviewRes', completedNoReviewRes.status, completedNoReviewRes.error);
-
-      const allBookings = bookingsRes.data || [];
-      const paidBookings = allBookings.filter((b) => b.payment_status === 'paid');
+      const paidBookings = sortedBookings.filter((b) => isPaidStatus(String(b.payment_status)));
+      const totalSpent = paidBookings.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
 
       setStats({
-        totalBookings: allBookings.length,
-        activeBookings: allBookings.filter(
-          (b) => b.booking_status === 'pending_emission' || b.booking_status === 'confirmed',
-        ).length,
-        completedFlights: allBookings.filter((b) => b.booking_status === 'completed').length,
-        loyaltyPoints: profileRes.data?.loyalty_points || 0,
-        totalSpent: paidBookings.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0),
-        reviewsWritten: reviewsRes.data?.length || 0,
-        pendingReviews: completedNoReviewRes.data?.length || 0,
+        totalBookings: sortedBookings.length,
+        activeBookings: sortedBookings.filter((b) => isActiveStatus(String(b.booking_status))).length,
+        completedFlights: sortedBookings.filter((b) => String(b.booking_status) === 'completed').length,
+        loyaltyPoints: profileRes.data?.loyalty_points ?? 0,
+        totalSpent,
+        reviewsWritten: reviewsRes.data?.length ?? 0,
+        pendingReviews: completedNoReviewRes.data?.length ?? 0,
       });
 
-      setRecentBookings((recentRes.data as unknown as RecentBooking[]) || []);
+      // “Recientes”: top 5
+      setRecentBookings(sortedBookings.slice(0, 5));
     } catch (err) {
       console.error('Error fetching dashboard:', err);
+      // No rompemos UI, dejamos valores por defecto
+      setStats({
+        totalBookings: 0,
+        activeBookings: 0,
+        completedFlights: 0,
+        loyaltyPoints: 0,
+        totalSpent: 0,
+        reviewsWritten: 0,
+        pendingReviews: 0,
+      });
+      setRecentBookings([]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }, [user, supabase]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
-  const statusConfig: Record<
-    string,
-    { label: string; variant: 'warning' | 'success' | 'info' | 'destructive' }
-  > = {
+  const statusConfig: Record<string, { label: string; variant: BadgeVariant }> = {
     pending_emission: { label: 'Procesando', variant: 'warning' },
     confirmed: { label: 'Emitido', variant: 'success' },
     completed: { label: 'Completado', variant: 'info' },
@@ -216,7 +201,7 @@ export default function UserDashboardPage() {
               {/* Acciones */}
               <div className="flex flex-wrap gap-3">
                 <Link
-                  href="/user/bookings"
+                  href="/user/dashboard/bookings"
                   className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
                 >
                   Ver mis reservas <ArrowRight size={16} />
@@ -230,10 +215,7 @@ export default function UserDashboardPage() {
                 </div>
 
                 <div className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                  Reseñas escritas:{' '}
-                  <Badge variant="info">
-                    {stats.reviewsWritten}
-                  </Badge>
+                  Reseñas escritas: <Badge variant="info">{stats.reviewsWritten}</Badge>
                 </div>
               </div>
 
@@ -241,7 +223,7 @@ export default function UserDashboardPage() {
               <Card className="p-4">
                 <div className="flex items-center justify-between">
                   <div className="font-medium">Reservas recientes</div>
-                  <Link href="/user/bookings" className="text-sm underline">
+                  <Link href="/user/dashboard/bookings" className="text-sm underline">
                     Ver todas
                   </Link>
                 </div>
@@ -262,10 +244,13 @@ export default function UserDashboardPage() {
                       </thead>
                       <tbody>
                         {recentBookings.map((b) => {
-                          const cfg = statusConfig[b.booking_status] || {
-                            label: b.booking_status,
+                          const cfg = statusConfig[String(b.booking_status)] ?? {
+                            label: String(b.booking_status),
                             variant: 'info' as const,
                           };
+
+                          const paid = isPaidStatus(String(b.payment_status));
+
                           return (
                             <tr key={b.id} className="border-t">
                               <td className="py-2 pr-4">{b.booking_code}</td>
@@ -273,8 +258,8 @@ export default function UserDashboardPage() {
                                 <Badge variant={cfg.variant}>{cfg.label}</Badge>
                               </td>
                               <td className="py-2 pr-4">
-                                <Badge variant={b.payment_status === 'paid' ? 'success' : 'warning'}>
-                                  {b.payment_status}
+                                <Badge variant={paid ? 'success' : 'warning'}>
+                                  {String(b.payment_status)}
                                 </Badge>
                               </td>
                               <td className="py-2 pr-4">{formatMoney(Number(b.total_amount) || 0)}</td>

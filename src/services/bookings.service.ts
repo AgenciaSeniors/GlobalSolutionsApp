@@ -91,4 +91,36 @@ async function getById(id: string): Promise<Booking | null> {
   return data as Booking;
 }
 
-export const bookingsService = { create, listForCurrentUser, getById };
+// ✅ DTO para dashboard / historial (vuelo + aerolínea + aeropuertos + pasajeros)
+export type BookingWithDetails = Booking & {
+  flight?: {
+    flight_number: string;
+    departure_datetime: string;
+    airline?: { name: string } | null;
+    origin_airport?: { iata_code: string; city: string } | null;
+    destination_airport?: { iata_code: string; city: string } | null;
+  } | null;
+  passengers?: { first_name: string; last_name: string; ticket_number: string | null }[];
+};
+
+// ✅ Nuevo: trae reservas con joins desde el endpoint real (no directo desde supabase client)
+async function listWithDetails(): Promise<BookingWithDetails[]> {
+  const res = await fetch('/api/bookings', { method: 'GET' });
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || 'No se pudieron cargar tus reservas.');
+  }
+
+  const json = (await res.json()) as { data: BookingWithDetails[] };
+  const data = json.data ?? [];
+
+  // seguridad: passengers siempre array
+  return data.map((b: any) => ({
+    ...b,
+    passengers: Array.isArray(b.passengers) ? b.passengers : [],
+  }));
+}
+
+
+export const bookingsService = { create, listWithDetails, listForCurrentUser, getById };

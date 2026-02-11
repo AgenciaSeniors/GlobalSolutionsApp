@@ -1,9 +1,6 @@
 /**
  * @fileoverview Review trigger cron endpoint.
- * Per spec §4.3: Runs daily at 00:00, finds bookings where
- * return_date == yesterday, sends push + email asking for review.
- * Rewards 50 loyalty points for reviews with photos.
- * @module app/api/reviews/trigger/route
+ * Runs daily, finds bookings completed yesterday and marks review_requested.
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -19,8 +16,6 @@ export async function POST() {
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-    // Find completed bookings where return_date was yesterday
-    // and review hasn't been requested yet
     const { data: bookings, error } = await supabaseAdmin
       .from('bookings')
       .select(`
@@ -46,29 +41,16 @@ export async function POST() {
       const flight = booking.flight as { destination_airport?: { city?: string } } | null;
       const destination = flight?.destination_airport?.city || 'tu destino';
 
-      // Mark as review requested
-      await supabaseAdmin
-        .from('bookings')
-        .update({ review_requested: true })
-        .eq('id', booking.id);
+      await supabaseAdmin.from('bookings').update({ review_requested: true }).eq('id', booking.id);
 
-      // In production: Send email via Resend/SendGrid
-      // Email content: "¿Qué tal tu viaje a [Destino]? Califícanos y gana puntos"
-      const emailPayload = {
-        to: profile?.email,
-        subject: `¿Cómo fue tu viaje a ${destination}? ⭐`,
-        body: `Hola ${profile?.full_name},\n\n¡Esperamos que hayas disfrutado tu viaje a ${destination}! Nos encantaría saber tu opinión.\n\nDeja tu reseña y gana 50 puntos de fidelidad (¡100 puntos si incluyes fotos!).\n\nEquipo Global Solutions Travel`,
-      };
-
+      // En prod: enviar email real (Resend/Sendgrid). Acá lo “simulamos”
       results.push({
         booking_id: booking.id,
         booking_code: booking.booking_code,
         user_email: profile?.email,
         destination,
-        email_sent: true, // In production: actual send status
+        email_sent: true,
       });
-
-      console.log('[Review Trigger] Email queued:', emailPayload.to, emailPayload.subject);
     }
 
     return NextResponse.json({

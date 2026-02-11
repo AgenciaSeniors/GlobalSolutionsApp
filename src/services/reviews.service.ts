@@ -25,16 +25,16 @@ async function create(payload: {
   title?: string;
   comment: string;
 }) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Debes iniciar sesión.');
-
-  const { error } = await supabase.from('reviews').insert({
-    ...payload,
-    user_id: user.id,
+   const res = await fetch('/api/reviews', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
 
-  if (error) throw error;
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || 'No se pudo enviar la reseña.');
+  }
 }
 
 export const reviewsService = { listApproved, create };
