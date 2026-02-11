@@ -37,32 +37,35 @@ export default function FlightSearchResultsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // Map FlightWithDetails → FlightCardProps with checkout navigation
-  const cards = results.map((f) => ({
+  // Map FlightWithDetails → FlightOffer with checkout navigation
+  const flightOffers = results.map((f) => ({
     id: f.id,
-    airline: f.airline?.name ?? 'Aerolínea',
-    flightCode: f.flight_number,
-    originCode: f.origin_airport?.iata_code ?? '',
-    destinationCode: f.destination_airport?.iata_code ?? '',
-    departureTime: new Date(f.departure_datetime).toLocaleTimeString('es', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }),
-    arrivalTime: new Date(f.arrival_datetime).toLocaleTimeString('es', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }),
-    duration: `${Math.round(
+    price: f.final_price,
+    currency: 'USD',
+    segments: [{
+      id: f.id,
+      origin: f.origin_airport?.iata_code ?? '',
+      destination: f.destination_airport?.iata_code ?? '',
+      departureTime: f.departure_datetime,
+      arrivalTime: f.arrival_datetime,
+      airline: {
+        id: f.airline_id,
+        name: f.airline?.name ?? 'Aerolínea',
+        code: f.airline?.iata_code ?? '',
+      },
+      flightNumber: f.flight_number,
+      duration: `${Math.round(
+        (new Date(f.arrival_datetime).getTime() -
+          new Date(f.departure_datetime).getTime()) /
+          3_600_000,
+      )}h`,
+    }],
+    totalDuration: `${Math.round(
       (new Date(f.arrival_datetime).getTime() -
         new Date(f.departure_datetime).getTime()) /
         3_600_000,
     )}h`,
-    stops: 0,
-    price: f.final_price,
-    availableSeats: f.available_seats,
-    onSelect: () => router.push(`/checkout?flight=${f.id}&passengers=${passengerCount}`),
+    type: 'oneway' as const,
   }));
 
   return (
@@ -77,7 +80,11 @@ export default function FlightSearchResultsPage() {
 
         <section className="bg-neutral-50 py-12">
           <div className="mx-auto max-w-5xl px-6">
-            <FlightResultsList flights={cards} isLoading={isLoading} />
+            <FlightResultsList 
+              flights={flightOffers} 
+              isLoading={isLoading} 
+              onSelectFlight={(flightId) => router.push(`/checkout?flight=${flightId}&passengers=${passengerCount}`)}
+            />
           </div>
         </section>
       </main>

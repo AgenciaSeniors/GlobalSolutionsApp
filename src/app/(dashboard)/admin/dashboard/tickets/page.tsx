@@ -12,7 +12,22 @@ import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { MessageSquare, Send } from 'lucide-react';
-import type { AgentTicket } from '@/types/models';
+import type { AgentTicket as AgentTicketBase } from '@/types/models';
+
+
+
+type AgentTicket = AgentTicketBase & {
+  subject?: string | null;
+  priority?: string | null;
+  message?: string | null;
+  admin_response?: string | null;
+  agent?: (AgentTicketBase extends { agent: infer A } ? A : unknown) & {
+    agent_code?: string | null;
+    full_name?: string | null;
+    email?: string | null;
+  } | null;
+  created_at?: string | null;
+};
 
 export default function AdminTicketsPage() {
   const supabase = createClient();
@@ -75,7 +90,7 @@ export default function AdminTicketsPage() {
                       </div>
                       <p className="text-sm text-neutral-600">{t.message}</p>
                       <p className="mt-1 text-xs text-neutral-400">
-                        Agente: {t.agent?.full_name} ({t.agent?.agent_code}) · {new Date(t.created_at).toLocaleDateString('es')}
+                        Agente: {t.agent?.full_name} ({t.agent?.agent_code}) · {new Date(t.created_at ?? Date.now()).toLocaleDateString('es')}
                       </p>
                       {t.admin_response && (
                         <div className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm">
