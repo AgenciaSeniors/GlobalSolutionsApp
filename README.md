@@ -1,58 +1,90 @@
-# ✈️ Global Solutions Travel
-
-> Ecosistema multiplataforma para reserva de vuelos internacionales y renta de autos con seguridad de nivel bancario.
-
-![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=next.js)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue?logo=typescript)
-![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3fcf8e?logo=supabase)
-![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8?logo=tailwindcss)
-![Stripe](https://img.shields.io/badge/Stripe-Payments-635BFF?logo=stripe)
+Aquí lo tienes correctamente formateado en **Markdown limpio y estructurado**:
 
 ---
 
-## 📐 Arquitectura
+# ✈️ Global Solutions Travel App
 
-```
+> Plataforma OTA (Online Travel Agency) multiplataforma para reserva de vuelos internacionales y renta de autos, construida con arquitectura escalable y seguridad de nivel empresarial.
+
+![Estado](https://img.shields.io/badge/Estado-Beta%20Privada-orange)
+![Next.js](https://img.shields.io/badge/Next.js-14.2-black?logo=next.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue?logo=typescript)
+![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3fcf8e?logo=supabase)
+![Stripe](https://img.shields.io/badge/Stripe-Payments-635BFF?logo=stripe)
+![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8?logo=tailwindcss)
+![Capacitor](https://img.shields.io/badge/Capacitor-Mobile-1192d4?logo=capacitor)
+
+---
+
+## 📋 Estado del Proyecto
+
+El sistema se encuentra en un **~45% de desarrollo real**, con la infraestructura de backend crítica finalizada y los dashboards operativos.
+
+| Módulo                            | Progreso | Detalles Actuales                                                                         |
+| --------------------------------- | -------- | ----------------------------------------------------------------------------------------- |
+| **1. Motor de Vuelos**            | ⚠️ 50%   | Backend completo (Orquestador, Caché, Deduplicación). Falta API externa (Duffel/Amadeus). |
+| **2. Infraestructura Financiera** | ⚠️ 40%   | **Stripe completo** (Intents, Webhooks, Idempotencia). PayPal pendiente.                  |
+| **3. Seguridad ("Fortress")**     | ⚠️ 60%   | Estructura DB lista, encriptación `pgcrypto` configurada. Falta auditoría completa.       |
+| **4. Autenticación**              | ✅ 90%    | Login, Registro, OTP, Roles (Admin/Agent/User) y protección de rutas.                     |
+| **5. Gestión de Agentes**         | ⚠️ 35%   | Dashboard UI completo, Sistema de Tickets y Noticias operativo.                           |
+| **6. Experiencia de Usuario**     | ⚠️ 30%   | Estructura de Dashboard Cliente. Sistema de Puntos (Loyalty) solo en backend.             |
+| **7. Documentos/Notificaciones**  | ✅ 75%    | Emails transaccionales (Resend) y Generación de Vouchers HTML.                            |
+| **8. Asistencia IA**              | ❌ 5%     | Solo estructura de base de datos para chat.                                               |
+
+---
+
+## 📐 Arquitectura Técnica
+
+El proyecto sigue principios de **Clean Architecture** con una estricta separación de responsabilidades.
+
+```text
 src/
-├── app/               ← Next.js 14 App Router (páginas y API routes)
-│   ├── (auth)/        ← Login / Register (grupo de rutas)
-│   ├── (public)/      ← Vuelos, Autos, Ofertas, About
-│   ├── (dashboard)/   ← Admin / Agent / User dashboards
-│   └── api/           ← REST endpoints + Stripe webhooks
-├── components/        ← Componentes React organizados por responsabilidad
-│   ├── ui/            ← Atómicos: Button, Input, Card, Badge, Modal, Skeleton
-│   ├── layout/        ← Navbar, Footer, Sidebar, Header
-│   ├── forms/         ← FlightSearch, Login, Register, Booking
-│   ├── features/      ← Agrupados por dominio (flights, cars, reviews, home)
-│   └── providers/     ← AuthProvider, ToastProvider
-├── hooks/             ← Custom hooks (useAuth, useFlightSearch, useBooking)
-├── services/          ← Capa de servicios (Supabase queries)
-├── lib/               ← Utilidades, cliente Supabase, validaciones Zod, constantes
-├── types/             ← Modelos TypeScript y tipos de API
-└── styles/            ← Design tokens / tema
-
-supabase/
-├── migrations/        ← SQL completo: tablas, RLS, triggers, seeds
-└── config.toml
+├── app/                    ← Next.js 14 App Router
+│   ├── (auth)/             ← Flujos de autenticación (Login, Register, OTP)
+│   ├── (dashboard)/        ← Paneles protegidos por Rol (Admin, Agent, User)
+│   │   ├── admin/          ← Gestión global, métricas y usuarios
+│   │   ├── agent/          ← Panel operativo de ventas y tickets
+│   │   └── user/           ← Historial de viajes, perfil y pagos
+│   ├── (public)/           ← Landing, Búsqueda de Vuelos, Checkout
+│   └── api/                ← Endpoints REST y Webhooks (Stripe)
+├── components/
+│   ├── features/           ← Componentes de negocio (Flights, Cars, Payments)
+│   ├── forms/              ← Formularios validados con Zod (Booking, Search)
+│   ├── layout/             ← Estructura visual (Navbar, Sidebar, Footer)
+│   └── ui/                 ← Sistema de diseño atómico reutilizable
+├── hooks/                  ← Lógica de estado (useAuth, useBooking, useAgentNews)
+├── lib/
+│   ├── flights/            ← Motor de búsqueda (Orchestrator, Providers)
+│   ├── pricing/            ← Motor de precios (Backend Source of Truth)
+│   ├── supabase/           ← Cliente y Admin (Service Role)
+│   └── email/              ← Templates y configuración de Resend
+├── services/               ← Capa de acceso a datos (Repository Pattern)
+└── types/                  ← Definiciones TypeScript compartidas (DB + API)
 ```
 
-### Principios
-- **Clean Architecture**: UI → Hooks → Services → Supabase
-- **TypeScript Estricto**: `strict: true`, sin `any`
-- **Separación de Responsabilidades**: Un archivo = una responsabilidad
-- **SOLID**: Componentes atómicos reutilizables, servicios desacoplados
-- **Seguridad (Protocolo "Fortress")**: RLS en todas las tablas, AES-256 para PII, CSP headers
+---
+
+## 🧠 Principios Clave
+
+* **Source of Truth en Backend:** El Frontend nunca calcula precios finales. El backend orquesta precios, comisiones y fees.
+* **TypeScript Estricto:** Cero uso de `any`. Contratos de tipos compartidos entre front y back.
+* **Seguridad RLS:** Row Level Security en Supabase garantiza que cada usuario/agente vea solo sus datos.
+* **Idempotencia:** Manejo robusto de Webhooks (Stripe) para evitar duplicidad de transacciones.
 
 ---
 
 ## 🚀 Inicio Rápido
 
 ### Prerrequisitos
-- Node.js ≥ 18
-- Una cuenta en [Supabase](https://supabase.com)
-- Una cuenta en [Stripe](https://stripe.com) (para pagos)
 
-### 1. Clonar e instalar
+* Node.js ≥ 18
+* Proyecto en Supabase (con extensiones `pgcrypto` activadas)
+* Cuenta de Stripe (Test Mode)
+* Cuenta de Resend (para emails)
+
+---
+
+### 1️⃣ Clonar e instalar
 
 ```bash
 git clone https://github.com/tu-usuario/global-solutions-travel.git
@@ -60,101 +92,91 @@ cd global-solutions-travel
 npm install
 ```
 
-### 2. Variables de entorno
+---
 
-```bash
-cp .env.local.example .env.local
+### 2️⃣ Variables de entorno
+
+Crea un archivo `.env.local`:
+
+```env
+# Supabase - Base de datos y Auth
+NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
+SUPABASE_SERVICE_ROLE_KEY=tu-service-role-key
+
+# Stripe - Pagos
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Resend - Emails
+RESEND_API_KEY=re_...
+
+# Seguridad
+ENCRYPTION_MASTER_KEY=clave-32-bytes-base64...
 ```
 
-Abre `.env.local` y completa:
+---
 
-| Variable | Descripción |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | URL de tu proyecto Supabase |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clave anónima (pública) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Clave de servicio (server-only) |
-| `ENCRYPTION_MASTER_KEY` | Clave AES-256 de 64+ caracteres |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Clave pública de Stripe |
-| `STRIPE_SECRET_KEY` | Clave secreta de Stripe |
-| `STRIPE_WEBHOOK_SECRET` | Secreto del webhook de Stripe |
+### 3️⃣ Base de Datos
 
-### 3. Base de datos
+Las migraciones se encuentran en `supabase/migrations`.
 
-Ejecuta la migración SQL en tu proyecto Supabase:
+```bash
+supabase db push
+```
 
-1. Ve a **SQL Editor** en el dashboard de Supabase
-2. Pega el contenido de `supabase/migrations/001_complete_schema.sql`
-3. Ejecuta
+---
 
-Esto crea todas las tablas, índices, RLS policies, triggers y datos semilla.
-
-### 4. Ejecutar en desarrollo
+### 4️⃣ Ejecutar en Desarrollo
 
 ```bash
 npm run dev
 ```
 
-Abre [http://localhost:3000](http://localhost:3000).
+Abrir:
+👉 [http://localhost:3000](http://localhost:3000)
 
 ---
 
-## 🗂️ Rutas de la Aplicación
+## 💳 Flujo de Pagos (Stripe)
 
-| Ruta | Acceso | Descripción |
-|---|---|---|
-| `/` | Público | Landing page |
-| `/flights` | Público | Búsqueda de vuelos |
-| `/flights/search` | Público | Resultados de búsqueda |
-| `/cars` | Público | Renta de autos |
-| `/offers` | Público | Ofertas exclusivas |
-| `/about` | Público | Sobre nosotros |
-| `/login` | Público | Inicio de sesión |
-| `/register` | Público | Registro |
-| `/user/dashboard` | Cliente | Dashboard del cliente |
-| `/agent/dashboard` | Gestor | Dashboard del gestor |
-| `/admin/dashboard` | Admin | Panel de administración |
+El sistema implementa un flujo de pago seguro desacoplado:
+
+1. **Frontend:** Inicia intención de pago (`/pay?booking_id=...`).
+2. **Backend (`/api/payments/create-intent`):**
+
+   * Valida la reserva.
+   * Calcula el total final usando el Motor de Precios.
+   * Genera el `client_secret` de Stripe.
+3. **Frontend:** Renderiza Stripe Elements para captura segura de tarjeta.
+4. **Stripe Webhook:** Evento `payment_intent.succeeded` actualiza el estado de la reserva a `PAID`.
 
 ---
 
-## 🔐 Seguridad
-
-- **Row Level Security (RLS)** en todas las tablas
-- **pgcrypto AES-256** para datos de pasaportes
-- **CSP Headers** en `next.config.ts`
-- **Stripe Webhook Signature Verification**
-- **Zod validation** en todos los formularios
-- **Middleware** protege rutas `/admin`, `/agent`, `/user`
-
----
-
-## 🎨 Sistema de Diseño
-
-| Token | Valor | Uso |
-|---|---|---|
-| `brand-500` | `#3b82f6` | Botones primarios |
-| `brand-600` | `#2563eb` | Hover, enlaces |
-| `brand-900` | `#1e3a8a` | Navbar, footer, textos headings |
-| `accent-yellow` | `#fbbf24` | Ofertas, estrellas |
-| `accent-green` | `#10b981` | Confirmaciones |
-| `accent-red` | `#ef4444` | Alertas, urgencia |
-
-Tipografía: **DM Sans** (body) + **Playfair Display** (headings).
-
----
-
-## 📦 Scripts
+## 🛠 Comandos Útiles
 
 ```bash
-npm run dev          # Desarrollo local
-npm run build        # Build de producción
-npm run start        # Servidor de producción
-npm run lint         # ESLint
-npm run type-check   # Verificación de tipos
-npm run db:generate  # Generar tipos TypeScript desde Supabase
+npm run dev
+npm run build
+npm run start
+npm run lint
+npm run type-check
+npm run db:generate
+```
+
+---
+
+## 📱 Mobile (Capacitor)
+
+```bash
+npx cap sync
+npx cap open android
+npx cap open ios
 ```
 
 ---
 
 ## 📄 Licencia
 
-Proyecto privado — © 2026 Global Solutions Travel.
+© 2026 Global Solutions Travel. Proyecto Privado.
