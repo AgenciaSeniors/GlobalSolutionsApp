@@ -1,20 +1,48 @@
 /**
  * @fileoverview Review trigger cron endpoint.
- * Runs daily, finds bookings completed yesterday and marks review_requested.
+ * Runs daily, finds bookings that returned N days ago and marks review_requested.
+ *
+ * Security:
+ *  - Requires header: x-cron-secret === process.env.CRON_SECRET
  */
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
-export async function POST() {
+async function getReviewDelayDays(): Promise<number> {
+  const { data } = await supabaseAdmin
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'review_request_delay_days')
+    .maybeSingle<{ value: unknown }>();
+
+  const raw = data?.value;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 1;
+  return Math.floor(n);
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const expected = process.env.CRON_SECRET;
+    if (!expected) {
+      return NextResponse.json({ error: 'CRON_SECRET no configurado' }, { status: 500 });
+    }
+
+    const provided = req.headers.get('x-cron-secret');
+    if (provided !== expected) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const delayDays = await getReviewDelayDays();
+
+    const target = new Date();
+    target.setDate(target.getDate() - delayDays);
+    const targetStr = target.toISOString().split('T')[0];
 
     const { data: bookings, error } = await supabaseAdmin
       .from('bookings')
@@ -26,7 +54,7 @@ export async function POST() {
         profile:profiles!user_id(full_name, email)
       `)
       .eq('booking_status', 'completed')
-      .eq('return_date', yesterdayStr)
+      .eq('return_date', targetStr)
       .eq('review_requested', false);
 
     if (error) {
@@ -34,20 +62,25 @@ export async function POST() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const results = [];
+    const results: { booking_id: string; booking_code: string; destination: string; email_sent: boolean }[] = [];
 
     for (const booking of bookings || []) {
       const profile = booking.profile as { full_name?: string; email?: string } | null;
       const flight = booking.flight as { destination_airport?: { city?: string } } | null;
       const destination = flight?.destination_airport?.city || 'tu destino';
 
-      await supabaseAdmin.from('bookings').update({ review_requested: true }).eq('id', booking.id);
+      await supabaseAdmin
+        .from('bookings')
+        .update({ review_requested: true })
+        .eq('id', booking.id);
 
       // En prod: enviar email real (Resend/Sendgrid). Acá lo “simulamos”
+      // NOTA: no devolvemos el email del usuario en la respuesta (evita exposición innecesaria).
+      void profile;
+
       results.push({
         booking_id: booking.id,
         booking_code: booking.booking_code,
-        user_email: profile?.email,
         destination,
         email_sent: true,
       });
@@ -57,7 +90,8 @@ export async function POST() {
       success: true,
       processed: results.length,
       details: results,
-      date_checked: yesterdayStr,
+      date_checked: targetStr,
+      delay_days: delayDays,
     });
   } catch (err) {
     console.error('Review trigger error:', err);

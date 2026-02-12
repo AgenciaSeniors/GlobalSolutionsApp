@@ -1,278 +1,150 @@
 /**
- * @fileoverview Client Dashboard — Real-time KPIs, recent bookings, loyalty points.
- * Module 6: Dashboard & Loyalty (endpoint real for bookings).
+ * @fileoverview User Bookings — My reservations with status tracking.
+ * Per spec §6.2: Shows status flow, voucher download when available.
  */
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
-import { CalendarCheck, Plane, Star, Clock, ArrowRight, DollarSign } from 'lucide-react';
+import { Plane, FileText, Clock, CheckCircle, XCircle, CreditCard } from 'lucide-react';
 
-import { bookingsService, type BookingWithDetails } from '@/services/bookings.service';
+import { bookingsService } from '@/services/bookings.service';
+import type { BookingWithDetails } from '@/types/models';
 
-interface DashboardStats {
-  totalBookings: number;
-  activeBookings: number;
-  completedFlights: number;
-  loyaltyPoints: number;
-  totalSpent: number;
-  reviewsWritten: number;
-  pendingReviews: number;
+
+type StatusConfig = {
+  icon: typeof Clock;
+  label: string;
+  color: string;
+  variant: 'warning' | 'success' | 'destructive' | 'info';
+};
+
+function normalizePassengers(b: BookingWithDetails): BookingWithDetails {
+  return {
+    ...b,
+    passengers: Array.isArray(b.passengers) ? b.passengers : [],
+  };
 }
 
-type BadgeVariant = 'warning' | 'success' | 'info' | 'destructive';
-
-function isoDateSafe(input: string): string {
-  const d = new Date(input);
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
-}
-
-function isActiveStatus(status: string): boolean {
-  return status === 'pending_emission' || status === 'confirmed';
-}
-
-function isPaidStatus(status: string): boolean {
-  return status === 'paid';
-}
-
-export default function UserDashboardPage() {
-  const supabase = useMemo(() => createClient(), []);
+export default function UserBookingsPage() {
   const { user } = useAuthContext();
-
-  const [stats, setStats] = useState<DashboardStats>({
-    totalBookings: 0,
-    activeBookings: 0,
-    completedFlights: 0,
-    loyaltyPoints: 0,
-    totalSpent: 0,
-    reviewsWritten: 0,
-    pendingReviews: 0,
-  });
-
-  const [recentBookings, setRecentBookings] = useState<BookingWithDetails[]>([]);
+  const [bookings, setBookings] = useState<BookingWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-
-    try {
-      // ✅ Módulo 6: bookings desde endpoint real (service)
-      const [allBookings, profileRes, reviewsRes, completedNoReviewRes] = await Promise.all([
-        bookingsService.listWithDetails(),
-
-        // ✅ IMPORTANTE: profiles se busca por profiles.user_id (auth uid)
-        supabase
-          .from('profiles')
-          .select('loyalty_points')
-          .eq('user_id', user.id)
-          .single<{ loyalty_points: number | null }>(),
-
-        supabase.from('reviews').select('id').eq('user_id', user.id),
-
-        supabase
-          .from('bookings')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('booking_status', 'completed')
-          .eq('review_requested', false),
-      ]);
-
-      // Orden por created_at DESC para recentBookings
-      const sortedBookings = [...allBookings].sort((a, b) =>
-        isoDateSafe(b.created_at).localeCompare(isoDateSafe(a.created_at)),
-      );
-
-      const paidBookings = sortedBookings.filter((b) => isPaidStatus(String(b.payment_status)));
-      const totalSpent = paidBookings.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
-
-      setStats({
-        totalBookings: sortedBookings.length,
-        activeBookings: sortedBookings.filter((b) => isActiveStatus(String(b.booking_status))).length,
-        completedFlights: sortedBookings.filter((b) => String(b.booking_status) === 'completed').length,
-        loyaltyPoints: profileRes.data?.loyalty_points ?? 0,
-        totalSpent,
-        reviewsWritten: reviewsRes.data?.length ?? 0,
-        pendingReviews: completedNoReviewRes.data?.length ?? 0,
-      });
-
-      // “Recientes”: top 5
-      setRecentBookings(sortedBookings.slice(0, 5));
-    } catch (err) {
-      console.error('Error fetching dashboard:', err);
-      // No rompemos UI, dejamos valores por defecto
-      setStats({
-        totalBookings: 0,
-        activeBookings: 0,
-        completedFlights: 0,
-        loyaltyPoints: 0,
-        totalSpent: 0,
-        reviewsWritten: 0,
-        pendingReviews: 0,
-      });
-      setRecentBookings([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [user, supabase]);
-
   useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
+    if (!user) return;
 
-  const statusConfig: Record<string, { label: string; variant: BadgeVariant }> = {
-    pending_emission: { label: 'Procesando', variant: 'warning' },
-    confirmed: { label: 'Emitido', variant: 'success' },
-    completed: { label: 'Completado', variant: 'info' },
-    cancelled: { label: 'Cancelado', variant: 'destructive' },
+    async function load() {
+      try {
+        const data = await bookingsService.listWithDetails();
+        setBookings((data ?? []).map(normalizePassengers));
+      } catch {
+        setBookings([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    void load();
+  }, [user]);
+
+  const statusConfig: Record<string, StatusConfig> = {
+    pending_emission: { icon: Clock, label: 'Procesando Emisión', color: 'text-amber-500', variant: 'warning' },
+    confirmed: { icon: CheckCircle, label: 'Emitido', color: 'text-emerald-500', variant: 'success' },
+    completed: { icon: CheckCircle, label: 'Completado', color: 'text-brand-500', variant: 'info' },
+    cancelled: { icon: XCircle, label: 'Cancelado', color: 'text-red-500', variant: 'destructive' },
   };
-
-  const greeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Buenos días';
-    if (hour < 18) return 'Buenas tardes';
-    return 'Buenas noches';
-  };
-
-  const formatMoney = (n: number) =>
-    new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n || 0);
 
   return (
     <div className="flex min-h-screen">
       <Sidebar links={USER_SIDEBAR_LINKS} />
-
       <div className="flex-1">
-        <Header
-          title="Mi Dashboard"
-          subtitle={`${greeting()}${user ? `, ${user.user_metadata?.full_name || 'Viajero'}` : ''}`}
-        />
-
-        <div className="p-6 space-y-6">
+        <Header title="Mis Reservas" subtitle="Historial de viajes y vouchers" />
+        <div className="p-8">
           {loading ? (
-            <Card className="p-6">
-              <div className="flex items-center gap-2 text-sm opacity-80">
-                <Clock size={16} />
-                Cargando tus datos…
-              </div>
+            <p className="text-neutral-500">Cargando...</p>
+          ) : bookings.length === 0 ? (
+            <Card variant="bordered" className="py-12 text-center">
+              <Plane className="mx-auto mb-3 h-12 w-12 text-neutral-300" />
+              <p className="font-semibold">Aún no tienes reservas</p>
+              <p className="text-sm text-neutral-500">Busca tu próximo vuelo y reserva aquí.</p>
             </Card>
           ) : (
-            <>
-              {/* KPIs */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <Card className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm opacity-80">Reservas totales</div>
-                    <Plane size={18} />
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold">{stats.totalBookings}</div>
-                </Card>
+            <div className="space-y-4">
+              {bookings.map((b) => {
+                const cfg = statusConfig[b.booking_status] || statusConfig.pending_emission;
+                const StatusIcon = cfg.icon;
 
-                <Card className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm opacity-80">Activas</div>
-                    <CalendarCheck size={18} />
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold">{stats.activeBookings}</div>
-                </Card>
+                const payment = String(b.payment_status ?? '').toLowerCase();
+                const isPaid = payment === 'paid';
 
-                <Card className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm opacity-80">Puntos</div>
-                    <Star size={18} />
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold">{stats.loyaltyPoints}</div>
-                </Card>
+                return (
+                  <Card key={b.id} variant="bordered">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div className="flex items-start gap-4">
+                        <StatusIcon className={`h-8 w-8 flex-shrink-0 ${cfg.color}`} />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-brand-600">{b.booking_code}</span>
+                            <Badge variant={cfg.variant}>{cfg.label}</Badge>
+                          </div>
 
-                <Card className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm opacity-80">Total gastado</div>
-                    <DollarSign size={18} />
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold">{formatMoney(stats.totalSpent)}</div>
-                </Card>
-              </div>
+                          <p className="mt-1 text-sm">
+                            {b.flight?.airline?.name} {b.flight?.flight_number} · {b.flight?.origin_airport?.city} (
+                            {b.flight?.origin_airport?.iata_code}) → {b.flight?.destination_airport?.city} (
+                            {b.flight?.destination_airport?.iata_code})
+                          </p>
 
-              {/* Acciones */}
-              <div className="flex flex-wrap gap-3">
-                <Link
-                  href="/user/dashboard/bookings"
-                  className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
-                >
-                  Ver mis reservas <ArrowRight size={16} />
-                </Link>
+                          <p className="text-xs text-neutral-400">
+                            Reservado: {new Date(b.created_at).toLocaleDateString('es')} · Total: ${b.total_amount.toFixed(2)}
+                          </p>
 
-                <div className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                  Pendientes de reseña:{' '}
-                  <Badge variant={stats.pendingReviews > 0 ? 'warning' : 'success'}>
-                    {stats.pendingReviews}
-                  </Badge>
-                </div>
+                          {b.airline_pnr && (
+                            <p className="mt-1 text-xs text-neutral-500">
+                              PNR Aerolínea: <strong className="font-mono">{b.airline_pnr}</strong>
+                            </p>
+                          )}
 
-                <div className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                  Reseñas escritas: <Badge variant="info">{stats.reviewsWritten}</Badge>
-                </div>
-              </div>
+                          {(b.passengers?.length ?? 0) > 0 && (
+                            <div className="mt-2 text-xs text-neutral-500">
+                              Pasajeros: {(b.passengers ?? []).map((p) => `${p.first_name} ${p.last_name}`).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
 
-              {/* Recientes */}
-              <Card className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="font-medium">Reservas recientes</div>
-                  <Link href="/user/dashboard/bookings" className="text-sm underline">
-                    Ver todas
-                  </Link>
-                </div>
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-end">
+                        {!isPaid && (
+                          <a
+                            href={`/pay?booking_id=${b.id}`}
+                            className="flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+                          >
+                            <CreditCard className="h-4 w-4" />
+                            Pagar
+                          </a>
+                        )}
 
-                {recentBookings.length === 0 ? (
-                  <div className="mt-4 text-sm opacity-80">Aún no tenés reservas recientes.</div>
-                ) : (
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="text-left opacity-70">
-                        <tr>
-                          <th className="py-2 pr-4">Código</th>
-                          <th className="py-2 pr-4">Estado</th>
-                          <th className="py-2 pr-4">Pago</th>
-                          <th className="py-2 pr-4">Total</th>
-                          <th className="py-2 pr-4">PNR</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {recentBookings.map((b) => {
-                          const cfg = statusConfig[String(b.booking_status)] ?? {
-                            label: String(b.booking_status),
-                            variant: 'info' as const,
-                          };
-
-                          const paid = isPaidStatus(String(b.payment_status));
-
-                          return (
-                            <tr key={b.id} className="border-t">
-                              <td className="py-2 pr-4">{b.booking_code}</td>
-                              <td className="py-2 pr-4">
-                                <Badge variant={cfg.variant}>{cfg.label}</Badge>
-                              </td>
-                              <td className="py-2 pr-4">
-                                <Badge variant={paid ? 'success' : 'warning'}>
-                                  {String(b.payment_status)}
-                                </Badge>
-                              </td>
-                              <td className="py-2 pr-4">{formatMoney(Number(b.total_amount) || 0)}</td>
-                              <td className="py-2 pr-4">{b.airline_pnr ?? '-'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </Card>
-            </>
+                        {b.voucher_pdf_url && (
+                          <a
+                            href={b.voucher_pdf_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 rounded-lg bg-brand-50 px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-100"
+                          >
+                            <FileText className="h-4 w-4" />
+                            Descargar Voucher
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>

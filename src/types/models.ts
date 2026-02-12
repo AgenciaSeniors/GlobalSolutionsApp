@@ -94,11 +94,13 @@ export interface Booking {
   booking_status: BookingStatus;
   airline_pnr: string | null;
   return_date: string | null;
-  emitted_at: string | null;
-  emitted_by: string | null;
+   emitted_by: string | null;
+  voucher_pdf_url: string | null;
+  payment_method_detail: string | null;
   review_requested: boolean;
   created_at: string;
-  updated_at: string;
+
+
 }
 
 export interface BookingWithDetails extends Booking {

@@ -3,6 +3,7 @@
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import type { BookingWithDetails } from '@/types/models';
 
 export async function GET() {
   try {
@@ -26,14 +27,15 @@ export async function GET() {
         passengers:booking_passengers(first_name, last_name, ticket_number)
       `)
       .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .returns<BookingWithDetails[]>();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     // ✅ seguridad: siempre devolver passengers como array
-    const normalized = (data ?? []).map((b: any) => ({
+    const normalized: BookingWithDetails[] = (data ?? []).map((b) => ({
       ...b,
       passengers: Array.isArray(b.passengers) ? b.passengers : [],
     }));

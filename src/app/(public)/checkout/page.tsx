@@ -163,6 +163,8 @@ export default function CheckoutPage() {
           payment_method: gateway,
           payment_status: 'pending',
           booking_status: 'pending_emission',
+          return_date: new Date(flight.arrival_datetime).toISOString().split('T')[0],
+
         })
         .select('id')
         .single();
@@ -193,12 +195,6 @@ export default function CheckoutPage() {
         }).eq('id', booking.id);
       }
 
-      const pointsEarned = Math.floor(breakdown.subtotal * settings.loyalty_points_per_dollar);
-      if (pointsEarned > 0 && profile) {
-        await supabase.from('profiles').update({
-          loyalty_points: (profile.loyalty_points || 0) + pointsEarned,
-        }).eq('id', user.id);
-      }
 
       setBookingCode(bookingCode);
       setSuccess(true);

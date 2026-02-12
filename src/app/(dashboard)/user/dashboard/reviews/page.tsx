@@ -18,6 +18,8 @@ import {
   Star, PenSquare, CheckCircle, Clock, XCircle, Plane,
   ChevronDown, ChevronUp, Send, Sparkles,
 } from 'lucide-react';
+import { reviewsService } from '@/services/reviews.service';
+
 
 interface ReviewableBooking {
   id: string;
@@ -122,29 +124,27 @@ export default function UserReviewsPage() {
     setSubmitting(true);
     setMessage(null);
 
-    const { error } = await supabase.from('reviews').insert({
-      user_id: user.id,
-      booking_id: bookingId,
-      rating,
-      title: title.trim() || null,
-      comment: comment.trim(),
-      status: 'pending_approval',
-      photo_urls: [],
-    });
+    try {
+  await reviewsService.create({
+    booking_id: bookingId,
+    rating,
+    title: title.trim() || undefined,
+    comment: comment.trim(),
+  });
 
-    if (error) {
-      setMessage({ type: 'error', text: 'Error al enviar reseña: ' + error.message });
-    } else {
-      setMessage({ type: 'success', text: '¡Reseña enviada! Será revisada por nuestro equipo.' });
-      setShowForm(null);
-      setRating(5);
-      setTitle('');
-      setComment('');
-      fetchData();
-    }
-    setSubmitting(false);
-    setTimeout(() => setMessage(null), 5000);
-  }
+  setMessage({ type: 'success', text: '¡Reseña enviada! Será revisada por nuestro equipo.' });
+  setShowForm(null);
+  setRating(5);
+  setTitle('');
+  setComment('');
+  fetchData();
+} catch (err: unknown) {
+  const msg = err instanceof Error ? err.message : 'No se pudo enviar la reseña.';
+  setMessage({ type: 'error', text: 'Error al enviar reseña: ' + msg });
+} finally {
+  setSubmitting(false);
+  setTimeout(() => setMessage(null), 5000);
+}
 
   const statusConfig: Record<string, { label: string; icon: typeof Clock; variant: 'warning' | 'success' | 'destructive' }> = {
     pending_approval: { label: 'En revisión', icon: Clock, variant: 'warning' },
@@ -333,4 +333,4 @@ export default function UserReviewsPage() {
       </div>
     </div>
   );
-}
+} }

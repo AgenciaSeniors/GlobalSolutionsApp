@@ -4,7 +4,7 @@
  */
 import { createClient } from '@/lib/supabase/client';
 import type { CreateBookingPayload } from '@/types/api.types';
-import type { Booking } from '@/types/models';
+import type { Booking, BookingWithDetails } from '@/types/models';
 
 function generateBookingCode(): string {
   const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -16,7 +16,6 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Debes iniciar sesión para reservar.');
 
-  // Fetch flight price
   const { data: flight, error: flightErr } = await supabase
     .from('flights')
     .select('final_price, available_seats')
@@ -29,9 +28,8 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
   }
 
   const subtotal = flight.final_price * payload.passengers.length;
-  const totalAmount = subtotal; // gateway fee added during payment
+  const totalAmount = subtotal;
 
-  // Insert booking
   const { data: booking, error: bookingErr } = await supabase
     .from('bookings')
     .insert({
@@ -46,14 +44,13 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
 
   if (bookingErr || !booking) throw new Error('Error creando la reserva.');
 
-  // Insert passengers (passport encrypted via DB function)
   const passengers = payload.passengers.map((p) => ({
     booking_id: booking.id,
     first_name: p.first_name,
     last_name: p.last_name,
     date_of_birth: p.date_of_birth,
     nationality: p.nationality,
-    passport_number: p.passport_number, // Will be encrypted by RPC in production
+    passport_number: p.passport_number,
     passport_expiry_date: p.passport_expiry_date,
   }));
 
@@ -91,19 +88,13 @@ async function getById(id: string): Promise<Booking | null> {
   return data as Booking;
 }
 
-// ✅ DTO para dashboard / historial (vuelo + aerolínea + aeropuertos + pasajeros)
-export type BookingWithDetails = Booking & {
-  flight?: {
-    flight_number: string;
-    departure_datetime: string;
-    airline?: { name: string } | null;
-    origin_airport?: { iata_code: string; city: string } | null;
-    destination_airport?: { iata_code: string; city: string } | null;
-  } | null;
-  passengers?: { first_name: string; last_name: string; ticket_number: string | null }[];
-};
+function normalizePassengers(b: BookingWithDetails): BookingWithDetails {
+  return {
+    ...b,
+    passengers: Array.isArray(b.passengers) ? b.passengers : [],
+  };
+}
 
-// ✅ Nuevo: trae reservas con joins desde el endpoint real (no directo desde supabase client)
 async function listWithDetails(): Promise<BookingWithDetails[]> {
   const res = await fetch('/api/bookings', { method: 'GET' });
 
@@ -112,15 +103,10 @@ async function listWithDetails(): Promise<BookingWithDetails[]> {
     throw new Error(body?.error || 'No se pudieron cargar tus reservas.');
   }
 
-  const json = (await res.json()) as { data: BookingWithDetails[] };
-  const data = json.data ?? [];
+  const json = (await res.json().catch(() => null)) as { data?: BookingWithDetails[] } | null;
+  const data = json?.data ?? [];
 
-  // seguridad: passengers siempre array
-  return data.map((b: any) => ({
-    ...b,
-    passengers: Array.isArray(b.passengers) ? b.passengers : [],
-  }));
+  return data.map(normalizePassengers);
 }
-
 
 export const bookingsService = { create, listWithDetails, listForCurrentUser, getById };
