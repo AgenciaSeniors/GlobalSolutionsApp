@@ -42,6 +42,7 @@ function getNumber(v: unknown): number | null {
 type BookingRow = {
   id: string;
   user_id: string | null;
+  profile_id: string | null;
   flight_id: string | null;
   currency: string;
   payment_status: string | null;
@@ -58,13 +59,17 @@ type PassengerRow = {
 
 function parseBookingRow(value: unknown): BookingRow | null {
   if (!isRecord(value)) return null;
+
   const id = getString(value.id);
   const user_id = value.user_id === null ? null : getString(value.user_id);
+  const profile_id = value.profile_id === null ? null : getString(value.profile_id);
   const flight_id = value.flight_id === null ? null : getString(value.flight_id);
   const currency = getString(value.currency) ?? 'USD';
   const payment_status = value.payment_status === null ? null : getString(value.payment_status);
+
   if (!id) return null;
-  return { id, user_id, flight_id, currency, payment_status };
+
+  return { id, user_id, profile_id, flight_id, currency, payment_status };
 }
 
 function parseFlightRow(value: unknown): FlightRow | null {
@@ -105,7 +110,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Booking
     const { data: bookingData, error: bookingErr } = await supabaseAdmin
       .from('bookings')
-      .select('id, user_id, flight_id, currency, payment_status')
+      .select('id, user_id, profile_id, flight_id, currency, payment_status')
       .eq('id', booking_id)
       .single();
 
@@ -116,7 +121,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const booking = parseBookingRow(bookingData);
     if (!booking) return NextResponse.json({ error: 'Invalid booking data' }, { status: 500 });
 
-    if (booking.user_id !== user.id) {
+    // ✅ Acepta ownership por user_id o profile_id (tu schema tiene ambos)
+    const isOwner = booking.user_id === user.id || booking.profile_id === user.id;
+    if (!isOwner) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -164,7 +171,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'No passengers for booking' }, { status: 400 });
     }
 
-    // ✅ Recalcular server-side igual que PayPal
+    // Recalcular server-side
     const breakdown = calculateBookingTotal(flight.final_price, passengers, 'stripe');
     const amountCents = dollarsToCents(breakdown.total_amount);
 
@@ -194,10 +201,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Failed to update booking' }, { status: 500 });
     }
 
-    return NextResponse.json(
-      { client_secret: intent.client_secret, breakdown },
-      { status: 200 }
-    );
+    return NextResponse.json({ client_secret: intent.client_secret, breakdown }, { status: 200 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 400 });
