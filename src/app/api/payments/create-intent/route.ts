@@ -14,7 +14,9 @@ function requiredEnv(name: string): string {
   return v;
 }
 
-const stripe = new Stripe(requiredEnv('STRIPE_SECRET_KEY'), { apiVersion: '2024-06-20' });
+const stripe = new Stripe(requiredEnv('STRIPE_SECRET_KEY'), {
+  apiVersion: '2024-06-20',
+});
 
 const BodySchema = z.object({
   booking_id: z.string().min(1),
@@ -24,11 +26,11 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-function toString(v: unknown): string | null {
+function getString(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
-function toNumber(v: unknown): number | null {
+function getNumber(v: unknown): number | null {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
   if (typeof v === 'string') {
     const n = Number(v);
@@ -47,7 +49,7 @@ type BookingRow = {
 
 type FlightRow = {
   id: string;
-  base_price: number;
+  final_price: number;
 };
 
 type PassengerRow = {
@@ -56,34 +58,29 @@ type PassengerRow = {
 
 function parseBookingRow(value: unknown): BookingRow | null {
   if (!isRecord(value)) return null;
-
-  const id = toString(value.id);
-  const user_id = value.user_id === null ? null : toString(value.user_id);
-  const flight_id = value.flight_id === null ? null : toString(value.flight_id);
-  const currency = toString(value.currency) ?? 'USD';
-  const payment_status = value.payment_status === null ? null : toString(value.payment_status);
-
+  const id = getString(value.id);
+  const user_id = value.user_id === null ? null : getString(value.user_id);
+  const flight_id = value.flight_id === null ? null : getString(value.flight_id);
+  const currency = getString(value.currency) ?? 'USD';
+  const payment_status = value.payment_status === null ? null : getString(value.payment_status);
   if (!id) return null;
   return { id, user_id, flight_id, currency, payment_status };
 }
 
 function parseFlightRow(value: unknown): FlightRow | null {
   if (!isRecord(value)) return null;
-
-  const id = toString(value.id);
-  const base_price = toNumber(value.base_price);
-  if (!id || base_price === null) return null;
-
-  return { id, base_price };
+  const id = getString(value.id);
+  const final_price = getNumber(value.final_price);
+  if (!id || final_price === null) return null;
+  return { id, final_price };
 }
 
 function parsePassengerRows(value: unknown): PassengerRow[] | null {
   if (!Array.isArray(value)) return null;
-
   const out: PassengerRow[] = [];
   for (const item of value) {
     if (!isRecord(item)) return null;
-    const dob = toString(item.date_of_birth);
+    const dob = getString(item.date_of_birth);
     if (!dob) return null;
     out.push({ date_of_birth: dob });
   }
@@ -99,16 +96,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const raw: unknown = await req.json();
     const { booking_id } = BodySchema.parse(raw);
 
-    // ✅ Auth (mismo enfoque “pro” que PayPal)
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
     const supabaseAdmin = createAdminClient();
 
-    // 1) Booking
+    // Booking
     const { data: bookingData, error: bookingErr } = await supabaseAdmin
       .from('bookings')
       .select('id, user_id, flight_id, currency, payment_status')
@@ -120,9 +114,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const booking = parseBookingRow(bookingData);
-    if (!booking) {
-      return NextResponse.json({ error: 'Invalid booking data' }, { status: 500 });
-    }
+    if (!booking) return NextResponse.json({ error: 'Invalid booking data' }, { status: 500 });
 
     if (booking.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -133,10 +125,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (!booking.flight_id) {
-      return NextResponse.json({ error: 'Booking has no flight selected (flight_id is null)' }, { status: 400 });
+      return NextResponse.json({ error: 'Booking has no flight_id' }, { status: 400 });
     }
 
-    // USD-only por ahora
     if (booking.currency !== 'USD') {
       return NextResponse.json(
         { error: `Unsupported currency for now: ${booking.currency}. Expected USD.` },
@@ -144,10 +135,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 2) Flight base_price
+    // Flight (final_price)
     const { data: flightData, error: flightErr } = await supabaseAdmin
       .from('flights')
-      .select('id, base_price')
+      .select('id, final_price')
       .eq('id', booking.flight_id)
       .single();
 
@@ -156,13 +147,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const flight = parseFlightRow(flightData);
-    if (!flight) {
-      return NextResponse.json({ error: 'Invalid flight data' }, { status: 500 });
-    }
+    if (!flight) return NextResponse.json({ error: 'Invalid flight data' }, { status: 500 });
 
-    // 3) Passengers DOB
+    // Passengers (booking_passengers)
     const { data: paxData, error: paxErr } = await supabaseAdmin
-      .from('passengers')
+      .from('booking_passengers')
       .select('date_of_birth')
       .eq('booking_id', booking.id);
 
@@ -175,11 +164,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'No passengers for booking' }, { status: 400 });
     }
 
-    // ✅ Recalcular igual que PayPal
-    const breakdown = calculateBookingTotal(flight.base_price, passengers, 'stripe');
+    // ✅ Recalcular server-side igual que PayPal
+    const breakdown = calculateBookingTotal(flight.final_price, passengers, 'stripe');
     const amountCents = dollarsToCents(breakdown.total_amount);
 
-    // 4) Crear PaymentIntent
     const intent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: 'usd',
@@ -190,7 +178,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Missing client_secret' }, { status: 500 });
     }
 
-    // 5) Persistir en booking
     const { error: updErr } = await supabaseAdmin
       .from('bookings')
       .update({
@@ -208,10 +195,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json(
-      {
-        client_secret: intent.client_secret,
-        breakdown,
-      },
+      { client_secret: intent.client_secret, breakdown },
       { status: 200 }
     );
   } catch (err: unknown) {
