@@ -187,9 +187,9 @@ export default function PayPage() {
             <div className="space-y-3">
               {stripeLoading && <p className="text-sm text-neutral-500">Preparando pago con Stripe…</p>}
               {!stripeLoading && stripeClientSecret && (
-                <Elements stripe={stripePromise} options={{ clientId: stripeClientSecret }}>
-                  <PaymentForm />
-                </Elements>
+                <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
+                <PaymentForm />
+              </Elements>
               )}
             </div>
           ) : (
