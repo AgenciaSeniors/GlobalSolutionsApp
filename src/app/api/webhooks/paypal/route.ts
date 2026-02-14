@@ -1,7 +1,21 @@
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
-import { NextRequest, NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+/**
+ * POST /api/webhooks/paypal
+ *
+ * Handles PayPal webhook events with:
+ *  - Signature verification via PayPal Notifications API
+ *  - Idempotency via log_paypal_event_once RPC
+ *  - PAYMENT.CAPTURE.COMPLETED → marks booking as paid
+ *  - PAYMENT.CAPTURE.DENIED/REVERSED/REFUNDED → marks as failed
+ *
+ * CRITICAL: This endpoint must NOT require auth (called by PayPal servers).
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+/* ───────────────────── Utility types ───────────────────── */
 
 type Json =
   | string
@@ -12,7 +26,7 @@ type Json =
   | Json[];
 
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null;
+  return typeof v === "object" && v !== null;
 }
 
 function toJson(value: unknown): Json {
@@ -26,114 +40,131 @@ function requiredEnv(name: string): string {
 }
 
 function paypalBaseUrl(): string {
-  const mode = (process.env.PAYPAL_ENV ?? 'sandbox').toLowerCase();
-  return mode === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+  const mode = (process.env.PAYPAL_ENV ?? "sandbox").toLowerCase();
+  return mode === "live"
+    ? "https://api-m.paypal.com"
+    : "https://api-m.sandbox.paypal.com";
 }
 
+/* ───────────────────── PayPal Auth ───────────────────── */
+
 async function getPayPalAccessToken(): Promise<string> {
-  const clientId = requiredEnv('PAYPAL_CLIENT_ID');
-  const clientSecret = requiredEnv('PAYPAL_CLIENT_SECRET');
+  const clientId = requiredEnv("PAYPAL_CLIENT_ID");
+  const clientSecret = requiredEnv("PAYPAL_CLIENT_SECRET");
 
   const res = await fetch(`${paypalBaseUrl()}/v1/oauth2/token`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: 'grant_type=client_credentials',
+    body: "grant_type=client_credentials",
   });
 
   const raw: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const msg =
-      isRecord(raw) && typeof raw.error_description === 'string'
+      isRecord(raw) && typeof raw.error_description === "string"
         ? raw.error_description
-        : 'Failed to get PayPal access token';
+        : "Failed to get PayPal access token";
     throw new Error(msg);
   }
 
   const token =
-    isRecord(raw) && typeof raw.access_token === 'string' ? raw.access_token : null;
+    isRecord(raw) && typeof raw.access_token === "string" ? raw.access_token : null;
 
-  if (!token) throw new Error('PayPal access token missing');
+  if (!token) throw new Error("PayPal access token missing");
   return token;
 }
 
-type VerifyBody = {
-  auth_algo: string;
-  cert_url: string;
-  transmission_id: string;
-  transmission_sig: string;
-  transmission_time: string;
-  webhook_id: string;
-  webhook_event: unknown;
-};
+/* ───────────────────── Signature Verification ───────────────────── */
 
-async function verifyPayPalWebhookSignature(headers: Headers, event: unknown): Promise<boolean> {
-  const auth_algo = headers.get('paypal-auth-algo');
-  const cert_url = headers.get('paypal-cert-url');
-  const transmission_id = headers.get('paypal-transmission-id');
-  const transmission_sig = headers.get('paypal-transmission-sig');
-  const transmission_time = headers.get('paypal-transmission-time');
+async function verifyPayPalWebhookSignature(
+  headers: Headers,
+  event: unknown
+): Promise<boolean> {
+  const auth_algo = headers.get("paypal-auth-algo");
+  const cert_url = headers.get("paypal-cert-url");
+  const transmission_id = headers.get("paypal-transmission-id");
+  const transmission_sig = headers.get("paypal-transmission-sig");
+  const transmission_time = headers.get("paypal-transmission-time");
 
   if (!auth_algo || !cert_url || !transmission_id || !transmission_sig || !transmission_time) {
+    console.error("[PayPal Webhook] Missing signature headers");
     return false;
   }
 
   const token = await getPayPalAccessToken();
-  const body: VerifyBody = {
+
+  const verifyBody = {
     auth_algo,
     cert_url,
     transmission_id,
     transmission_sig,
     transmission_time,
-    webhook_id: requiredEnv('PAYPAL_WEBHOOK_ID'),
+    webhook_id: requiredEnv("PAYPAL_WEBHOOK_ID"),
     webhook_event: event,
   };
 
-  const res = await fetch(`${paypalBaseUrl()}/v1/notifications/verify-webhook-signature`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  const res = await fetch(
+    `${paypalBaseUrl()}/v1/notifications/verify-webhook-signature`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(verifyBody),
+    }
+  );
 
   const raw: unknown = await res.json().catch(() => null);
   if (!res.ok) {
-    console.error('[PayPal Webhook] verify failed:', raw);
+    console.error("[PayPal Webhook] Verify request failed:", raw);
     return false;
   }
 
   const status =
-    isRecord(raw) && typeof raw.verification_status === 'string'
+    isRecord(raw) && typeof raw.verification_status === "string"
       ? raw.verification_status
       : null;
 
-  return status === 'SUCCESS';
+  return status === "SUCCESS";
+}
+
+/* ───────────────────── Event extractors ───────────────────── */
+
+function extractEventId(event: unknown): string | null {
+  if (!isRecord(event)) return null;
+  const id = event.id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+function extractEventType(event: unknown): string | null {
+  if (!isRecord(event)) return null;
+  const eventType = event.event_type;
+  return typeof eventType === "string" && eventType.length > 0 ? eventType : null;
 }
 
 function extractBookingId(event: unknown): string | null {
-  // Intentamos extraer booking_id de varios lugares comunes.
-  // (Recomendado: setear custom_id = booking.id al crear la orden).
   if (!isRecord(event)) return null;
-
   const resource = event.resource;
   if (!isRecord(resource)) return null;
 
-  // 1) custom_id (si lo seteamos)
+  // 1) custom_id (set during order creation)
   const customId = resource.custom_id;
-  if (typeof customId === 'string' && customId.length > 0) return customId;
+  if (typeof customId === "string" && customId.length > 0) return customId;
 
-  // 2) purchase_units[0].reference_id (a veces viene en webhook payload)
+  // 2) purchase_units[0].custom_id (capture payload structure)
   const purchaseUnits = resource.purchase_units;
   if (Array.isArray(purchaseUnits) && purchaseUnits.length > 0 && isRecord(purchaseUnits[0])) {
+    const puCustomId = purchaseUnits[0].custom_id;
+    if (typeof puCustomId === "string" && puCustomId.length > 0) return puCustomId;
+
     const ref = purchaseUnits[0].reference_id;
-    if (typeof ref === 'string' && ref.length > 0) return ref;
+    if (typeof ref === "string" && ref.length > 0) return ref;
   }
 
-  // 3) fallback: nothing
   return null;
 }
 
@@ -142,37 +173,42 @@ function extractOrderId(event: unknown): string | null {
   const resource = event.resource;
   if (!isRecord(resource)) return null;
 
-  // capture completed payload often includes supplementary_data.related_ids.order_id
+  // supplementary_data.related_ids.order_id
   const supplementary = resource.supplementary_data;
   if (isRecord(supplementary)) {
     const related = supplementary.related_ids;
     if (isRecord(related)) {
       const orderId = related.order_id;
-      if (typeof orderId === 'string' && orderId.length > 0) return orderId;
+      if (typeof orderId === "string" && orderId.length > 0) return orderId;
     }
   }
+
+  // Fallback: resource.id for CHECKOUT.ORDER.APPROVED events
+  const resourceId = resource.id;
+  if (typeof resourceId === "string" && resourceId.length > 0) return resourceId;
+
   return null;
 }
 
-function extractEventId(event: unknown): string | null {
-  // PayPal event ID for idempotency
+function extractCaptureAmount(event: unknown): number | null {
   if (!isRecord(event)) return null;
-  const id = event.id;
-  if (typeof id === 'string' && id.length > 0) return id;
+  const resource = event.resource;
+  if (!isRecord(resource)) return null;
+
+  const amount = resource.amount;
+  if (!isRecord(amount)) return null;
+
+  const value = amount.value;
+  if (typeof value === "string") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return value;
   return null;
 }
 
-function extractEventType(event: unknown): string | null {
-  if (!isRecord(event)) return null;
-  const eventType = event.event_type;
-  if (typeof eventType === 'string' && eventType.length > 0) return eventType;
-  return null;
-}
+/* ───────────────────── Idempotency ───────────────────── */
 
-/**
- * Log PayPal event with idempotency check using RPC
- * Returns: TRUE if inserted (new event), FALSE if duplicate
- */
 async function logPayPalEventWithIdempotency(params: {
   eventId: string;
   eventType: string;
@@ -183,7 +219,7 @@ async function logPayPalEventWithIdempotency(params: {
   const supabaseAdmin = createAdminClient();
   const payloadJson = toJson(params.payload);
 
-  const { data, error } = await supabaseAdmin.rpc('log_paypal_event_once', {
+  const { data, error } = await supabaseAdmin.rpc("log_paypal_event_once", {
     p_event_id: params.eventId,
     p_event_type: params.eventType,
     p_booking_id: params.bookingId,
@@ -192,71 +228,114 @@ async function logPayPalEventWithIdempotency(params: {
   });
 
   if (error) {
-    console.error('[PayPal Webhook] RPC log_paypal_event_once failed:', error.message);
+    console.error("[PayPal Webhook] RPC log_paypal_event_once failed:", error.message);
     throw new Error(`RPC failed: ${error.message}`);
   }
 
   return data === true;
 }
 
-/**
- * Update booking payment status
- */
-async function updateBookingPaymentStatus(params: {
-  status: 'paid' | 'failed';
+/* ───────────────────── DB updates ───────────────────── */
+
+async function markBookingPaid(params: {
   bookingId: string;
   orderId: string | null;
-  paidAtIso?: string;
+  captureAmount: number | null;
 }): Promise<void> {
   const supabaseAdmin = createAdminClient();
 
-  const updatePayload: Record<string, string | null> = {
-    payment_status: params.status,
-    payment_method: 'paypal',
+  const updatePayload: Record<string, unknown> = {
+    payment_status: "paid",
+    payment_method: "paypal",
+    payment_gateway: "paypal",
+    paid_at: new Date().toISOString(),
   };
 
   if (params.orderId) {
     updatePayload.payment_intent_id = params.orderId;
   }
 
-  if (params.status === 'paid') {
-    updatePayload.paid_at = params.paidAtIso ?? new Date().toISOString();
-  }
+  // If capture amount differs from stored total, log it but don't override
+  // (the stored total is our source of truth from create-order)
 
   const { error } = await supabaseAdmin
-    .from('bookings')
+    .from("bookings")
     .update(updatePayload)
-    .eq('id', params.bookingId);
+    .eq("id", params.bookingId);
 
   if (error) {
-    console.error('[PayPal Webhook] DB update failed:', error.message);
+    console.error("[PayPal Webhook] DB update failed:", error.message);
     throw new Error(`DB update failed: ${error.message}`);
   }
 }
 
+async function markBookingFailed(params: {
+  bookingId: string;
+  orderId: string | null;
+  eventType: string;
+}): Promise<void> {
+  const supabaseAdmin = createAdminClient();
+
+  const updatePayload: Record<string, unknown> = {
+    payment_status: "failed",
+    payment_method: "paypal",
+    payment_gateway: "paypal",
+  };
+
+  if (params.orderId) {
+    updatePayload.payment_intent_id = params.orderId;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("bookings")
+    .update(updatePayload)
+    .eq("id", params.bookingId);
+
+  if (error) {
+    console.error("[PayPal Webhook] DB update failed:", error.message);
+    throw new Error(`DB update failed: ${error.message}`);
+  }
+}
+
+/* ───────────────────── Handler ───────────────────── */
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const rawText = await req.text();
-    const event: unknown = JSON.parse(rawText);
 
-    // 1) Verify PayPal webhook signature
-    const verified = await verifyPayPalWebhookSignature(req.headers, event);
-    if (!verified) {
-      return NextResponse.json({ error: 'Invalid PayPal webhook signature' }, { status: 400 });
+    let event: unknown;
+    try {
+      event = JSON.parse(rawText);
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    // Extract event data
+    // ── 1. Verify signature (CRITICAL) ──
+    const verified = await verifyPayPalWebhookSignature(req.headers, event);
+    if (!verified) {
+      console.error("[PayPal Webhook] Signature verification FAILED");
+      return NextResponse.json(
+        { error: "Invalid PayPal webhook signature" },
+        { status: 400 }
+      );
+    }
+
+    // ── 2. Extract event metadata ──
     const eventId = extractEventId(event);
     const eventType = extractEventType(event);
     const bookingId = extractBookingId(event);
     const orderId = extractOrderId(event);
 
     if (!eventId || !eventType) {
-      console.error('[PayPal Webhook] Missing event ID or type');
-      return NextResponse.json({ error: 'Invalid event structure' }, { status: 400 });
+      console.error("[PayPal Webhook] Missing event ID or type");
+      return NextResponse.json({ error: "Invalid event structure" }, { status: 400 });
     }
 
-    // 2) Idempotency: Log event first
+    console.log(
+      `[PayPal Webhook] Received: ${eventType} | event=${eventId} | booking=${bookingId} | order=${orderId}`
+    );
+
+    // ── 3. Idempotency check ──
     try {
       const inserted = await logPayPalEventWithIdempotency({
         eventId,
@@ -267,51 +346,40 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
 
       if (!inserted) {
-        // Duplicate event: ignore
-        console.log('[PayPal Webhook] Duplicate event ignored:', eventId, eventType);
+        console.log("[PayPal Webhook] Duplicate event ignored:", eventId);
         return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Event logging failed';
-      console.error('[PayPal Webhook] Event logging failed:', message);
-      return NextResponse.json({ error: 'Event logging failed' }, { status: 500 });
+      const message = err instanceof Error ? err.message : "Event logging failed";
+      console.error("[PayPal Webhook] Event logging failed:", message);
+      return NextResponse.json({ error: "Event logging failed" }, { status: 500 });
     }
 
-    // 3) Process event (only first time)
+    // ── 4. Process event (first time only) ──
     try {
       switch (eventType) {
-        case 'PAYMENT.CAPTURE.COMPLETED': {
+        case "PAYMENT.CAPTURE.COMPLETED": {
           if (!bookingId) {
-            console.error('[PayPal Webhook] Missing bookingId for PAYMENT.CAPTURE.COMPLETED');
+            console.error("[PayPal Webhook] No bookingId for CAPTURE.COMPLETED");
             return NextResponse.json({ received: true }, { status: 200 });
           }
 
-          await updateBookingPaymentStatus({
-            status: 'paid',
-            bookingId,
-            orderId,
-            paidAtIso: new Date().toISOString(),
-          });
-
-          console.log('[PayPal Webhook] Booking marked as paid:', bookingId);
+          const captureAmount = extractCaptureAmount(event);
+          await markBookingPaid({ bookingId, orderId, captureAmount });
+          console.log("[PayPal Webhook] ✅ Booking marked as paid:", bookingId);
           break;
         }
 
-        case 'PAYMENT.CAPTURE.DENIED':
-        case 'PAYMENT.CAPTURE.REVERSED':
-        case 'PAYMENT.CAPTURE.REFUNDED': {
+        case "PAYMENT.CAPTURE.DENIED":
+        case "PAYMENT.CAPTURE.REVERSED":
+        case "PAYMENT.CAPTURE.REFUNDED": {
           if (!bookingId) {
-            console.error(`[PayPal Webhook] Missing bookingId for ${eventType}`);
+            console.error(`[PayPal Webhook] No bookingId for ${eventType}`);
             return NextResponse.json({ received: true }, { status: 200 });
           }
 
-          await updateBookingPaymentStatus({
-            status: 'failed',
-            bookingId,
-            orderId,
-          });
-
-          console.log(`[PayPal Webhook] Booking marked as failed (${eventType}):`, bookingId);
+          await markBookingFailed({ bookingId, orderId, eventType });
+          console.log(`[PayPal Webhook] ❌ Booking marked as failed (${eventType}):`, bookingId);
           break;
         }
 
@@ -321,14 +389,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Webhook handler failed';
-      console.error('[PayPal Webhook] Handler failed:', message);
-      return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 });
+      const message = err instanceof Error ? err.message : "Webhook handler failed";
+      console.error("[PayPal Webhook] Handler failed:", message);
+      return NextResponse.json({ error: "Webhook handler failed" }, { status: 500 });
     }
 
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (err: unknown) {
-    console.error('[PayPal Webhook] Unexpected error:', err);
-    return NextResponse.json({ error: 'Webhook error' }, { status: 500 });
+    console.error("[PayPal Webhook] Unexpected error:", err);
+    return NextResponse.json({ error: "Webhook error" }, { status: 500 });
   }
 }

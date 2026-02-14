@@ -1,12 +1,30 @@
 export const runtime = "nodejs";
 
+/**
+ * POST /api/payments/paypal/create-order
+ *
+ * Creates a PayPal Order using the REST API v2 (no deprecated SDK).
+ *
+ * Flow:
+ *  1. Authenticate user via Supabase session
+ *  2. Validate ownership of booking
+ *  3. Calculate price via pricing.service (server-side source of truth)
+ *  4. Create PayPal Order via REST API
+ *  5. Persist order_id + breakdown in bookings table
+ *  6. Return { order_id } to frontend for PayPal Buttons SDK
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import * as paypal from "@paypal/checkout-server-sdk";
-
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { calculateBookingTotal } from "@/lib/pricing/bookingPricing";
+import {
+  calculateFinalBookingPrice,
+  persistPricingToBooking,
+  fetchBookingForAuth,
+  PricingServiceError,
+} from "@/services/pricing.service";
+
+/* ───────────────────── Env helpers ───────────────────── */
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
@@ -14,237 +32,184 @@ function requiredEnv(name: string): string {
   return v;
 }
 
-function parseNumeric(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
+function paypalBaseUrl(): string {
+  const mode = (process.env.PAYPAL_ENV ?? "sandbox").toLowerCase();
+  return mode === "live"
+    ? "https://api-m.paypal.com"
+    : "https://api-m.sandbox.paypal.com";
 }
 
-function parseString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
+/* ───────────────────── PayPal REST helpers ───────────────────── */
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
-type BookingRow = {
-  id: string;
-  user_id: string | null;
-  flight_id: string | null;
-  currency: string;
-  payment_status: string | null;
-};
-
-type FlightRow = {
-  id: string;
-  final_price: number;
-};
-
-type PassengerRow = {
-  date_of_birth: string; // "YYYY-MM-DD"
-};
-
-function parseBookingRow(value: unknown): BookingRow | null {
-  if (!isRecord(value)) return null;
-
-  const id = parseString(value.id);
-  const currency = parseString(value.currency) ?? "USD";
-
-  const user_id = value.user_id === null ? null : parseString(value.user_id);
-  const flight_id = value.flight_id === null ? null : parseString(value.flight_id);
-  const payment_status = value.payment_status === null ? null : parseString(value.payment_status);
-
-  if (!id) return null;
-  return { id, user_id, flight_id, currency, payment_status };
-}
-
-function parseFlightRow(value: unknown): FlightRow | null {
-  if (!isRecord(value)) return null;
-
-  const id = parseString(value.id);
-  const final_price = parseNumeric(value.final_price);
-
-  if (!id || final_price === null) return null;
-  return { id, final_price };
-}
-
-function parsePassengerRows(value: unknown): PassengerRow[] | null {
-  if (!Array.isArray(value)) return null;
-
-  const out: PassengerRow[] = [];
-  for (const item of value) {
-    if (!isRecord(item)) return null;
-    const dob = parseString(item.date_of_birth);
-    if (!dob) return null;
-    out.push({ date_of_birth: dob });
-  }
-  return out;
-}
-
-function formatMoney2(amount: number): string {
-  // PayPal requiere string decimal con 2 dígitos (USD)
-  return amount.toFixed(2);
-}
-
-function paypalClient(): paypal.core.PayPalHttpClient {
+async function getPayPalAccessToken(): Promise<string> {
   const clientId = requiredEnv("PAYPAL_CLIENT_ID");
   const clientSecret = requiredEnv("PAYPAL_CLIENT_SECRET");
 
-  const mode = (process.env.PAYPAL_ENV ?? "sandbox").toLowerCase();
-  const env =
-    mode === "live"
-      ? new paypal.core.LiveEnvironment(clientId, clientSecret)
-      : new paypal.core.SandboxEnvironment(clientId, clientSecret);
+  const res = await fetch(`${paypalBaseUrl()}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
 
-  return new paypal.core.PayPalHttpClient(env);
+  const raw: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      isRecord(raw) && typeof raw.error_description === "string"
+        ? raw.error_description
+        : "Failed to get PayPal access token";
+    throw new Error(msg);
+  }
+
+  const token =
+    isRecord(raw) && typeof raw.access_token === "string" ? raw.access_token : null;
+  if (!token) throw new Error("PayPal access token missing in response");
+  return token;
 }
 
+function formatMoney2(amount: number): string {
+  return amount.toFixed(2);
+}
+
+/* ───────────────────── Validation ───────────────────── */
+
 const BodySchema = z.object({
-  booking_id: z.string().min(1),
+  booking_id: z.string().uuid("booking_id must be a valid UUID"),
 });
+
+/* ───────────────────── Handler ───────────────────── */
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
+    // ── 1. Parse body ──
     const raw: unknown = await req.json();
-    const { booking_id } = BodySchema.parse(raw);
+    const parsed = BodySchema.safeParse(raw);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid request body", details: parsed.error.errors },
+        { status: 400 }
+      );
+    }
+    const { booking_id } = parsed.data;
 
-    // 1) Auth del usuario
+    // ── 2. Authenticate user ──
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const supabaseAdmin = createAdminClient();
-
-    // 2) Booking (server-side source of truth)
-    const { data: bookingData, error: bookingErr } = await supabaseAdmin
-      .from("bookings")
-      .select("id, user_id, flight_id, currency, payment_status")
-      .eq("id", booking_id)
-      .single();
-
-    if (bookingErr || !bookingData) {
-      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
-    }
-
-    const booking = parseBookingRow(bookingData);
-    if (!booking) {
-      return NextResponse.json({ error: "Invalid booking data" }, { status: 500 });
-    }
-
-    if (booking.user_id !== user.id) {
+    // ── 3. Validate ownership ──
+    const booking = await fetchBookingForAuth(booking_id);
+    const isOwner = booking.user_id === user.id || booking.profile_id === user.id;
+    if (!isOwner) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (booking.payment_status === "paid") {
-      return NextResponse.json({ error: "Booking already paid" }, { status: 409 });
-    }
+    // ── 4. Calculate price (server-side source of truth) ──
+    const pricing = await calculateFinalBookingPrice(booking_id, "paypal");
 
-    if (!booking.flight_id) {
-      return NextResponse.json(
-        { error: "Booking has no flight selected (flight_id is null)" },
-        { status: 400 }
-      );
-    }
+    // ── 5. Create PayPal Order via REST v2 ──
+    const accessToken = await getPayPalAccessToken();
 
-    // 3) USD-only (por ahora)
-    if (booking.currency !== "USD") {
-      return NextResponse.json(
-        { error: `Unsupported currency for now: ${booking.currency}. Expected USD.` },
-        { status: 400 }
-      );
-    }
-
-    // 4) Flight (✅ final_price)
-    const { data: flightData, error: flightErr } = await supabaseAdmin
-      .from("flights")
-      .select("id, final_price")
-      .eq("id", booking.flight_id)
-      .single();
-
-    if (flightErr || !flightData) {
-      return NextResponse.json({ error: "Flight not found" }, { status: 404 });
-    }
-
-    const flight = parseFlightRow(flightData);
-    if (!flight) {
-      return NextResponse.json({ error: "Invalid flight data" }, { status: 500 });
-    }
-
-    // 5) Passengers (✅ booking_passengers)
-    const { data: paxData, error: paxErr } = await supabaseAdmin
-      .from("booking_passengers")
-      .select("date_of_birth")
-      .eq("booking_id", booking.id);
-
-    if (paxErr || !paxData) {
-      return NextResponse.json({ error: "Passengers not found" }, { status: 404 });
-    }
-
-    const passengers = parsePassengerRows(paxData);
-    if (!passengers || passengers.length === 0) {
-      return NextResponse.json({ error: "No passengers for booking" }, { status: 400 });
-    }
-
-    // 6) Calcular precio real (server-side)
-    const breakdown = calculateBookingTotal(flight.final_price, passengers, "paypal");
-
-    // 7) Crear orden PayPal
-    const client = paypalClient();
-    const request = new paypal.orders.OrdersCreateRequest();
-    request.prefer("return=representation");
-
-    request.requestBody({
+    const orderPayload = {
       intent: "CAPTURE",
       purchase_units: [
         {
-          reference_id: booking.id,
-          custom_id: booking.id, // ✅ para mapear en webhook siempre
+          reference_id: booking_id,
+          custom_id: booking_id, // maps back in webhook
+          description: `Global Solutions Travel - Booking ${booking_id.slice(0, 8)}`,
           amount: {
             currency_code: "USD",
-            value: formatMoney2(breakdown.total_amount),
+            value: formatMoney2(pricing.breakdown.total_amount),
+            breakdown: {
+              item_total: {
+                currency_code: "USD",
+                value: formatMoney2(pricing.breakdown.subtotal),
+              },
+              handling: {
+                currency_code: "USD",
+                value: formatMoney2(
+                  pricing.breakdown.volatility_buffer_amount +
+                    pricing.breakdown.gateway_fee_amount
+                ),
+              },
+            },
           },
         },
       ],
+      application_context: {
+        brand_name: "Global Solutions Travel",
+        shipping_preference: "NO_SHIPPING",
+        user_action: "PAY_NOW",
+      },
+    };
+
+    const orderRes = await fetch(`${paypalBaseUrl()}/v2/checkout/orders`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "PayPal-Request-Id": `gs-order-${booking_id}-${Date.now()}`, // idempotency
+      },
+      body: JSON.stringify(orderPayload),
     });
 
-    type PayPalCreateOrderResult = { id?: string };
+    const orderRaw: unknown = await orderRes.json().catch(() => null);
 
-    const resp = await client.execute<PayPalCreateOrderResult>(request);
-    const orderId = typeof resp.result.id === "string" ? resp.result.id : null;
+    if (!orderRes.ok) {
+      console.error("[PayPal Create-Order] API error:", orderRaw);
+      const errorMsg =
+        isRecord(orderRaw) && typeof orderRaw.message === "string"
+          ? orderRaw.message
+          : "Failed to create PayPal order";
+      return NextResponse.json({ error: errorMsg }, { status: 502 });
+    }
+
+    const orderId =
+      isRecord(orderRaw) && typeof orderRaw.id === "string" ? orderRaw.id : null;
 
     if (!orderId) {
-      return NextResponse.json({ error: "PayPal order id missing" }, { status: 500 });
+      return NextResponse.json(
+        { error: "PayPal order ID missing in response" },
+        { status: 500 }
+      );
     }
 
-    // 8) Persistir en booking
-    const { error: updErr } = await supabaseAdmin
-      .from("bookings")
-      .update({
-        payment_method: "paypal",
-        payment_intent_id: orderId,
-        subtotal: breakdown.subtotal,
-        payment_gateway_fee: breakdown.gateway_fee_amount,
-        total_amount: breakdown.total_amount,
-        pricing_breakdown: breakdown,
-      })
-      .eq("id", booking.id);
+    // ── 6. Persist to DB ──
+    await persistPricingToBooking(
+      booking_id,
+      "paypal",
+      pricing.breakdown,
+      orderId
+    );
 
-    if (updErr) {
-      return NextResponse.json({ error: "Failed to update booking" }, { status: 500 });
-    }
-
-    return NextResponse.json({ order_id: orderId }, { status: 200 });
+    // ── 7. Return order_id for frontend PayPal Buttons SDK ──
+    return NextResponse.json(
+      {
+        order_id: orderId,
+        breakdown: pricing.breakdown,
+      },
+      { status: 200 }
+    );
   } catch (err: unknown) {
+    if (err instanceof PricingServiceError) {
+      return NextResponse.json(
+        { error: err.message, code: err.code },
+        { status: err.statusCode }
+      );
+    }
     const msg = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 400 });
+    console.error("[PayPal Create-Order] Unexpected error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
