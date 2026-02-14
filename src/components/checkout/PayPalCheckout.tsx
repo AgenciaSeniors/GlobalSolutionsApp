@@ -1,5 +1,15 @@
 "use client";
 
+/**
+ * PayPalCheckout — Module 2
+ *
+ * Full payment flow:
+ *  1. createOrder  → POST /api/payments/paypal/create-order
+ *  2. User approves in PayPal popup
+ *  3. onApprove    → POST /api/payments/paypal/capture-order  ← CHARGES the money
+ *  4. Webhook PAYMENT.CAPTURE.COMPLETED is the safety net
+ */
+
 import { useState } from "react";
 import {
   PayPalButtons,
@@ -14,89 +24,96 @@ interface PayPalCheckoutProps {
   onError: (error: string) => void;
 }
 
-type CheckoutStatus = "idle" | "creating" | "created" | "capturing" | "success" | "error";
+type Status = "idle" | "creating" | "approved" | "capturing" | "success" | "error";
 
-// PayPal configuration options
 const PAYPAL_OPTIONS = {
   clientId: process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || "test",
   currency: "USD",
   intent: "capture" as const,
 };
 
-function PayPalButtonWrapper({
-  bookingId,
-  onSuccess,
-  onError,
-}: PayPalCheckoutProps) {
-  const [status, setStatus] = useState<CheckoutStatus>("idle");
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+/* ────────────────── Inner wrapper (needs PayPalScriptProvider) ────────────────── */
+
+function ButtonWrapper({ bookingId, onSuccess, onError }: PayPalCheckoutProps) {
+  const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [{ isResolved }] = usePayPalScriptReducer();
 
+  /* Step 1 — create order on our backend */
   const createOrder = async () => {
     setStatus("creating");
     setErrorMessage(null);
-
     try {
-      const response = await fetch("/api/payments/paypal/create-order", {
+      const res = await fetch("/api/payments/paypal/create-order", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          booking_id: bookingId,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ booking_id: bookingId }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to create PayPal order");
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        throw new Error(
+          isRecord(d) && typeof d.error === "string" ? d.error : "Failed to create PayPal order"
+        );
       }
-
-      const data = await response.json();
-      
-      if (!data.order_id) {
-        throw new Error("No order ID received from server");
-      }
-
-      setStatus("created");
-      return data.order_id;
+      const data = await res.json();
+      if (!data.order_id) throw new Error("No order_id returned");
+      setStatus("approved");
+      return data.order_id as string;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create order";
-      setErrorMessage(message);
+      const msg = err instanceof Error ? err.message : "Create order failed";
+      setErrorMessage(msg);
       setStatus("error");
-      onError(message);
-      throw err; // Re-throw to let PayPal SDK know it failed
+      onError(msg);
+      throw err;
     }
   };
 
+  /* Step 2 — user approved → CAPTURE on our backend */
   const onApprove = async (data: { orderID: string }) => {
     setStatus("capturing");
     setErrorMessage(null);
-
     try {
-      // The webhook will handle the actual payment confirmation
-      // But we can verify the order was created successfully
-      setStatus("success");
-      onSuccess(data.orderID);
+      const res = await fetch("/api/payments/paypal/capture-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: data.orderID, booking_id: bookingId }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        throw new Error(
+          isRecord(d) && typeof d.error === "string" ? d.error : "Capture failed"
+        );
+      }
+      const result = await res.json();
+      if (result.status === "COMPLETED" || result.already_captured) {
+        setStatus("success");
+        onSuccess(data.orderID);
+      } else {
+        throw new Error(`Capture status: ${result.status ?? "unknown"}`);
+      }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Payment approval failed";
-      setErrorMessage(message);
+      const msg = err instanceof Error ? err.message : "Payment capture failed";
+      setErrorMessage(msg);
       setStatus("error");
-      onError(message);
+      onError(msg);
     }
   };
 
   const onPayPalError = (err: Record<string, unknown>) => {
     console.error("PayPal error:", err);
-    const message = typeof err.message === "string" ? err.message : "PayPal checkout error";
-    setErrorMessage(message);
+    const msg = typeof err.message === "string" ? err.message : "PayPal checkout error";
+    setErrorMessage(msg);
     setStatus("error");
-    onError(message);
+    onError(msg);
   };
 
   const onCancel = () => {
     setStatus("idle");
-    setErrorMessage("Payment cancelled by user");
+    setErrorMessage("Pago cancelado por el usuario");
   };
 
   if (!isResolved) {
@@ -110,30 +127,24 @@ function PayPalButtonWrapper({
 
   return (
     <div className="space-y-4">
-      {/* Status Messages */}
       {status === "creating" && (
         <div className="flex items-center space-x-2 p-3 bg-blue-50 rounded-lg">
           <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-          <span className="text-sm text-blue-700">Creating order...</span>
+          <span className="text-sm text-blue-700">Creando orden…</span>
         </div>
       )}
-
       {status === "capturing" && (
         <div className="flex items-center space-x-2 p-3 bg-blue-50 rounded-lg">
           <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-          <span className="text-sm text-blue-700">Processing payment...</span>
+          <span className="text-sm text-blue-700">Capturando pago…</span>
         </div>
       )}
-
       {status === "success" && (
         <div className="flex items-center space-x-2 p-3 bg-green-50 rounded-lg">
           <CheckCircle className="w-4 h-4 text-green-500" />
-          <span className="text-sm text-green-700">
-            Payment initiated! Please wait for confirmation...
-          </span>
+          <span className="text-sm text-green-700">¡Pago confirmado! Tu reserva está lista.</span>
         </div>
       )}
-
       {errorMessage && (
         <div className="flex items-center space-x-2 p-3 bg-red-50 rounded-lg">
           <AlertCircle className="w-4 h-4 text-red-500" />
@@ -141,14 +152,9 @@ function PayPalButtonWrapper({
         </div>
       )}
 
-      {/* PayPal Buttons */}
-      <div className={status === "success" ? "opacity-50 pointer-events-none" : ""}>
+      <div className={status === "success" || status === "capturing" ? "opacity-50 pointer-events-none" : ""}>
         <PayPalButtons
-          style={{
-            layout: "vertical",
-            shape: "rect",
-            label: "paypal",
-          }}
+          style={{ layout: "vertical", shape: "rect", label: "paypal" }}
           createOrder={createOrder}
           onApprove={onApprove}
           onError={onPayPalError}
@@ -157,20 +163,16 @@ function PayPalButtonWrapper({
         />
       </div>
 
-      {/* Security Note */}
       <p className="text-xs text-gray-500 text-center">
-        Your payment is secured by PayPal. We never store your payment details.
+        Tu pago está protegido por PayPal. Nunca almacenamos tus datos de pago.
       </p>
     </div>
   );
 }
 
-export function PayPalCheckout({
-  bookingId,
-  onSuccess,
-  onError,
-}: PayPalCheckoutProps) {
-  // Check if PayPal is configured
+/* ────────────────── Public export ────────────────── */
+
+export function PayPalCheckout({ bookingId, onSuccess, onError }: PayPalCheckoutProps) {
   const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
 
   if (!clientId) {
@@ -178,9 +180,7 @@ export function PayPalCheckout({
       <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
         <div className="flex items-center space-x-2">
           <AlertCircle className="w-5 h-5 text-yellow-500" />
-          <p className="text-sm text-yellow-700">
-            PayPal is not configured. Please contact support.
-          </p>
+          <p className="text-sm text-yellow-700">PayPal no está configurado. Contacta a soporte.</p>
         </div>
       </div>
     );
@@ -188,11 +188,7 @@ export function PayPalCheckout({
 
   return (
     <PayPalScriptProvider options={PAYPAL_OPTIONS}>
-      <PayPalButtonWrapper
-        bookingId={bookingId}
-        onSuccess={onSuccess}
-        onError={onError}
-      />
+      <ButtonWrapper bookingId={bookingId} onSuccess={onSuccess} onError={onError} />
     </PayPalScriptProvider>
   );
 }

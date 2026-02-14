@@ -95,6 +95,7 @@ async function updateBookingPaymentStatus(params: {
     payment_status: params.status,
     payment_intent_id: params.paymentIntentId,
     payment_method: 'stripe',
+    payment_gateway: 'stripe',
   };
 
   if (params.status === 'paid') {
