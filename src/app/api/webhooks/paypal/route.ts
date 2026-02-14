@@ -154,25 +154,83 @@ function extractOrderId(event: unknown): string | null {
   return null;
 }
 
-async function bestEffortLogEvent(params: { bookingId: string | null; payload: unknown }): Promise<void> {
-  try {
-    const supabaseAdmin = createAdminClient();
-    const payloadJson = toJson(params.payload);
+function extractEventId(event: unknown): string | null {
+  // PayPal event ID for idempotency
+  if (!isRecord(event)) return null;
+  const id = event.id;
+  if (typeof id === 'string' && id.length > 0) return id;
+  return null;
+}
 
-    // Si tu tabla payment_events existe, esto audita.
-    // Si no existe todavía, no rompemos el webhook (solo log).
-    const { error } = await supabaseAdmin.from('payment_events').insert({
-      provider: 'paypal',
-      booking_id: params.bookingId,
-      payload: payloadJson,
-      created_at: new Date().toISOString(),
-    });
+function extractEventType(event: unknown): string | null {
+  if (!isRecord(event)) return null;
+  const eventType = event.event_type;
+  if (typeof eventType === 'string' && eventType.length > 0) return eventType;
+  return null;
+}
 
-    if (error) {
-      console.error('[PayPal Webhook] payment_events insert failed:', error.message);
-    }
-  } catch (e) {
-    console.error('[PayPal Webhook] payment_events insert error:', e);
+/**
+ * Log PayPal event with idempotency check using RPC
+ * Returns: TRUE if inserted (new event), FALSE if duplicate
+ */
+async function logPayPalEventWithIdempotency(params: {
+  eventId: string;
+  eventType: string;
+  bookingId: string | null;
+  orderId: string | null;
+  payload: unknown;
+}): Promise<boolean> {
+  const supabaseAdmin = createAdminClient();
+  const payloadJson = toJson(params.payload);
+
+  const { data, error } = await supabaseAdmin.rpc('log_paypal_event_once', {
+    p_event_id: params.eventId,
+    p_event_type: params.eventType,
+    p_booking_id: params.bookingId,
+    p_order_id: params.orderId,
+    p_payload: payloadJson,
+  });
+
+  if (error) {
+    console.error('[PayPal Webhook] RPC log_paypal_event_once failed:', error.message);
+    throw new Error(`RPC failed: ${error.message}`);
+  }
+
+  return data === true;
+}
+
+/**
+ * Update booking payment status
+ */
+async function updateBookingPaymentStatus(params: {
+  status: 'paid' | 'failed';
+  bookingId: string;
+  orderId: string | null;
+  paidAtIso?: string;
+}): Promise<void> {
+  const supabaseAdmin = createAdminClient();
+
+  const updatePayload: Record<string, string | null> = {
+    payment_status: params.status,
+    payment_method: 'paypal',
+  };
+
+  if (params.orderId) {
+    updatePayload.payment_intent_id = params.orderId;
+  }
+
+  if (params.status === 'paid') {
+    updatePayload.paid_at = params.paidAtIso ?? new Date().toISOString();
+  }
+
+  const { error } = await supabaseAdmin
+    .from('bookings')
+    .update(updatePayload)
+    .eq('id', params.bookingId);
+
+  if (error) {
+    console.error('[PayPal Webhook] DB update failed:', error.message);
+    throw new Error(`DB update failed: ${error.message}`);
   }
 }
 
@@ -181,51 +239,96 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const rawText = await req.text();
     const event: unknown = JSON.parse(rawText);
 
+    // 1) Verify PayPal webhook signature
     const verified = await verifyPayPalWebhookSignature(req.headers, event);
     if (!verified) {
       return NextResponse.json({ error: 'Invalid PayPal webhook signature' }, { status: 400 });
     }
 
-    // Log auditoría best-effort (no frenar webhook)
+    // Extract event data
+    const eventId = extractEventId(event);
+    const eventType = extractEventType(event);
     const bookingId = extractBookingId(event);
-    await bestEffortLogEvent({ bookingId, payload: event });
-
-    if (!isRecord(event) || typeof event.event_type !== 'string') {
-      return NextResponse.json({ ok: true }, { status: 200 });
-    }
-
-    // Solo procesamos capture completed
-    if (event.event_type !== 'PAYMENT.CAPTURE.COMPLETED') {
-      return NextResponse.json({ ok: true }, { status: 200 });
-    }
-
-    if (!bookingId) {
-      console.error('[PayPal Webhook] Missing bookingId (custom_id/reference_id).');
-      return NextResponse.json({ ok: true }, { status: 200 });
-    }
-
     const orderId = extractOrderId(event);
 
-    const supabaseAdmin = createAdminClient();
-    const { error } = await supabaseAdmin
-      .from('bookings')
-      .update({
-        payment_status: 'paid',
-        paid_at: new Date().toISOString(),
-        payment_method: 'paypal',
-        ...(orderId ? { payment_intent_id: orderId } : {}),
-      })
-      .eq('id', bookingId);
-
-    if (error) {
-      console.error('[PayPal Webhook] booking update failed:', error.message);
-      // PayPal reintenta si devolvemos 500; es mejor marcar fallo y permitir retry.
-      return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+    if (!eventId || !eventType) {
+      console.error('[PayPal Webhook] Missing event ID or type');
+      return NextResponse.json({ error: 'Invalid event structure' }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true }, { status: 200 });
+    // 2) Idempotency: Log event first
+    try {
+      const inserted = await logPayPalEventWithIdempotency({
+        eventId,
+        eventType,
+        bookingId,
+        orderId,
+        payload: event,
+      });
+
+      if (!inserted) {
+        // Duplicate event: ignore
+        console.log('[PayPal Webhook] Duplicate event ignored:', eventId, eventType);
+        return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Event logging failed';
+      console.error('[PayPal Webhook] Event logging failed:', message);
+      return NextResponse.json({ error: 'Event logging failed' }, { status: 500 });
+    }
+
+    // 3) Process event (only first time)
+    try {
+      switch (eventType) {
+        case 'PAYMENT.CAPTURE.COMPLETED': {
+          if (!bookingId) {
+            console.error('[PayPal Webhook] Missing bookingId for PAYMENT.CAPTURE.COMPLETED');
+            return NextResponse.json({ received: true }, { status: 200 });
+          }
+
+          await updateBookingPaymentStatus({
+            status: 'paid',
+            bookingId,
+            orderId,
+            paidAtIso: new Date().toISOString(),
+          });
+
+          console.log('[PayPal Webhook] Booking marked as paid:', bookingId);
+          break;
+        }
+
+        case 'PAYMENT.CAPTURE.DENIED':
+        case 'PAYMENT.CAPTURE.REVERSED':
+        case 'PAYMENT.CAPTURE.REFUNDED': {
+          if (!bookingId) {
+            console.error(`[PayPal Webhook] Missing bookingId for ${eventType}`);
+            return NextResponse.json({ received: true }, { status: 200 });
+          }
+
+          await updateBookingPaymentStatus({
+            status: 'failed',
+            bookingId,
+            orderId,
+          });
+
+          console.log(`[PayPal Webhook] Booking marked as failed (${eventType}):`, bookingId);
+          break;
+        }
+
+        default: {
+          console.log(`[PayPal Webhook] Unhandled event type: ${eventType}`);
+          break;
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Webhook handler failed';
+      console.error('[PayPal Webhook] Handler failed:', message);
+      return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 });
+    }
+
+    return NextResponse.json({ received: true }, { status: 200 });
   } catch (err: unknown) {
-    console.error('[PayPal Webhook] error:', err);
+    console.error('[PayPal Webhook] Unexpected error:', err);
     return NextResponse.json({ error: 'Webhook error' }, { status: 500 });
   }
 }
