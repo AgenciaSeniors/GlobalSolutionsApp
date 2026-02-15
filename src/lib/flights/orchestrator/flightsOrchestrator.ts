@@ -1,6 +1,7 @@
 import type { Flight } from '@/lib/flights/providers/types';
 import type { ProviderSearchRequest, ProviderSearchResponse } from '@/lib/flights/providers/types';
 import { agencyInventoryProvider } from '@/lib/flights/providers/agencyInventoryProvider';
+import { duffelProvider } from '@/lib/flights/providers/duffel.provider';
 import { externalStubProvider } from '@/lib/flights/providers/externalStubProvider';
 
 const TARGET_RESULTS_PER_LEG = 20;
@@ -207,7 +208,15 @@ export const flightsOrchestrator = {
       return ranked;
     }
 
-    const externalRes = await externalStubProvider.search(req);
+   let externalRes: ProviderSearchResponse;
+
+try {
+  externalRes = await duffelProvider.search(req);
+} catch (e) {
+  // fallback temporal para no bloquearte mientras Duffel da errores (token, rate-limit, etc.)
+  externalRes = await externalStubProvider.search(req);
+}
+
     const externalByLeg = mapByLegIndex(externalRes);
 
     const final: ProviderSearchResponse = req.legs.map((_, idx) => {

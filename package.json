@@ -18,11 +18,13 @@
     "@capacitor/cli": "^8.0.2",
     "@capacitor/core": "^8.0.2",
     "@capacitor/ios": "^8.0.2",
+    "@duffel/api": "^4.21.5",
     "@stripe/stripe-js": "^4.5.0",
     "@supabase/ssr": "^0.5.1",
     "@supabase/supabase-js": "^2.45.4",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "fast-xml-parser": "^5.3.5",
     "lucide-react": "^0.446.0",
     "next": "14.2.15",
     "react": "^18.3.1",
@@ -32,7 +34,7 @@
     "stripe": "^16.12.0",
     "supabase": "^2.75.5",
     "tailwind-merge": "^2.5.2",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
