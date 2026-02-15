@@ -24,6 +24,18 @@ import {
   PricingServiceError,
 } from "@/services/pricing.service";
 
+/* ───────────────────── JSON helpers (standard errors) ───────────────────── */
+
+type JsonRecord = Record<string, unknown>;
+
+function jsonError(status: number, error: string, extra: JsonRecord = {}) {
+  return NextResponse.json({ error, status, ...extra }, { status });
+}
+
+function jsonOk(data: JsonRecord, status = 200) {
+  return NextResponse.json({ ...data, status }, { status });
+}
+
 /* ───────────────────── Env helpers ───────────────────── */
 
 function requiredEnv(name: string): string {
@@ -52,7 +64,9 @@ async function getPayPalAccessToken(): Promise<string> {
   const res = await fetch(`${paypalBaseUrl()}/v1/oauth2/token`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      Authorization: `Basic ${Buffer.from(
+        `${clientId}:${clientSecret}`
+      ).toString("base64")}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: "grant_type=client_credentials",
@@ -91,10 +105,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const raw: unknown = await req.json();
     const parsed = BodySchema.safeParse(raw);
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid request body", details: parsed.error.errors },
-        { status: 400 }
-      );
+      return jsonError(400, "Invalid request body", { details: parsed.error.errors });
     }
     const { booking_id } = parsed.data;
 
@@ -105,14 +116,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return jsonError(401, "Not authenticated");
     }
 
     // ── 3. Validate ownership ──
     const booking = await fetchBookingForAuth(booking_id);
     const isOwner = booking.user_id === user.id || booking.profile_id === user.id;
     if (!isOwner) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return jsonError(403, "Forbidden");
     }
 
     // ── 4. Calculate price (server-side source of truth) ──
@@ -172,44 +183,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         isRecord(orderRaw) && typeof orderRaw.message === "string"
           ? orderRaw.message
           : "Failed to create PayPal order";
-      return NextResponse.json({ error: errorMsg }, { status: 502 });
+      return jsonError(502, errorMsg);
     }
 
     const orderId =
       isRecord(orderRaw) && typeof orderRaw.id === "string" ? orderRaw.id : null;
 
     if (!orderId) {
-      return NextResponse.json(
-        { error: "PayPal order ID missing in response" },
-        { status: 500 }
-      );
+      return jsonError(500, "PayPal order ID missing in response");
     }
 
     // ── 6. Persist to DB ──
-    await persistPricingToBooking(
-      booking_id,
-      "paypal",
-      pricing.breakdown,
-      orderId
-    );
+    await persistPricingToBooking(booking_id, "paypal", pricing.breakdown, orderId);
 
     // ── 7. Return order_id for frontend PayPal Buttons SDK ──
-    return NextResponse.json(
+    return jsonOk(
       {
         order_id: orderId,
         breakdown: pricing.breakdown,
       },
-      { status: 200 }
+      200
     );
   } catch (err: unknown) {
     if (err instanceof PricingServiceError) {
-      return NextResponse.json(
-        { error: err.message, code: err.code },
-        { status: err.statusCode }
-      );
+      return jsonError(err.statusCode, err.message, { code: err.code });
     }
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[PayPal Create-Order] Unexpected error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return jsonError(500, msg);
   }
 }

@@ -21,39 +21,56 @@ const Body = z.object({
   gateway: z.enum(["stripe", "paypal"]),
 });
 
+type JsonRecord = Record<string, unknown>;
+
+function jsonError(status: number, error: string, extra: JsonRecord = {}) {
+  return NextResponse.json({ error, status, ...extra }, { status });
+}
+
+function jsonOk(data: JsonRecord, status = 200) {
+  return NextResponse.json({ ...data, status }, { status });
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const raw: unknown = await req.json();
     const parsed = Body.safeParse(raw);
-    if (!parsed.success)
-      return NextResponse.json({ error: "Invalid body", details: parsed.error.errors }, { status: 400 });
+
+    if (!parsed.success) {
+      return jsonError(400, "Invalid body", { details: parsed.error.errors });
+    }
 
     const { booking_id, gateway } = parsed.data;
 
     /* Auth */
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return jsonError(401, "Unauthorized");
 
     /* Ownership */
     const booking = await fetchBookingForAuth(booking_id);
-    if (booking.user_id !== user.id && booking.profile_id !== user.id)
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (booking.user_id !== user.id && booking.profile_id !== user.id) {
+      return jsonError(403, "Forbidden");
+    }
 
     /* Pricing */
     const pricing = await calculateFinalBookingPrice(booking_id, gateway);
 
-    return NextResponse.json({
+    return jsonOk({
       gateway: pricing.gateway,
       breakdown: pricing.breakdown,
       passengers: pricing.passengers,
       base_price: pricing.base_price,
     });
   } catch (err: unknown) {
-    if (err instanceof PricingServiceError)
-      return NextResponse.json({ error: err.message, code: err.code }, { status: err.statusCode });
+    if (err instanceof PricingServiceError) {
+      return jsonError(err.statusCode, err.message, { code: err.code });
+    }
     const msg = err instanceof Error ? err.message : "Internal server error";
     console.error("[Booking Preview]", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return jsonError(500, msg);
   }
 }
