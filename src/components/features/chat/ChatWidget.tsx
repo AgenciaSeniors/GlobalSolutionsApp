@@ -110,19 +110,33 @@ async function ensureConversation(): Promise<string | null> {
     .select('id')
     .single();
 
-  if (error || !data?.id) return null;
+  if (error) {
+    // Important: surface the real cause (most commonly RLS or FK)
+    console.error('[ChatWidget] Failed to create conversation', error);
+    return null;
+  }
+
+  if (!data?.id) {
+    console.error('[ChatWidget] No conversation id returned');
+    return null;
+  }
+
   setConversationId(data.id);
   return data.id;
 }
 
 async function persistMessage(args: { convId: string; sender_type: 'user' | 'bot' | 'agent'; message: string }) {
-  await supabase.from('chat_messages').insert({
+  const { error } = await supabase.from('chat_messages').insert({
     conversation_id: args.convId,
     sender_type: args.sender_type,
     sender_id: args.sender_type === 'user' ? user?.id : null,
     message: args.message,
     metadata: args.sender_type === 'bot' ? { provider: 'openai' } : null,
   });
+
+  if (error) {
+    console.error('[ChatWidget] Failed to persist message', error);
+  }
 }
 
 

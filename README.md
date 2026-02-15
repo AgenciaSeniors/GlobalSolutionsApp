@@ -159,6 +159,37 @@ insert into chat_messages (conversation_id, sender_type, message)
 values ('<UUID_CONVERSATION>', 'agent', 'Hola, soy tu agente. ¿En qué te ayudo?');
 ```
 
+### Troubleshooting: no se crea `chat_conversations`
+
+Si no ves filas en `chat_conversations` / `chat_messages` después de enviar mensajes:
+
+1) **Confirma que estás autenticado** (el chat solo persiste cuando hay `user`).
+
+2) **Verifica Realtime**: en Supabase → Database → Publications → `supabase_realtime` debe mostrar `chat_messages`.
+
+3) **Revisa errores en consola del navegador**: el widget imprime errores reales de Supabase
+   (lo más común es **RLS** o **FK**).
+
+4) **Confirma que existe tu perfil** (FK a `profiles(id)`):
+
+```sql
+select u.id, u.email, p.id as profile_id
+from auth.users u
+left join public.profiles p on p.id = u.id
+order by u.created_at desc
+limit 20;
+```
+
+Si `profile_id` sale `NULL`, crea los perfiles faltantes:
+
+```sql
+insert into public.profiles (id, email, full_name, role, is_active)
+select u.id, u.email, coalesce(u.raw_user_meta_data->>'full_name','Usuario'), 'client', true
+from auth.users u
+left join public.profiles p on p.id = u.id
+where p.id is null;
+```
+
 ---
 
 ## 🚀 Inicio Rápido
