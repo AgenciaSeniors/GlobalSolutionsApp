@@ -2,11 +2,29 @@
 
 > Ecosistema multiplataforma para reserva de vuelos internacionales y renta de autos con seguridad de nivel bancario.
 
-![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=next.js)
+![Next.js](https://img.shields.io/badge/Next.js-14.2-black?logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue?logo=typescript)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3fcf8e?logo=supabase)
 ![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8?logo=tailwindcss)
 ![Stripe](https://img.shields.io/badge/Stripe-Payments-635BFF?logo=stripe)
+![PayPal](https://img.shields.io/badge/PayPal-Payments-00457C?logo=paypal)
+
+---
+
+## 📊 Estado del Proyecto
+
+| Módulo | Progreso | Estado |
+|--------|----------|--------|
+| Motor de Vuelos | 55% | ⚠️ Parcial (falta API externa) |
+| Pagos y Precios | 85% | ✅ Stripe + PayPal completos |
+| Seguridad Fortress | 60% | ⚠️ Estructura lista, falta PII |
+| Autenticación y Roles | 90% | ✅ Prácticamente completo |
+| Gestión de Agentes | 45% | ⚠️ UI + servicios básicos |
+| UX Dashboard | 35% | ⚠️ DB lista, falta conexión UI |
+| Documentos/Email | 80% | ✅ PDF + 6 templates Resend |
+| Asistencia IA | 25% | ⚠️ ChatWidget FAQ básico |
+
+**Progreso general: ~58%** | Última actualización: Febrero 2026
 
 ---
 
@@ -14,43 +32,106 @@
 
 ```
 src/
-├── app/               ← Next.js 14 App Router (páginas y API routes)
-│   ├── (auth)/        ← Login / Register (grupo de rutas)
-│   ├── (public)/      ← Vuelos, Autos, Ofertas, About
-│   ├── (dashboard)/   ← Admin / Agent / User dashboards
-│   └── api/           ← REST endpoints + Stripe webhooks
-├── components/        ← Componentes React organizados por responsabilidad
-│   ├── ui/            ← Atómicos: Button, Input, Card, Badge, Modal, Skeleton
-│   ├── layout/        ← Navbar, Footer, Sidebar, Header
-│   ├── forms/         ← FlightSearch, Login, Register, Booking
-│   ├── features/      ← Agrupados por dominio (flights, cars, reviews, home)
-│   └── providers/     ← AuthProvider, ToastProvider
-├── hooks/             ← Custom hooks (useAuth, useFlightSearch, useBooking)
-├── services/          ← Capa de servicios (Supabase queries)
-├── lib/               ← Utilidades, cliente Supabase, validaciones Zod, constantes
-├── types/             ← Modelos TypeScript y tipos de API
-└── styles/            ← Design tokens / tema
+├── app/                   ← Next.js 14 App Router
+│   ├── (auth)/            ← Login / Register / OTP / Forgot Password
+│   ├── (public)/          ← Vuelos, Autos, Ofertas, Checkout, About
+│   ├── (dashboard)/       ← Admin / Agent / User dashboards
+│   └── api/
+│       ├── auth/          ← OTP, complete-register, verify
+│       ├── bookings/      ← CRUD + PDF voucher + preview pricing
+│       ├── flights/       ← Search + CRUD
+│       ├── payments/
+│       │   ├── create-intent/     ← Stripe PaymentIntent
+│       │   ├── paypal/
+│       │   │   ├── create-order/  ← PayPal Orders v2
+│       │   │   └── capture-order/ ← Capture after approval
+│       │   └── refund/            ← Dual Stripe + PayPal refunds
+│       ├── webhooks/
+│       │   ├── stripe/    ← Idempotent webhook handler
+│       │   └── paypal/    ← Signature-verified webhook
+│       └── ...
+├── components/            ← 35 componentes React
+│   ├── ui/                ← Button, Input, Card, Badge, Modal, Skeleton
+│   ├── layout/            ← Navbar, Footer, Sidebar, Header
+│   ├── forms/             ← FlightSearch, MultiLeg, Login, Register, Booking
+│   ├── features/          ← flights, payments, chat, reviews, home
+│   ├── checkout/          ← PayPalCheckout, PaymentSelector
+│   └── providers/         ← AuthProvider, ToastProvider
+├── hooks/                 ← useAuth, useFlightSearch, useBooking, useAgentNews...
+├── services/              ← 10 servicios (pricing, payments, bookings, auth...)
+├── lib/
+│   ├── pricing/           ← Motor de precios determinista
+│   │   ├── priceEngine.ts       ← Matemáticas puras (centavos)
+│   │   ├── passengerRules.ts    ← Clasificación por edad (DOB)
+│   │   └── bookingPricing.ts    ← Reglas de negocio (buffer + fees)
+│   ├── payments/          ← Refund calculator + engine
+│   ├── flights/           ← Orchestrator + providers
+│   ├── email/             ← Resend + templates + notifications
+│   ├── supabase/          ← Client, server, admin, middleware
+│   └── validations/       ← Esquemas Zod
+├── types/                 ← TypeScript types + database.types.ts
+└── styles/                ← Design tokens
 
 supabase/
-├── migrations/        ← SQL completo: tablas, RLS, triggers, seeds
+├── migrations/            ← 4 migraciones SQL (schema + RLS + payments)
 └── config.toml
 ```
 
-### Principios
+### Principios de Diseño
+
 - **Clean Architecture**: UI → Hooks → Services → Supabase
-- **TypeScript Estricto**: `strict: true`, sin `any`
-- **Separación de Responsabilidades**: Un archivo = una responsabilidad
-- **SOLID**: Componentes atómicos reutilizables, servicios desacoplados
-- **Seguridad (Protocolo "Fortress")**: RLS en todas las tablas, AES-256 para PII, CSP headers
+- **TypeScript Estricto**: `strict: true`, sin `any`, parsers seguros
+- **Server-Side Source of Truth**: El frontend NUNCA calcula precios
+- **Idempotencia**: Webhooks con `ON CONFLICT DO NOTHING` via RPCs
+- **Integer Arithmetic**: Todos los cálculos financieros en centavos
+
+---
+
+## 💳 Sistema de Pagos (Módulo 2)
+
+### Motor de Precios
+
+```
+Base fare × Age multiplier → Subtotal
+  + Volatility buffer (3%) → Pre-fee total
+  + Gateway fee → Final amount
+
+Age Multipliers:
+  Infant (0-2):  10% of base
+  Child (2-12):  75% of base
+  Adult (12+):  100% of base
+
+Gateway Fees:
+  Stripe:  2.9% + $0.30
+  PayPal:  3.49% + $0.49
+```
+
+### Flujo de Pago
+
+**Stripe:** `create-intent` → Client confirms → `payment_intent.succeeded` webhook → DB update
+
+**PayPal:** `create-order` → User approves → `capture-order` → DB update (webhook as safety net)
+
+### Reembolsos
+
+| Escenario | Reembolso |
+|-----------|-----------|
+| Cliente < 48h | 100% (menos gateway fee) |
+| Cliente > 48h | 50% |
+| Cancelación aerolínea | 100% + $20 compensación |
+
+Gateway fees **nunca** se devuelven.
 
 ---
 
 ## 🚀 Inicio Rápido
 
 ### Prerrequisitos
+
 - Node.js ≥ 18
-- Una cuenta en [Supabase](https://supabase.com)
-- Una cuenta en [Stripe](https://stripe.com) (para pagos)
+- Cuenta [Supabase](https://supabase.com) (plan pago)
+- Cuenta [Stripe](https://stripe.com)
+- Cuenta [PayPal Developer](https://developer.paypal.com) (sandbox)
 
 ### 1. Clonar e instalar
 
@@ -66,8 +147,6 @@ npm install
 cp .env.local.example .env.local
 ```
 
-Abre `.env.local` y completa:
-
 | Variable | Descripción |
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | URL de tu proyecto Supabase |
@@ -77,16 +156,22 @@ Abre `.env.local` y completa:
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Clave pública de Stripe |
 | `STRIPE_SECRET_KEY` | Clave secreta de Stripe |
 | `STRIPE_WEBHOOK_SECRET` | Secreto del webhook de Stripe |
+| `NEXT_PUBLIC_PAYPAL_CLIENT_ID` | Client ID de PayPal |
+| `PAYPAL_CLIENT_ID` | Client ID de PayPal (server) |
+| `PAYPAL_CLIENT_SECRET` | Client Secret de PayPal |
+| `PAYPAL_WEBHOOK_ID` | ID del webhook configurado en PayPal |
+| `PAYPAL_ENV` | `sandbox` o `live` |
+| `RESEND_API_KEY` | API key de Resend para emails |
 
 ### 3. Base de datos
 
-Ejecuta la migración SQL en tu proyecto Supabase:
+Ejecuta las migraciones en orden en el SQL Editor de Supabase:
 
-1. Ve a **SQL Editor** en el dashboard de Supabase
-2. Pega el contenido de `supabase/migrations/001_complete_schema.sql`
-3. Ejecuta
-
-Esto crea todas las tablas, índices, RLS policies, triggers y datos semilla.
+1. `supabase/migrations/001_complete_schema.sql` — Schema principal
+2. `supabase/migrations/002_extended_schema.sql` — Extensiones
+3. `supabase/migrations/002_spec_compliance.sql` — Compliance
+4. `supabase/migrations/003_app_settings.sql` — Settings
+5. `supabase/migrations/004_payment_events_and_refunds.sql` — Pagos y reembolsos
 
 ### 4. Ejecutar en desarrollo
 
@@ -98,20 +183,52 @@ Abre [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## 🗂️ Rutas de la Aplicación
+## 🗂️ API Endpoints
+
+### Vuelos
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/api/flights/search` | Búsqueda con filtros y caché |
+| GET/POST | `/api/flights` | CRUD de vuelos |
+
+### Pagos
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/api/payments/create-intent` | Crear Stripe PaymentIntent |
+| POST | `/api/payments/paypal/create-order` | Crear PayPal Order v2 |
+| POST | `/api/payments/paypal/capture-order` | Capturar pago PayPal |
+| POST | `/api/payments/refund` | Reembolso dual (Admin/Agent) |
+| POST | `/api/bookings/preview` | Preview de precio por gateway |
+
+### Webhooks
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/api/webhooks/stripe` | Stripe webhook (idempotente) |
+| POST | `/api/webhooks/paypal` | PayPal webhook (firma verificada) |
+
+### Bookings
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/api/bookings` | Crear reserva |
+| GET | `/api/bookings/pdf` | Generar voucher PDF |
+
+---
+
+## 🗺️ Rutas de la Aplicación
 
 | Ruta | Acceso | Descripción |
 |---|---|---|
 | `/` | Público | Landing page |
 | `/flights` | Público | Búsqueda de vuelos |
 | `/flights/search` | Público | Resultados de búsqueda |
+| `/flights/[id]` | Público | Detalle de vuelo |
 | `/cars` | Público | Renta de autos |
 | `/offers` | Público | Ofertas exclusivas |
-| `/about` | Público | Sobre nosotros |
+| `/checkout` | Auth | Proceso de pago (Stripe/PayPal) |
 | `/login` | Público | Inicio de sesión |
 | `/register` | Público | Registro |
 | `/user/dashboard` | Cliente | Dashboard del cliente |
-| `/agent/dashboard` | Gestor | Dashboard del gestor |
+| `/agent/dashboard` | Agente | Dashboard del agente |
 | `/admin/dashboard` | Admin | Panel de administración |
 
 ---
@@ -119,11 +236,13 @@ Abre [http://localhost:3000](http://localhost:3000).
 ## 🔐 Seguridad
 
 - **Row Level Security (RLS)** en todas las tablas
-- **pgcrypto AES-256** para datos de pasaportes
-- **CSP Headers** en `next.config.ts`
-- **Stripe Webhook Signature Verification**
-- **Zod validation** en todos los formularios
+- **pgcrypto** activado para encriptación AES-256 de PII
+- **Webhook signature verification** para Stripe y PayPal
+- **Idempotencia** en webhooks via RPCs con `ON CONFLICT`
+- **Zod validation** en todos los endpoints y formularios
+- **Rate limiting** en búsquedas (5/30s) y login
 - **Middleware** protege rutas `/admin`, `/agent`, `/user`
+- **Server-side pricing** — frontend nunca calcula montos
 
 ---
 
@@ -133,7 +252,7 @@ Abre [http://localhost:3000](http://localhost:3000).
 |---|---|---|
 | `brand-500` | `#3b82f6` | Botones primarios |
 | `brand-600` | `#2563eb` | Hover, enlaces |
-| `brand-900` | `#1e3a8a` | Navbar, footer, textos headings |
+| `brand-900` | `#1e3a8a` | Navbar, footer, headings |
 | `accent-yellow` | `#fbbf24` | Ofertas, estrellas |
 | `accent-green` | `#10b981` | Confirmaciones |
 | `accent-red` | `#ef4444` | Alertas, urgencia |
@@ -151,7 +270,26 @@ npm run start        # Servidor de producción
 npm run lint         # ESLint
 npm run type-check   # Verificación de tipos
 npm run db:generate  # Generar tipos TypeScript desde Supabase
+npm run db:migrate   # Push migrations
+npm run db:reset     # Reset database
 ```
+
+---
+
+## 🛠️ Stack Tecnológico
+
+| Categoría | Tecnología |
+|-----------|------------|
+| Framework | Next.js 14.2.15 (App Router) |
+| Lenguaje | TypeScript 5.6 (strict mode) |
+| UI | React 18.3 + Tailwind CSS 3.4 |
+| Backend | Supabase (PostgreSQL + Auth + Storage) |
+| Pagos | Stripe 16.12 + PayPal REST v2 |
+| Email | Resend 6.9 |
+| Validación | Zod 3.23 |
+| Iconos | Lucide React |
+| Toasts | Sonner |
+| Móvil | Capacitor 8.0 (iOS/Android) |
 
 ---
 
