@@ -371,3 +371,76 @@ npm run db:reset     # Reset database
 ## 📄 Licencia
 
 Proyecto privado — © 2026 Global Solutions Travel.
+
+## 🤖 Módulo IA (Chat de Soporte)
+
+### Variables de entorno
+Crea un archivo `.env.local` en la raíz del proyecto:
+
+```env
+OPENAI_API_KEY=TU_KEY
+OPENAI_MODEL=gpt-5.2-chat-latest
+```
+
+> Si no tienes crédito en OpenAI, el endpoint devuelve un **fallback** (no rompe la app).
+
+### Control de gasto (anti-spam / $20 al mes)
+
+Este proyecto aplica 4 medidas para reducir tokens:
+
+1. **Filtro in-scope**: si el mensaje no es sobre la agencia (vuelos, reservas, pagos, etc.), NO llama al modelo.
+2. **Rate limit diario**: limita mensajes por día (usuario logueado / invitado por IP).
+3. **Historial corto**: solo envía los últimos 6 mensajes al modelo.
+4. **Respuestas cortas**: prompt + `max_tokens` limitan la salida.
+
+#### Paso requerido en Supabase: RPC para rate limit
+
+> El servidor usa Supabase con **anon key** (RLS aplica). Para que el rate limit funcione sin abrir políticas,
+> se recomienda esta función `security definer`.
+
+Ejecuta en **SQL Editor**:
+
+```sql
+create table if not exists public.chat_rate_limits (
+  key text primary key,
+  count int not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.chat_rate_limits enable row level security;
+
+create or replace function public.increment_chat_rate_limit(p_key text, p_limit int)
+returns table(allowed boolean, count int)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.chat_rate_limits(key, count, updated_at)
+  values (p_key, 1, now())
+  on conflict (key) do update
+    set count = public.chat_rate_limits.count + 1,
+        updated_at = now();
+
+  select (public.chat_rate_limits.count <= p_limit), public.chat_rate_limits.count
+    into allowed, count
+  from public.chat_rate_limits
+  where key = p_key;
+
+  return;
+end;
+$$;
+
+revoke all on function public.increment_chat_rate_limit(text, int) from public;
+grant execute on function public.increment_chat_rate_limit(text, int) to anon, authenticated;
+```
+
+### Respuestas operativas de reservas (sin gastar tokens)
+
+Si el usuario está logueado y pregunta por su reserva (PNR / código `GST-XXXX` / “estado de mi reserva”),
+el backend intenta responder **directamente desde la tabla `bookings`** antes de llamar a la IA.
+
+Esto permite:
+- Responder estado de pago / emisión / voucher
+- Indicar siguiente paso (pago, esperar emisión, escalar a agente)
+- Reducir costo de tokens
