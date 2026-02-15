@@ -22,7 +22,7 @@
 | Gestión de Agentes | 45% | ⚠️ UI + servicios básicos |
 | UX Dashboard | 35% | ⚠️ DB lista, falta conexión UI |
 | Documentos/Email | 80% | ✅ PDF + 6 templates Resend |
-| Asistencia IA | 25% | ⚠️ ChatWidget FAQ básico |
+| Asistencia IA | 80% | ✅ IA real + PNR + handoff realtime |
 
 **Progreso general: ~58%** | Última actualización: Febrero 2026
 
@@ -124,6 +124,43 @@ Gateway fees **nunca** se devuelven.
 
 ---
 
+## 🤖 Asistencia IA (Módulo 8)
+
+El módulo de chat incluye:
+
+- **IA real** vía endpoint `POST /api/chat`
+- **Persistencia** en `chat_conversations` y `chat_messages` (Supabase)
+- **Consulta de estado por PNR** (solo usuarios autenticados; busca por `booking_code` o `airline_pnr`)
+- **Escalado a agente** (cambia `status` a `waiting_agent`)
+- **Handoff realtime**: el widget escucha inserts en `chat_messages` con `sender_type='agent'`
+
+### Archivos clave
+
+- `src/components/features/chat/ChatWidget.tsx`
+- `src/app/api/chat/route.ts`
+
+### Configuración requerida
+
+1) Agrega en `.env.local`:
+
+```bash
+OPENAI_API_KEY=tu_key
+OPENAI_MODEL=gpt-4o-mini
+```
+
+2) En Supabase, habilita Realtime para la tabla `chat_messages` (publication/replication).
+
+### Prueba rápida de handoff a agente
+
+Una vez que exista un `conversation_id`, puedes simular respuesta de agente:
+
+```sql
+insert into chat_messages (conversation_id, sender_type, message)
+values ('<UUID_CONVERSATION>', 'agent', 'Hola, soy tu agente. ¿En qué te ayudo?');
+```
+
+---
+
 ## 🚀 Inicio Rápido
 
 ### Prerrequisitos
@@ -162,6 +199,8 @@ cp .env.local.example .env.local
 | `PAYPAL_WEBHOOK_ID` | ID del webhook configurado en PayPal |
 | `PAYPAL_ENV` | `sandbox` o `live` |
 | `RESEND_API_KEY` | API key de Resend para emails |
+| `OPENAI_API_KEY` | API key de OpenAI (server-only) |
+| `OPENAI_MODEL` | Modelo de chat (ej: `gpt-4o-mini`) |
 
 ### 3. Base de datos
 
@@ -184,6 +223,11 @@ Abre [http://localhost:3000](http://localhost:3000).
 ---
 
 ## 🗂️ API Endpoints
+
+### Chat / IA
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/api/chat` | Chat IA (OpenAI) + KB + lookup PNR + guardado en DB |
 
 ### Vuelos
 | Método | Ruta | Descripción |
