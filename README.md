@@ -19,12 +19,12 @@
 | Pagos y Precios | 85% | ✅ Stripe + PayPal completos |
 | Seguridad Fortress | 60% | ⚠️ Estructura lista, falta PII |
 | Autenticación y Roles | 90% | ✅ Prácticamente completo |
-| Gestión de Agentes | 45% | ⚠️ UI + servicios básicos |
-| UX Dashboard | 35% | ⚠️ DB lista, falta conexión UI |
+| **Gestión de Agentes** | **90%** | **✅ Comisiones + Tickets threaded + Cotizador** |
+| **UX Dashboard** | **85%** | **✅ Lealtad 4 niveles + Reseñas + Puntos auto** |
 | Documentos/Email | 80% | ✅ PDF + 6 templates Resend |
 | Asistencia IA | 80% | ✅ IA real + PNR + handoff realtime |
 
-**Progreso general: ~58%** | Última actualización: Febrero 2026
+**Progreso general: ~72%** | Última actualización: Febrero 2026
 
 ---
 
@@ -35,10 +35,33 @@ src/
 ├── app/                   ← Next.js 14 App Router
 │   ├── (auth)/            ← Login / Register / OTP / Forgot Password
 │   ├── (public)/          ← Vuelos, Autos, Ofertas, Checkout, About
-│   ├── (dashboard)/       ← Admin / Agent / User dashboards
+│   ├── (dashboard)/
+│   │   ├── admin/dashboard/
+│   │   │   ├── agents/        ← Gestión de gestores
+│   │   │   ├── bookings/      ← Todas las reservas
+│   │   │   ├── emission/      ← Emisión de boletos
+│   │   │   ├── flights/       ← Vuelos & markup
+│   │   │   ├── news/          ← Publicar noticias para agentes
+│   │   │   ├── offers/        ← Ofertas visuales
+│   │   │   ├── quotations/    ← Cotizaciones
+│   │   │   ├── reviews/       ← Moderación de reseñas (+auto puntos)
+│   │   │   ├── tickets/       ← Tickets con mensajes threaded
+│   │   │   └── settings/      ← Configuración global
+│   │   ├── agent/dashboard/
+│   │   │   ├── bookings/      ← Reservas asignadas
+│   │   │   ├── commissions/   ← 💰 Comisiones (NUEVO M5)
+│   │   │   ├── news/          ← Muro de noticias
+│   │   │   ├── tickets/       ← Tickets con thread de mensajes
+│   │   │   └── settings/      ← Configuración del agente
+│   │   └── user/dashboard/
+│   │       ├── bookings/      ← Mis reservas
+│   │       ├── reviews/       ← Mis reseñas
+│   │       ├── loyalty/       ← 🏆 Puntos de lealtad (NUEVO M6)
+│   │       └── settings/      ← Configuración de perfil
 │   └── api/
 │       ├── auth/          ← OTP, complete-register, verify
 │       ├── bookings/      ← CRUD + PDF voucher + preview pricing
+│       ├── chat/          ← IA (OpenAI) + KB + PNR lookup
 │       ├── flights/       ← Search + CRUD
 │       ├── payments/
 │       │   ├── create-intent/     ← Stripe PaymentIntent
@@ -46,19 +69,33 @@ src/
 │       │   │   ├── create-order/  ← PayPal Orders v2
 │       │   │   └── capture-order/ ← Capture after approval
 │       │   └── refund/            ← Dual Stripe + PayPal refunds
+│       ├── reviews/trigger/       ← Cron: solicitar reseñas post-viaje
 │       ├── webhooks/
 │       │   ├── stripe/    ← Idempotent webhook handler
 │       │   └── paypal/    ← Signature-verified webhook
 │       └── ...
-├── components/            ← 35 componentes React
+├── components/            ← 36 componentes React
 │   ├── ui/                ← Button, Input, Card, Badge, Modal, Skeleton
-│   ├── layout/            ← Navbar, Footer, Sidebar, Header
+│   ├── layout/            ← Navbar, Footer, Sidebar (con logout), Header
+│   ├── agent/             ← AgentNewsWall
 │   ├── forms/             ← FlightSearch, MultiLeg, Login, Register, Booking
 │   ├── features/          ← flights, payments, chat, reviews, home
 │   ├── checkout/          ← PayPalCheckout, PaymentSelector
 │   └── providers/         ← AuthProvider, ToastProvider
 ├── hooks/                 ← useAuth, useFlightSearch, useBooking, useAgentNews...
-├── services/              ← 10 servicios (pricing, payments, bookings, auth...)
+├── services/              ← 12 servicios
+│   ├── agent.service.ts         ← Dashboard stats + resumen comisiones
+│   ├── commission.service.ts    ← 💰 Tracking comisiones (NUEVO)
+│   ├── loyalty.service.ts       ← 🏆 Balance, historial, canje (NUEVO)
+│   ├── tickets.service.ts       ← Tickets threaded (REESCRITO)
+│   ├── bookings.service.ts      ← CRUD reservas
+│   ├── reviews.service.ts       ← Reseñas
+│   ├── pricing.service.ts       ← Motor de precios
+│   ├── payments.service.ts      ← Pagos
+│   ├── auth.service.ts          ← Autenticación
+│   ├── otp.service.ts           ← One-time passwords
+│   ├── flights.service.ts       ← Búsqueda de vuelos
+│   └── agentNews.service.ts     ← Noticias de agentes
 ├── lib/
 │   ├── pricing/           ← Motor de precios determinista
 │   │   ├── priceEngine.ts       ← Matemáticas puras (centavos)
@@ -73,7 +110,13 @@ src/
 └── styles/                ← Design tokens
 
 supabase/
-├── migrations/            ← 4 migraciones SQL (schema + RLS + payments)
+├── migrations/            ← 5 migraciones SQL
+│   ├── 001_complete_schema.sql
+│   ├── 002_extended_schema.sql
+│   ├── 002_spec_compliance.sql
+│   ├── 003_app_settings.sql
+│   ├── 004_payment_events_and_refunds.sql
+│   └── 005_modules_5_6_completion.sql   ← NUEVO
 └── config.toml
 ```
 
@@ -84,6 +127,7 @@ supabase/
 - **Server-Side Source of Truth**: El frontend NUNCA calcula precios
 - **Idempotencia**: Webhooks con `ON CONFLICT DO NOTHING` via RPCs
 - **Integer Arithmetic**: Todos los cálculos financieros en centavos
+- **Automatización por Triggers**: Comisiones, puntos y auditoría vía DB triggers
 
 ---
 
@@ -121,6 +165,128 @@ Gateway Fees:
 | Cancelación aerolínea | 100% + $20 compensación |
 
 Gateway fees **nunca** se devuelven.
+
+---
+
+## 👥 Gestión de Agentes B2B (Módulo 5)
+
+### Sistema de Comisiones
+- **Auto-generación**: DB trigger `auto_generate_commission` crea comisión del 5% cuando booking pasa a `confirmed`
+- **Tabla**: `agent_commissions` con estados `pending` → `approved` → `paid`
+- **Vista agente**: `/agent/dashboard/commissions` — resumen financiero + tabla detallada por reserva
+- **Vista admin**: Aprobación y marcado de pago masivo
+- **Dashboard integrado**: Card de comisiones con total ganado y pendiente de aprobación
+
+### Tickets de Soporte (Threaded)
+- Conversaciones almacenadas en `agent_ticket_messages` (no campo plano)
+- Categorías: general, booking_issue, payment, technical, complaint, suggestion
+- Prioridades: low, medium, high, urgent
+- Flujo: `open` → `in_progress` → `waiting_response` → `resolved` → `closed`
+- Respuesta inline en tiempo real tanto para agente como admin
+- Expandir/colapsar threads por ticket
+
+### Cotizador Rápido
+- Integrado en dashboard del agente con inputs IATA + fecha
+- Redirección directa a `/flights/search` con parámetros
+- Etiqueta "MODO AGENTE: NETO" para precios sin markup
+
+### Muro de Noticias
+- Admin publica actualizaciones, promociones y alertas
+- Noticias fijables (pinned) con categorías coloreadas
+- Componente `AgentNewsWall` reutilizable en dashboard
+
+---
+
+## ⭐ Experiencia de Usuario (Módulo 6)
+
+### Programa de Lealtad — 4 Niveles
+
+```
+🥉 Bronce    0 – 499 pts
+🥈 Plata   500 – 1,999 pts
+🥇 Oro   2,000 – 4,999 pts
+💎 Platino  5,000+ pts
+```
+
+### Obtención Automática de Puntos (DB Triggers)
+
+| Evento | Puntos | Trigger |
+|--------|--------|---------|
+| Reserva completada | 1 pt por cada $1 gastado | `auto_award_booking_points` |
+| Reseña aprobada (texto) | 50 pts | `auto_award_review_points` |
+| Reseña aprobada (con fotos) | 100 pts | `auto_award_review_points` |
+
+### Página de Puntos (`/user/dashboard/loyalty`)
+- Tarjeta hero con nivel actual, balance y barra de progreso al siguiente nivel
+- Historial de transacciones con tipo (reserva, reseña, canje, promo)
+- Estadísticas: total ganados, canjeados, número de transacciones
+- Guía visual de los 4 niveles
+- Sección "¿Cómo ganar puntos?"
+
+### Sistema de Reseñas
+- Solo para bookings con status `completed` (compra verificada)
+- Calificación 1-5 estrellas + título + comentario + fotos opcionales
+- Admin modera en `/admin/dashboard/reviews`: al aprobar, se otorgan puntos automáticamente
+- Cron endpoint `POST /api/reviews/trigger`: solicita reseñas post-viaje (return_date + 1 día)
+
+### Dashboard de Usuario
+- KPIs en tiempo real: reservas, activas, gasto total, puntos de lealtad
+- Tarjeta de nivel con emoji y badge de color
+- Reservas recientes con PNR, estado y monto
+- Accesos rápidos a reseñas pendientes y programa de puntos
+
+---
+
+## 🗄️ Base de Datos (Supabase)
+
+### Tablas (21)
+
+**Core**: `profiles` · `airlines` · `airports` · `flights` · `bookings` · `booking_passengers`
+
+**Productos**: `car_rentals` · `car_rental_bookings` · `special_offers`
+
+**Agentes**: `agent_news` · `agent_tickets` · `agent_ticket_messages` · `agent_commissions`
+
+**Usuarios**: `reviews` · `loyalty_transactions` · `quotation_requests`
+
+**Sistema**: `chat_conversations` · `chat_messages` · `payment_events` · `app_settings` · `audit_logs` · `chat_rate_limits`
+
+### Triggers Automáticos
+
+| Trigger | Tabla | Acción |
+|---------|-------|--------|
+| `auto_generate_commission` | bookings | Crea comisión 5% al confirmar reserva |
+| `auto_award_review_points` | reviews | Otorga 50/100 pts al aprobar reseña |
+| `auto_award_booking_points` | bookings | Otorga 1 pt/$1 al completar reserva |
+| `audit_bookings` | bookings | Log inmutable INSERT/UPDATE/DELETE |
+| `auto_ticket_code` | agent_tickets | Genera código TK-XXXXXX |
+| `handle_new_user` | auth.users | Crea perfil automáticamente |
+| `update_*_updated_at` | varias | Actualiza timestamp automáticamente |
+
+### RPCs
+
+| Función | Descripción |
+|---------|-------------|
+| `add_loyalty_points(...)` | Otorga/deduce puntos + actualiza `profiles.loyalty_points` |
+| `encrypt_passport(text)` | Encripta PII con pgcrypto AES |
+| `decrypt_passport(bytea)` | Desencripta PII |
+| `log_payment_event_once(...)` | Idempotente para webhooks genérico |
+| `log_stripe_event_once(...)` | Wrapper Stripe |
+| `log_paypal_event_once(...)` | Wrapper PayPal |
+| `increment_chat_rate_limit(...)` | Rate limit para chat IA |
+
+### Vista
+
+| Vista | Descripción |
+|-------|-------------|
+| `agent_commission_summary` | Resumen de comisiones por agente (total, pendiente, pagado) |
+
+### RLS (Row Level Security)
+
+Todas las tablas tienen RLS habilitado con políticas por rol:
+- **Clients**: Solo ven sus propios datos (bookings, reviews, loyalty)
+- **Agents**: Ven sus bookings asignados, tickets propios, comisiones propias
+- **Admins**: Acceso completo a todas las tablas
 
 ---
 
@@ -237,11 +403,12 @@ cp .env.local.example .env.local
 
 Ejecuta las migraciones en orden en el SQL Editor de Supabase:
 
-1. `supabase/migrations/001_complete_schema.sql` — Schema principal
-2. `supabase/migrations/002_extended_schema.sql` — Extensiones
+1. `supabase/migrations/001_complete_schema.sql` — Schema principal + RLS + seed data
+2. `supabase/migrations/002_extended_schema.sql` — Extensiones (offers, tickets, chat, loyalty)
 3. `supabase/migrations/002_spec_compliance.sql` — Compliance
-4. `supabase/migrations/003_app_settings.sql` — Settings
-5. `supabase/migrations/004_payment_events_and_refunds.sql` — Pagos y reembolsos
+4. `supabase/migrations/003_app_settings.sql` — Settings de negocio
+5. `supabase/migrations/004_payment_events_and_refunds.sql` — Pagos, webhooks, refunds
+6. `supabase/migrations/005_modules_5_6_completion.sql` — **Comisiones, triggers de lealtad, auto-puntos**
 
 ### 4. Ejecutar en desarrollo
 
@@ -281,11 +448,12 @@ Abre [http://localhost:3000](http://localhost:3000).
 | POST | `/api/webhooks/stripe` | Stripe webhook (idempotente) |
 | POST | `/api/webhooks/paypal` | PayPal webhook (firma verificada) |
 
-### Bookings
+### Bookings & Reviews
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | POST | `/api/bookings` | Crear reserva |
 | GET | `/api/bookings/pdf` | Generar voucher PDF |
+| POST | `/api/reviews/trigger` | Cron: solicitar reseñas post-viaje |
 
 ---
 
@@ -303,36 +471,55 @@ Abre [http://localhost:3000](http://localhost:3000).
 | `/login` | Público | Inicio de sesión |
 | `/register` | Público | Registro |
 | `/user/dashboard` | Cliente | Dashboard del cliente |
-| `/agent/dashboard` | Agente | Dashboard del agente |
+| `/user/dashboard/bookings` | Cliente | Mis reservas |
+| `/user/dashboard/reviews` | Cliente | Mis reseñas |
+| `/user/dashboard/loyalty` | Cliente | 🏆 Puntos de lealtad |
+| `/user/dashboard/settings` | Cliente | Configuración |
+| `/agent/dashboard` | Agente | Dashboard del agente (cotizador + comisiones) |
+| `/agent/dashboard/bookings` | Agente | Reservas asignadas |
+| `/agent/dashboard/commissions` | Agente | 💰 Mis comisiones |
+| `/agent/dashboard/tickets` | Agente | Tickets de soporte (threaded) |
+| `/agent/dashboard/news` | Agente | Muro de noticias |
+| `/agent/dashboard/settings` | Agente | Configuración |
 | `/admin/dashboard` | Admin | Panel de administración |
+| `/admin/dashboard/emission` | Admin | Emisión de boletos |
+| `/admin/dashboard/bookings` | Admin | Todas las reservas |
+| `/admin/dashboard/flights` | Admin | Vuelos & markup |
+| `/admin/dashboard/agents` | Admin | Gestión de gestores |
+| `/admin/dashboard/reviews` | Admin | Moderación de reseñas |
+| `/admin/dashboard/tickets` | Admin | Tickets de soporte |
+| `/admin/dashboard/news` | Admin | Publicar noticias |
+| `/admin/dashboard/settings` | Admin | Configuración global |
 
 ---
 
 ## 🔐 Seguridad
 
-- **Row Level Security (RLS)** en todas las tablas
+- **Row Level Security (RLS)** en todas las tablas (21 tablas)
 - **pgcrypto** activado para encriptación AES-256 de PII
 - **Webhook signature verification** para Stripe y PayPal
 - **Idempotencia** en webhooks via RPCs con `ON CONFLICT`
 - **Zod validation** en todos los endpoints y formularios
-- **Rate limiting** en búsquedas (5/30s) y login
+- **Rate limiting** en búsquedas (5/30s), login y chat IA
 - **Middleware** protege rutas `/admin`, `/agent`, `/user`
 - **Server-side pricing** — frontend nunca calcula montos
+- **Audit trail** — tabla `audit_logs` con trigger inmutable en bookings
 
 ---
 
-## 🎨 Sistema de Diseño
+## 🎨 Sistema de Diseño (Identidad Visual Oficial)
 
 | Token | Valor | Uso |
 |---|---|---|
-| `brand-500` | `#3b82f6` | Botones primarios |
-| `brand-600` | `#2563eb` | Hover, enlaces |
-| `brand-900` | `#1e3a8a` | Navbar, footer, headings |
-| `accent-yellow` | `#fbbf24` | Ofertas, estrellas |
-| `accent-green` | `#10b981` | Confirmaciones |
+| `navy` / `brand-900` | `#0F2545` | Texto principal, fondos corporativos, "GLOBAL SOLUTIONS" |
+| `coral` / `accent-500` | `#FF4757` | CTAs, botones primarios, palabra "Travel" |
+| Blanco | `#FFFFFF` | Fondos, espacio negativo |
+| `brand-500` | `#2f6ba3` | Links, estados intermedios |
+| `accent-green` | `#10b981` | Confirmaciones, éxito |
 | `accent-red` | `#ef4444` | Alertas, urgencia |
+| `accent-yellow` | `#fbbf24` | Ofertas, estrellas, warnings |
 
-Tipografía: **DM Sans** (body) + **Playfair Display** (headings).
+**Tipografía**: Oswald / Roboto Condensed (headings) · Dancing Script (script/Travel) · Open Sans (body).
 
 ---
 
@@ -351,6 +538,24 @@ npm run db:reset     # Reset database
 
 ---
 
+## 📈 Métricas del Código
+
+| Métrica | Valor |
+|---------|-------|
+| Líneas TypeScript/TSX | ~22,600 |
+| Componentes React | 36 |
+| API Routes | 22 |
+| Services | 12 |
+| Custom Hooks | 6 |
+| SQL Migrations | 5 (+1 compliance) |
+| DB Tables | 21 |
+| DB Triggers | 7 automáticos |
+| Zod Schemas | 3 |
+| Email Templates | 6 |
+| Unit Tests | 1 (priceEngine) |
+
+---
+
 ## 🛠️ Stack Tecnológico
 
 | Categoría | Tecnología |
@@ -358,9 +563,10 @@ npm run db:reset     # Reset database
 | Framework | Next.js 14.2.15 (App Router) |
 | Lenguaje | TypeScript 5.6 (strict mode) |
 | UI | React 18.3 + Tailwind CSS 3.4 |
-| Backend | Supabase (PostgreSQL + Auth + Storage) |
+| Backend | Supabase (PostgreSQL + Auth + Storage + Realtime) |
 | Pagos | Stripe 16.12 + PayPal REST v2 |
 | Email | Resend 6.9 |
+| IA Chat | OpenAI API (gpt-4o-mini) |
 | Validación | Zod 3.23 |
 | Iconos | Lucide React |
 | Toasts | Sonner |
@@ -368,9 +574,19 @@ npm run db:reset     # Reset database
 
 ---
 
+## 🔜 Bloqueadores Críticos para Producción
+
+1. **API de vuelos externa** — Integrar Duffel/Amadeus/KIU para reemplazar datos seed
+2. **RPCs de encriptación PII** — `insert_encrypted_passenger` / `get_decrypted_passenger`
+3. **Headers CSP** — Content Security Policy + audit_logs append-only
+
+---
+
 ## 📄 Licencia
 
 Proyecto privado — © 2026 Global Solutions Travel.
+
+---
 
 ## 🤖 Módulo IA (Chat de Soporte)
 
@@ -437,7 +653,7 @@ grant execute on function public.increment_chat_rate_limit(text, int) to anon, a
 
 ### Respuestas operativas de reservas (sin gastar tokens)
 
-Si el usuario está logueado y pregunta por su reserva (PNR / código `GST-XXXX` / “estado de mi reserva”),
+Si el usuario está logueado y pregunta por su reserva (PNR / código `GST-XXXX` / "estado de mi reserva"),
 el backend intenta responder **directamente desde la tabla `bookings`** antes de llamar a la IA.
 
 Esto permite:
