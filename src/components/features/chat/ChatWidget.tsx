@@ -19,6 +19,11 @@ interface Message {
   time: string;
 }
 
+interface ChatMessagePayload {
+  message: string;
+  sender_type: 'user' | 'bot' | 'agent';
+}
+
 // Simple FAQ knowledge base (Level 1)
 const FAQ_RESPONSES: Record<string, string> = {
   equipaje: 'El equipaje permitido varía según la aerolínea. Generalmente incluye: 1 maleta de mano (8kg) y 1 maleta de bodega (23kg). Consulta los detalles al seleccionar tu vuelo.',
@@ -77,7 +82,7 @@ useEffect(() => {
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `conversation_id=eq.${conversationId}` },
       (payload) => {
-        const m = payload.new as any;
+        const m = payload.new as ChatMessagePayload;
         if (!m?.message || !m?.sender_type) return;
         if (m.sender_type === 'agent') {
           addMessage('agent', String(m.message));
