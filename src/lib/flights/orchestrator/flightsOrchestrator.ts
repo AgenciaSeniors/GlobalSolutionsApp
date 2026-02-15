@@ -208,12 +208,19 @@ export const flightsOrchestrator = {
       return ranked;
     }
 
-   let externalRes: ProviderSearchResponse;
+  console.log('🚀 [ORCHESTRATOR] Necesita búsqueda externa, llamando a Duffel...');
+
+let externalRes: ProviderSearchResponse;
 
 try {
   externalRes = await duffelProvider.search(req);
+  console.log('✅ [ORCHESTRATOR] Duffel respondió. Tramos:', externalRes.length);
+  externalRes.forEach((leg, idx) => {
+    console.log(`   Tramo ${idx}: ${leg.flights.length} vuelos`);
+  });
 } catch (e) {
-  // fallback temporal para no bloquearte mientras Duffel da errores (token, rate-limit, etc.)
+  console.error('❌ [ORCHESTRATOR] Duffel falló:', e);
+  console.log('⚠️ [ORCHESTRATOR] Usando stub provider como fallback');
   externalRes = await externalStubProvider.search(req);
 }
 

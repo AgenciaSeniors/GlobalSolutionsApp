@@ -23,7 +23,7 @@ export const AIRPORTS = [
   { code: 'MEX', city: 'Ciudad de México', country: 'México' },
   // src/lib/constants/config.ts
   { code: 'JFK', city: 'Nueva York', country: 'EE.UU.' },
-  { code: 'MAD', city: 'Madrid', country: 'España' },
+
   // Mantén los otros que ya tienes...
 ] as const;
 

@@ -116,7 +116,10 @@ export default function FlightSearchResultsPage() {
               id: f.airline?.id ?? f.airline_id,
               name: f.airline?.name ?? 'Aerolínea',
               code: f.airline?.iata_code ?? '',
-              logoUrl: f.airline?.logo_url ?? undefined,
+              logoUrl: f.airline?.logo_url ?? 
+         (f.airline?.iata_code ? 
+           `https://www.gstatic.com/flights/airline_logos/70px/${f.airline.iata_code}.png` 
+           : undefined)
             },
           },
         ],
