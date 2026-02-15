@@ -94,7 +94,7 @@ useEffect(() => {
   return () => {
     supabase.removeChannel(channel);
   };
-}, [mode, conversationId]);
+}, [mode, conversationId, supabase]);
 
 async function ensureConversation(): Promise<string | null> {
   if (!user) return null;
