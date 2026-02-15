@@ -33,18 +33,24 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
 
   // Insert booking
   const { data: booking, error: bookingErr } = await supabase
-    .from('bookings')
-    .insert({
-      booking_code: generateBookingCode(),
-      user_id: user.id,
-      flight_id: payload.flight_id,
-      subtotal,
-      total_amount: totalAmount,
-    })
-    .select()
-    .single();
+  .from('bookings')
+  .insert({
+    booking_code: generateBookingCode(),
+    user_id: user.id,
+    flight_id: payload.flight_id,
+    subtotal,
+    payment_gateway_fee: 0,          // 👈 agrega
+    total_amount: totalAmount,
+    payment_method: 'stripe',        // 👈 agrega
+    payment_status: 'pending',       // 👈 agrega
+    booking_status: 'pending_emission', // 👈 agrega
+  })
+  .select()
+  .single();
 
-  if (bookingErr || !booking) throw new Error('Error creando la reserva.');
+
+  if (bookingErr || !booking) throw new Error(bookingErr?.message ?? 'Error creando la reserva.');
+
 
   // Insert passengers (passport encrypted via DB function)
   const passengers = payload.passengers.map((p) => ({
@@ -61,7 +67,7 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
     .from('booking_passengers')
     .insert(passengers);
 
-  if (paxErr) throw new Error('Error guardando datos de pasajeros.');
+  if (paxErr) throw new Error(paxErr.message);
 
   return booking as Booking;
 }

@@ -127,19 +127,21 @@ export default function PayPage() {
     );
   }
 
-  if (!paypalClientId) {
-    return (
-      <>
-        <Navbar />
-        <div className="mx-auto max-w-3xl p-6 pt-24">
-          <Card variant="bordered" className="p-6">
-            <p className="text-sm text-red-600">Falta NEXT_PUBLIC_PAYPAL_CLIENT_ID en .env.local</p>
-          </Card>
-        </div>
-        <Footer />
-      </>
-    );
-  }
+  if (!paypalClientId && selectedMethod === "paypal") {
+  return (
+    <>
+      <Navbar />
+      <div className="mx-auto max-w-3xl p-6 pt-24">
+        <Card variant="bordered" className="p-6">
+          <p className="text-sm text-red-600">
+            Falta NEXT_PUBLIC_PAYPAL_CLIENT_ID en .env.local
+          </p>
+        </Card>
+      </div>
+      <Footer />
+    </>
+  );
+}
 
   return (
     <>
