@@ -61,6 +61,7 @@ export interface Flight {
   aircraft_type: string | null;
   is_exclusive_offer: boolean;
   offer_expires_at: string | null;
+  stops?: Array<{ airport: string; duration_minutes: number }> | null; // info de escalas
   created_at: string;
   updated_at: string;
 }

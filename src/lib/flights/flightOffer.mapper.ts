@@ -80,21 +80,32 @@ export function mapApiFlightToOffer(f: any): FlightOffer {
   // ✅ Si viene Duffel raw, trae segmentos reales aquí:
   const rawSegments: any[] = f?.raw?.slices?.[0]?.segments ?? [];
 
+  // ✅ NUEVO: Leer la columna 'stops' de la base de datos
+  const stopsFromDb: any[] = Array.isArray(f?.stops) ? f.stops : [];
+  
+  // Calcular el número de segmentos basado en las escalas
+  // Si hay 0 escalas = 1 segmento (vuelo directo)
+  // Si hay N escalas = N+1 segmentos
+  const segmentsCountFromStops = stopsFromDb.length + 1;
+
   // ✅ Detectar cantidad de segmentos cuando NO viene raw (para no marcar "Directo" por error)
   const segmentsCountFromApi =
     Number.isFinite(Number(f?.segments_count)) ? Number(f.segments_count) : null;
 
   const stopsNumberFromApi =
-    Number.isFinite(Number(f?.stops)) ? Number(f.stops) : null;
+    Number.isFinite(Number(f?.stops_count)) ? Number(f.stops_count) : null;
 
+  // Priorizar: stops de DB > API > default
   const placeholderSegmentsCount =
-    segmentsCountFromApi && segmentsCountFromApi > 0
-      ? segmentsCountFromApi
-      : stopsNumberFromApi != null
-        ? Math.max(1, stopsNumberFromApi + 1)
-        : 1;
+    stopsFromDb.length > 0
+      ? segmentsCountFromStops
+      : segmentsCountFromApi && segmentsCountFromApi > 0
+        ? segmentsCountFromApi
+        : stopsNumberFromApi != null
+          ? Math.max(1, stopsNumberFromApi + 1)
+          : 1;
 
-  // Fallback: si el backend devuelve FlightWithDetails “DB” (1 vuelo)
+  // Fallback: si el backend devuelve FlightWithDetails "DB" (1 vuelo)
   const fallbackDeparture = f?.departure_datetime ?? f?.departureTime ?? "";
   const fallbackArrival = f?.arrival_datetime ?? f?.arrivalTime ?? "";
   const fallbackDuration =
@@ -112,25 +123,46 @@ export function mapApiFlightToOffer(f: any): FlightOffer {
 
   const flightNumber = f?.flight_number ?? f?.flightNumber ?? "—";
 
+  // ✅ MEJORADO: Crear segmentos realistas con información de escalas
   const segments: FlightSegment[] =
     Array.isArray(rawSegments) && rawSegments.length > 0
       ? rawSegments.map((s, i) => toUiSegment(s, offerId, i))
-      : Array.from({ length: placeholderSegmentsCount }).map((_, i) => ({
-          id: `${offerId}-seg-${i + 1}`,
-          // primer segmento con origin real, último con destination real, intermedios placeholder
-          origin: i === 0 ? origin : "—",
-          destination: i === placeholderSegmentsCount - 1 ? destination : "—",
-          departureTime: fallbackDeparture,
-          arrivalTime: fallbackArrival,
-          flightNumber,
-          duration: fallbackDuration,
-          airline: {
-            id: airlineId,
-            name: airlineName,
-            code: airlineCode,
-            logoUrl: airlineLogo,
-          },
-        }));
+      : Array.from({ length: placeholderSegmentsCount }).map((_, i) => {
+          // Para vuelos con escalas, necesitamos información de cada tramo
+          const isFirstSegment = i === 0;
+          const isLastSegment = i === placeholderSegmentsCount - 1;
+          
+          // Si tenemos información de escalas de la DB, usarla
+          let segmentOrigin = "—";
+          let segmentDestination = "—";
+          
+          if (isFirstSegment) {
+            segmentOrigin = origin;
+            segmentDestination = stopsFromDb[0]?.airport ?? destination;
+          } else if (isLastSegment) {
+            segmentOrigin = stopsFromDb[i - 1]?.airport ?? origin;
+            segmentDestination = destination;
+          } else {
+            segmentOrigin = stopsFromDb[i - 1]?.airport ?? "—";
+            segmentDestination = stopsFromDb[i]?.airport ?? "—";
+          }
+
+          return {
+            id: `${offerId}-seg-${i + 1}`,
+            origin: segmentOrigin,
+            destination: segmentDestination,
+            departureTime: fallbackDeparture,
+            arrivalTime: fallbackArrival,
+            flightNumber,
+            duration: fallbackDuration,
+            airline: {
+              id: airlineId,
+              name: airlineName,
+              code: airlineCode,
+              logoUrl: airlineLogo,
+            },
+          };
+        });
 
   const totalDuration =
     segments.length > 0
