@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+// 1. Importamos el servicio
+import { auditService } from '@/services/audit.service';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,11 +53,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) Validar
+    // 2) Validar fechas
     if (new Date(otpRow.expires_at) < now) {
       return NextResponse.json({ error: 'Código expirado.' }, { status: 400 });
     }
 
+    // 3) Validar Hash
     if (sha256(normalizedCode) !== otpRow.code_hash) {
       return NextResponse.json(
         { error: 'Código incorrecto.' },
@@ -63,21 +66,35 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3) Marcar como verificado
+    // 4) Marcar como verificado en DB
     await supabaseAdmin
       .from('auth_otps')
       .update({ used_at: now.toISOString(), verified_at: now.toISOString() })
       .eq('id', otpRow.id);
 
-    // 4) Generar link de sesión
-    const { data, error: linkErr } =
-      await supabaseAdmin.auth.admin.generateLink({
-        type: 'magiclink',
-        email: normalizedEmail,
-        options: { redirectTo: '/dashboard' },
-      });
+    // 5) Generar link de sesión con Supabase
+    const { data, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
+      type: 'magiclink',
+      email: normalizedEmail,
+      options: { redirectTo: '/dashboard' },
+    });
 
     if (linkErr) throw linkErr;
+
+    // --- AUDITORÍA DE SEGURIDAD (Módulo 3) ---
+    // ✅ Aquí es el lugar correcto: Ya validamos todo, tenemos el usuario (data.user)
+    // y todavía no hemos devuelto la respuesta.
+    await auditService.log({
+      userId: data.user?.id, 
+      action: 'LOGIN',
+      entityType: 'auth',
+      details: {
+        method: 'OTP',
+        email: normalizedEmail,
+        ip: req.headers.get('x-forwarded-for') || 'unknown'
+      }
+    });
+    // ----------------------------------------
 
     const sessionLink =
       data?.properties?.action_link && typeof data.properties.action_link === 'string'
@@ -89,8 +106,9 @@ export async function POST(req: Request) {
       verified: true,
       sessionLink,
     });
+
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Error';
+    const message = e instanceof Error ? e.message : 'Error interno';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

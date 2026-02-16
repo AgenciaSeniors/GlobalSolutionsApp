@@ -13,7 +13,7 @@ async function signInStepOne(email: string, pass: string) {
   const supabase = createClient();
   
   // 1. Validamos email y contraseña
-  const { data, error } = await supabase.auth.signInWithPassword({
+  const { error } = await supabase.auth.signInWithPassword({
     email,
     password: pass,
   });
@@ -21,7 +21,6 @@ async function signInStepOne(email: string, pass: string) {
   if (error) throw error;
 
   // 2. Si las credenciales son válidas, disparamos el envío del OTP 
-  // Llamamos al endpoint que ya tiene la lógica de Resend
   const response = await fetch('/api/auth/request-otp', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -33,7 +32,6 @@ async function signInStepOne(email: string, pass: string) {
   }
 
   // Por seguridad, cerramos la sesión temporal. 
-  // El acceso definitivo se dará solo tras validar el código.
   await supabase.auth.signOut();
 
   return { success: true, message: 'OTP_SENT' };
@@ -88,10 +86,20 @@ async function updateProfile(updates: Partial<Pick<Profile, 'full_name' | 'phone
   if (error) throw error;
 }
 
+/**
+ * CERRAR SESIÓN (Agregado para el Sidebar)
+ */
+async function signOut() {
+  const supabase = createClient();
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
+
 // Exportamos todas las funciones juntas
 export const authService = { 
   signInStepOne, 
   verifyLoginOtp, 
   getCurrentProfile, 
-  updateProfile 
+  updateProfile,
+  signOut // <-- Incluida en el export
 };

@@ -19,6 +19,11 @@ interface Message {
   time: string;
 }
 
+interface ChatMessagePayload {
+  message: string;
+  sender_type: 'user' | 'bot' | 'agent';
+}
+
 // Simple FAQ knowledge base (Level 1)
 const FAQ_RESPONSES: Record<string, string> = {
   equipaje: 'El equipaje permitido varía según la aerolínea. Generalmente incluye: 1 maleta de mano (8kg) y 1 maleta de bodega (23kg). Consulta los detalles al seleccionar tu vuelo.',
@@ -59,11 +64,81 @@ export default function ChatWidget() {
   ]);
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<'bot' | 'waiting' | 'agent'>('bot');
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+
+useEffect(() => {
+  if (mode !== 'agent' || !conversationId) return;
+
+  const channel = supabase
+    .channel(`chat:${conversationId}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `conversation_id=eq.${conversationId}` },
+      (payload) => {
+        const m = payload.new as ChatMessagePayload;
+        if (!m?.message || !m?.sender_type) return;
+        if (m.sender_type === 'agent') {
+          addMessage('agent', String(m.message));
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, [mode, conversationId, supabase]);
+
+async function ensureConversation(): Promise<string | null> {
+  if (!user) return null;
+  if (conversationId) return conversationId;
+
+  const { data, error } = await supabase
+    .from('chat_conversations')
+    .insert({
+      user_id: user.id,
+      status: 'bot',
+      subject: messages.find(m => m.sender === 'user')?.text || 'Solicitud de soporte',
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    // Important: surface the real cause (most commonly RLS or FK)
+    console.error('[ChatWidget] Failed to create conversation', error);
+    return null;
+  }
+
+  if (!data?.id) {
+    console.error('[ChatWidget] No conversation id returned');
+    return null;
+  }
+
+  setConversationId(data.id);
+  return data.id;
+}
+
+async function persistMessage(args: { convId: string; sender_type: 'user' | 'bot' | 'agent'; message: string }) {
+  const { error } = await supabase.from('chat_messages').insert({
+    conversation_id: args.convId,
+    sender_type: args.sender_type,
+    sender_id: args.sender_type === 'user' ? user?.id : null,
+    message: args.message,
+    metadata: args.sender_type === 'bot' ? { provider: 'openai' } : null,
+  });
+
+  if (error) {
+    console.error('[ChatWidget] Failed to persist message', error);
+  }
+}
+
 
   function addMessage(sender: Message['sender'], text: string) {
     setMessages(prev => [...prev, {
@@ -74,42 +149,84 @@ export default function ChatWidget() {
     }]);
   }
 
-  function handleSend(e: FormEvent) {
-    e.preventDefault();
-    if (!input.trim()) return;
 
-    const userText = input.trim();
-    addMessage('user', userText);
-    setInput('');
+async function handleSend(e: FormEvent) {
+  e.preventDefault();
+  if (!input.trim() || isSending) return;
+
+  const userText = input.trim();
+  addMessage('user', userText);
+  setInput('');
+
+  if (mode === 'waiting') return;
+
+  setIsSending(true);
+  try {
+    const convId = await ensureConversation();
+
+    // Persist user message (if logged-in and conversation created)
+    if (convId) {
+      await persistMessage({ convId, sender_type: 'user', message: userText });
+    }
 
     if (mode === 'bot') {
-      // Simulate AI delay
-      setTimeout(() => {
-        addMessage('bot', getAIResponse(userText));
-      }, 800);
-    }
-    // In agent mode, messages would go to real-time channel
-  }
-
-  async function handleEscalate() {
-    setMode('waiting');
-    addMessage('bot', 'Conectándote con un agente humano. Por favor espera un momento...');
-
-    // Create chat conversation in DB if user is authenticated
-    if (user) {
-      await supabase.from('chat_conversations').insert({
-        user_id: user.id,
-        status: 'waiting_agent',
-        subject: messages.find(m => m.sender === 'user')?.text || 'Solicitud de soporte',
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: convId ?? undefined, message: userText }),
       });
+
+      const j = await r.json().catch(() => null);
+      const reply =
+        j?.reply ? String(j.reply) : getAIResponse(userText); // fallback local
+
+      addMessage('bot', reply);
+
+      if (convId) {
+        await persistMessage({ convId, sender_type: 'bot', message: reply });
+      }
+    } else if (mode === 'agent') {
+      // En modo agente, el mensaje del usuario ya quedó guardado.
+      // El agente responderá por Realtime (chat_messages sender_type='agent').
+      if (!convId) {
+        addMessage('bot', 'Para hablar con un agente necesitas iniciar sesión.');
+      }
+    }
+  } catch {
+    addMessage('bot', 'Hubo un problema procesando tu mensaje. ¿Deseas hablar con un agente?');
+  } finally {
+    setIsSending(false);
+  }
+}
+
+
+async function handleEscalate() {
+  setMode('waiting');
+  addMessage('bot', 'Conectándote con un agente humano. Por favor espera un momento...');
+
+  if (!user) {
+    addMessage('bot', 'Para conectar con un agente necesitas iniciar sesión.');
+    setMode('bot');
+    return;
+  }
+
+  try {
+    const convId = await ensureConversation();
+    if (!convId) {
+      addMessage('bot', 'No pude abrir la conversación. Intenta nuevamente.');
+      setMode('bot');
+      return;
     }
 
-    // Simulate agent connection
-    setTimeout(() => {
-      setMode('agent');
-      addMessage('agent', '¡Hola! Soy un agente de Global Solutions Travel. ¿En qué puedo ayudarte?');
-    }, 3000);
+    await supabase.from('chat_conversations').update({ status: 'waiting_agent' }).eq('id', convId);
+
+    addMessage('bot', 'Listo ✅. En cuanto un agente responda, lo verás aquí en tiempo real.');
+    setMode('agent');
+  } catch {
+    addMessage('bot', 'No pude conectarte con un agente ahora mismo. Intenta más tarde.');
+    setMode('bot');
   }
+}
 
   if (!isOpen) {
     return (
@@ -204,12 +321,12 @@ export default function ChatWidget() {
               value={input}
               onChange={e => setInput(e.target.value)}
               placeholder={mode === 'waiting' ? 'Esperando agente...' : 'Escribe tu mensaje...'}
-              disabled={mode === 'waiting'}
+              disabled={mode === 'waiting' || isSending}
               className="flex-1 rounded-xl border border-neutral-300 px-3 py-2 text-sm disabled:opacity-50"
             />
             <button
               type="submit"
-              disabled={mode === 'waiting' || !input.trim()}
+              disabled={mode === 'waiting' || isSending || !input.trim()}
               className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white disabled:opacity-50 hover:bg-brand-700 transition-colors"
             >
               <Send className="h-4 w-4" />

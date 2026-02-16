@@ -1,10 +1,10 @@
 /**
- * @fileoverview Servicio para lógica de negocio del Agente (Módulo 5)
- * Maneja estadísticas, recuperación de reservas asignadas y tickets.
+ * @fileoverview Service for agent business logic (Module 5).
+ * Dashboard stats, recent bookings, commission summary.
+ * @module services/agent.service
  */
 import { createClient } from '@/lib/supabase/client';
 
-// Tipos para las respuestas
 export interface AgentDashboardStats {
   totalAssigned: number;
   pendingEmission: number;
@@ -15,6 +15,8 @@ export interface AgentDashboardStats {
   monthBookings: number;
   clientsServed: number;
   openTickets: number;
+  commissionPending: number;
+  commissionTotal: number;
 }
 
 export interface AgentBookingSnippet {
@@ -23,54 +25,54 @@ export interface AgentBookingSnippet {
   status: string;
   total_amount: number;
   created_at: string;
-  passenger_name: string; // Tomado del perfil o contacto
-  route: string; // "HAV - MIA"
+  passenger_name: string;
+  route: string;
 }
 
 export const agentService = {
-  
   /**
-   * Obtiene todas las métricas clave para el Dashboard en una sola llamada eficiente.
+   * All dashboard metrics in one efficient call.
    */
   async getDashboardStats(agentId: string): Promise<AgentDashboardStats> {
     const supabase = createClient();
     const now = new Date();
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    // 1. Obtener todas las reservas asignadas a este agente
-    const { data: bookings, error } = await supabase
-      .from('bookings')
-      .select('id, booking_status, total_amount, created_at, user_id')
-      .eq('assigned_agent_id', agentId);
+    // Parallel fetch bookings, tickets, and commissions
+    const [bookingsRes, ticketsRes, commissionsRes] = await Promise.all([
+      supabase
+        .from('bookings')
+        .select('id, booking_status, total_amount, created_at, user_id')
+        .eq('assigned_agent_id', agentId),
+      supabase
+        .from('agent_tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('created_by', agentId)
+        .not('status', 'in', '("closed","resolved")'),
+      supabase
+        .from('agent_commissions')
+        .select('commission_amount, status')
+        .eq('agent_id', agentId),
+    ]);
 
-    if (error) {
-      console.error('Error fetching agent stats:', error);
-      throw error;
-    }
+    const bookingsData = bookingsRes.data || [];
+    const commissions = commissionsRes.data || [];
 
-    // 2. Obtener tickets abiertos (Soporte)
-    const { count: openTickets } = await supabase
-      .from('agent_tickets')
-      .select('id', { count: 'exact', head: true })
-      .eq('created_by', agentId)
-      .neq('status', 'closed'); // Contamos todo lo que NO esté cerrado
-
-    const bookingsData = bookings || [];
-
-    // 3. Cálculos en memoria (Más rápido que hacer 5 consultas SQL separadas)
-    
-    // Filtros
     const pendingEmission = bookingsData.filter(b => b.booking_status === 'pending_emission').length;
     const confirmed = bookingsData.filter(b => b.booking_status === 'confirmed').length;
     const completed = bookingsData.filter(b => b.booking_status === 'completed').length;
     const cancelled = bookingsData.filter(b => b.booking_status === 'cancelled').length;
-    
-    // Ventas del mes actual
+
     const thisMonthBookings = bookingsData.filter(b => b.created_at >= firstDayOfMonth);
     const monthRevenue = thisMonthBookings.reduce((sum, b) => sum + Number(b.total_amount || 0), 0);
-    
-    // Clientes únicos atendidos
+
     const uniqueClients = new Set(bookingsData.map(b => b.user_id).filter(Boolean));
+
+    const commissionPending = commissions
+      .filter(c => c.status === 'pending')
+      .reduce((s, c) => s + Number(c.commission_amount), 0);
+    const commissionTotal = commissions
+      .reduce((s, c) => s + Number(c.commission_amount), 0);
 
     return {
       totalAssigned: bookingsData.length,
@@ -81,12 +83,14 @@ export const agentService = {
       monthRevenue,
       monthBookings: thisMonthBookings.length,
       clientsServed: uniqueClients.size,
-      openTickets: openTickets || 0,
+      openTickets: ticketsRes.count || 0,
+      commissionPending,
+      commissionTotal,
     };
   },
 
   /**
-   * Obtiene las últimas 5 reservas para la lista rápida
+   * Last 5 assigned bookings for quick reference.
    */
   async getRecentBookings(agentId: string): Promise<AgentBookingSnippet[]> {
     const supabase = createClient();
@@ -111,31 +115,29 @@ export const agentService = {
 
     if (error) throw error;
 
-    // Transformar datos para que el componente los consuma fácil
     type RecentBookingRow = {
-  id: string;
-  booking_code: string;
-  booking_status: string;
-  total_amount: number | null;
-  created_at: string;
-  profiles?: { full_name?: string | null } | null;
-  flights?: {
-    origin_airport?: { iata_code?: string | null } | null;
-    destination_airport?: { iata_code?: string | null } | null;
-  } | null;
-};
+      id: string;
+      booking_code: string;
+      booking_status: string;
+      total_amount: number | null;
+      created_at: string;
+      profiles?: { full_name?: string | null } | null;
+      flights?: {
+        origin_airport?: { iata_code?: string | null } | null;
+        destination_airport?: { iata_code?: string | null } | null;
+      } | null;
+    };
 
-return (data as unknown as RecentBookingRow[]).map((b) => ({
-  id: b.id,
-  booking_code: b.booking_code,
-  status: b.booking_status,
-  total_amount: b.total_amount ?? 0,
-  created_at: b.created_at,
-  passenger_name: b.profiles?.full_name || 'Cliente Desconocido',
-  route: b.flights
-    ? `${b.flights.origin_airport?.iata_code} ➝ ${b.flights.destination_airport?.iata_code}`
-    : 'Ruta no disponible',
-}));
-
-  }
+    return (data as unknown as RecentBookingRow[]).map((b) => ({
+      id: b.id,
+      booking_code: b.booking_code,
+      status: b.booking_status,
+      total_amount: b.total_amount ?? 0,
+      created_at: b.created_at,
+      passenger_name: b.profiles?.full_name || 'Cliente Desconocido',
+      route: b.flights
+        ? `${b.flights.origin_airport?.iata_code} ➝ ${b.flights.destination_airport?.iata_code}`
+        : 'Ruta no disponible',
+    }));
+  },
 };

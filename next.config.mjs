@@ -1,8 +1,10 @@
 /** @type {import('next').NextConfig} */
 import dns from 'node:dns';
+
 if (dns.setDefaultResultOrder) {
     dns.setDefaultResultOrder('ipv4first');
 }
+
 const nextConfig = {
     reactStrictMode: true,
 
@@ -29,10 +31,10 @@ const nextConfig = {
                         "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com",
                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                         "font-src 'self' https://fonts.gstatic.com",
-                        "img-src 'self' data: blob: https://*.supabase.co https://www.gstatic.com https://*.duffel.com https://assets.duffel.com",
-
+                        "img-src 'self' data: blob: https://*.supabase.co",
                         "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
-                        "frame-src https://js.stripe.com https://hooks.stripe.com",
+                        "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+                        "upgrade-insecure-requests",
                     ].join('; '),
                 },
             ],
