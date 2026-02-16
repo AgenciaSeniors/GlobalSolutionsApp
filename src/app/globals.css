@@ -1,48 +1,60 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
 @layer base {
-  :root {
-    --font-heading: 'Roboto Condensed', system-ui, sans-serif;
-    --font-body: 'Open Sans', system-ui, sans-serif;
-    --font-script: 'Dancing Script', cursive;
-  }
-
-  html {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    scroll-behavior: smooth;
-  }
-
- body {
-  @apply bg-neutral-50 text-neutral-800 font-body;
-}
-
-
-  /* Custom scrollbar */
-  ::-webkit-scrollbar {
-    width: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    @apply bg-neutral-100;
-  }
-  ::-webkit-scrollbar-thumb {
-    @apply rounded bg-brand-300;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-brand-500;
-  }
+     :root {
+        --font-heading: 'Roboto Condensed', system-ui, sans-serif;
+        --font-body: 'Open Sans', system-ui, sans-serif;
+        --font-script: 'Dancing Script', cursive;
+    }
+    html {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        scroll-behavior: smooth;
+    }
+    body {
+        @apply bg-neutral-50 text-neutral-800 font-body;
+    }
+    /* Custom scrollbar */
+     ::-webkit-scrollbar {
+        width: 8px;
+    }
+     ::-webkit-scrollbar-track {
+        @apply bg-neutral-100;
+    }
+     ::-webkit-scrollbar-thumb {
+        @apply rounded bg-brand-300;
+    }
+     ::-webkit-scrollbar-thumb:hover {
+        @apply bg-brand-500;
+    }
 }
 
 @layer utilities {
-  .font-display {
-    font-family: var(--font-heading);
-  }
-  .font-body {
-    font-family: var(--font-body);
-  }
-  .font-script {
-    font-family: var(--font-script);
-  }
+    .font-display {
+        font-family: var(--font-heading);
+    }
+    .font-body {
+        font-family: var(--font-body);
+    }
+    .font-script {
+        font-family: var(--font-script);
+    }
+    /* ✅ NUEVO: Animaciones para detalles de escalas */
+    @keyframes slide-in-from-top {
+        from {
+            opacity: 0;
+            transform: translateY(-8px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    .animate-in {
+        animation: slide-in-from-top 0.3s ease-out;
+    }
+    .slide-in-from-top-2 {
+        animation-duration: 0.3s;
+    }
 }

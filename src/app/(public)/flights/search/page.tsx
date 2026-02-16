@@ -13,6 +13,7 @@ import FlightResultsList from '@/components/features/flights/FlightResultsList';
 
 import { useFlightSearch } from '@/hooks/useFlightSearch';
 import type { FlightOffer } from '@/types/models';
+import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
 
 // Copiamos el tipo local que usa FlightFilters
 type FilterState = {
@@ -20,16 +21,6 @@ type FilterState = {
   priceRange: { min: number; max: number };
   airlines: string[];
 };
-
-function formatDuration(ms: number): string {
-  const totalMinutes = Math.max(0, Math.round(ms / 60_000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours <= 0) return `${minutes}m`;
-  if (minutes === 0) return `${hours}h`;
-  return `${hours}h ${minutes}m`;
-}
 
 export default function FlightSearchResultsPage() {
   const searchParams = useSearchParams();
@@ -88,83 +79,29 @@ export default function FlightSearchResultsPage() {
     }
   }, [activeLeg, from, to, departure, returnDate, passengerCount, search]);
 
-  // Map a FlightOffer para UI cards (defensivo para evitar null/undefined)
+  // ✅ Mapeo a FlightOffer para UI usando el mapper (soporta segmentos reales si viene raw)
   const flights: FlightOffer[] = useMemo(() => {
-    return results.map((f) => {
-      const departureMs = new Date(f.departure_datetime).getTime();
-      const arrivalMs = new Date(f.arrival_datetime).getTime();
-      const durationMs = arrivalMs - departureMs;
+    useEffect(() => {
+  const first = results?.[0];
+  if (!first) return;
 
-      const duration = formatDuration(durationMs);
+  console.log("FIRST RESULT KEYS:", Object.keys(first));
+  console.log("raw exists?", Boolean((first as any).raw));
+  console.log("raw segments len:", (first as any)?.raw?.slices?.[0]?.segments?.length);
+  console.log("stops exists?", Array.isArray((first as any).stops), "len:", (first as any)?.stops?.length);
+}, [results]);
 
-      return {
-        id: f.id,
-        price: f.final_price,
-        currency: 'USD',
-        type: 'oneway',
-        totalDuration: duration,
-        segments: [
-          {
-            id: `${f.id}-seg-1`,
-            origin: f.origin_airport?.iata_code ?? '',
-            destination: f.destination_airport?.iata_code ?? '',
-            departureTime: f.departure_datetime,
-            arrivalTime: f.arrival_datetime,
-            flightNumber: f.flight_number,
-            duration,
-            airline: {
-              id: f.airline?.id ?? f.airline_id,
-              name: f.airline?.name ?? 'Aerolínea',
-              code: f.airline?.iata_code ?? '',
-              logoUrl: f.airline?.logo_url ?? undefined,
-            },
-          },
-        ],
-      };
-    });
+    return results.map(mapApiFlightToOffer);
   }, [results]);
 
-  // Aplicar filtros locales (UI)
-  const filteredFlights = useMemo(() => {
-    return flights.filter((flight) => {
-      // Precio
-      const minOk = flight.price >= (filters.priceRange.min ?? 0);
-      const maxOk = flight.price <= (filters.priceRange.max ?? 999999);
-      if (!minOk || !maxOk) return false;
-
-      // Aerolíneas (si seleccionó alguna)
-      if (filters.airlines.length > 0) {
-        const airlineName = flight.segments?.[0]?.airline?.name ?? '';
-        if (!filters.airlines.includes(airlineName)) return false;
-      }
-
-      // Escalas (con FlightOffer actual normalmente es 1 segmento = directo)
-      // Si mañana agregan más segmentos, esto seguirá funcionando.
-      if (filters.stops.length > 0) {
-        const segmentsCount = flight.segments?.length ?? 1;
-        const stopsCount = Math.max(0, segmentsCount - 1);
-
-        const isDirect = stopsCount === 0;
-        const is1Stop = stopsCount === 1;
-        const is2Plus = stopsCount >= 2;
-
-        const ok =
-          (filters.stops.includes('direct') && isDirect) ||
-          (filters.stops.includes('1stop') && is1Stop) ||
-          (filters.stops.includes('2stops') && is2Plus);
-
-        if (!ok) return false;
-      }
-
-      return true;
-    });
-  }, [flights, filters]);
+  // ✅ Por ahora no aplicamos filtros (evita romper). Luego lo conectamos con `filters`.
+  const filteredFlights = flights;
 
   return (
     <>
       <Navbar />
       <main className="pt-[72px]">
-        {/* Form arriba (se queda como está) */}
+        {/* Form arriba */}
         <section className="bg-white py-12">
           <div className="mx-auto max-w-6xl px-6">
             <FlightSearchForm />

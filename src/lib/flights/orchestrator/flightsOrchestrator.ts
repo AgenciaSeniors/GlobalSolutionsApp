@@ -1,152 +1,205 @@
-import type { Flight } from '@/lib/flights/providers/types';
-import type { ProviderSearchRequest, ProviderSearchResponse } from '@/lib/flights/providers/types';
+import type {
+  Flight,
+  ProviderSearchRequest,
+  ProviderSearchResponse,
+} from '@/lib/flights/providers/types';
+
 import { agencyInventoryProvider } from '@/lib/flights/providers/agencyInventoryProvider';
 import { externalStubProvider } from '@/lib/flights/providers/externalStubProvider';
 
 const TARGET_RESULTS_PER_LEG = 20;
 
+/* ===========================
+   Helpers seguros (sin any)
+=========================== */
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-function getString(v: unknown): string | null {
-  if (v == null) return null;
-  const s = String(v).trim();
-  return s.length ? s : null;
+function safeString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
-function getNestedString(obj: unknown, path: string[]): string | null {
-  let cur: unknown = obj;
-  for (const key of path) {
-    if (!isRecord(cur)) return null;
-    cur = cur[key];
+function safeUpper(value: unknown): string {
+  return safeString(value).toUpperCase();
+}
+
+function getFromRecord(obj: unknown, key: string): unknown {
+  if (!isRecord(obj)) return undefined;
+  return obj[key];
+}
+
+function getAirportCode(airportLike: unknown): string | null {
+  // Puede venir como:
+  // - string "JFK"
+  // - { iata_code: "JFK" }
+  // - { iata: "JFK" }
+  // - { code: "JFK" }
+  if (typeof airportLike === 'string') {
+    const s = airportLike.trim().toUpperCase();
+    return s.length ? s : null;
   }
-  return getString(cur);
+
+  if (!isRecord(airportLike)) return null;
+
+  const iataCode = getFromRecord(airportLike, 'iata_code');
+  if (typeof iataCode === 'string' && iataCode.trim()) return iataCode.trim().toUpperCase();
+
+  const iata = getFromRecord(airportLike, 'iata');
+  if (typeof iata === 'string' && iata.trim()) return iata.trim().toUpperCase();
+
+  const code = getFromRecord(airportLike, 'code');
+  if (typeof code === 'string' && code.trim()) return code.trim().toUpperCase();
+
+  return null;
+}
+
+function normalizeDepartureDatetime(f: Flight): string {
+  const raw = safeString(f.departure_datetime);
+  const parsed = Date.parse(raw);
+
+  if (!Number.isNaN(parsed)) {
+    return new Date(parsed).toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+  }
+
+  return raw;
 }
 
 function normalizeAirlineCode(f: Flight): string {
-  const rec = f as Record<string, unknown>;
+  const airlineUnknown: unknown = (f as unknown as Record<string, unknown>)['airline'];
 
-  const code =
-    getNestedString(rec.airline, ['iata_code']) ??
-    getNestedString(rec.airline, ['code']) ??
-    getString(rec.airline_iata) ??
-    getString(rec.airline_code) ??
-    null;
+  if (isRecord(airlineUnknown)) {
+    const iataCode = airlineUnknown['iata_code'];
+    if (typeof iataCode === 'string' && iataCode.trim()) return iataCode.trim().toUpperCase();
 
-  if (code) return code.trim().toUpperCase();
+    const code = airlineUnknown['code'];
+    if (typeof code === 'string' && code.trim()) return code.trim().toUpperCase();
+  }
+
+  const airlineIata = (f as unknown as Record<string, unknown>)['airline_iata'];
+  if (typeof airlineIata === 'string' && airlineIata.trim()) return airlineIata.trim().toUpperCase();
+
+  const airlineCode = (f as unknown as Record<string, unknown>)['airline_code'];
+  if (typeof airlineCode === 'string' && airlineCode.trim()) return airlineCode.trim().toUpperCase();
 
   // fallback: extraer prefijo de flight_number (ej: "AA123")
-  const fn = getString(rec.flight_number);
+  const fn = safeUpper((f as unknown as Record<string, unknown>)['flight_number']);
   if (fn) {
-    const m = fn.trim().toUpperCase().match(/^([A-Z]{2,3})\s*\d+/);
-    if (m?.[1]) return m[1];
+    const match = fn.match(/^([A-Z]{2,3})\s*\d+/);
+    if (match?.[1]) return match[1];
   }
 
   return 'NAIR';
 }
 
 function normalizeFlightNumber(f: Flight): string {
-  const rec = f as Record<string, unknown>;
-  const raw = getString(rec.flight_number) ?? 'NFN';
-
-  // nos quedamos con el número: "AA 0123" -> "123"
-  const m = raw.trim().toUpperCase().match(/(\d{1,5})/);
-  if (!m?.[1]) return raw.trim().toUpperCase();
-
-  const num = String(Number(m[1])); // quita ceros a la izquierda
-  return num === 'NaN' ? m[1] : num;
+  const raw = safeUpper((f as unknown as Record<string, unknown>)['flight_number']);
+  if (!raw) return 'NFN';
+  const match = raw.match(/(\d{1,5})/);
+  return match?.[1] ?? raw;
 }
 
-function normalizeIata(s: string | null): string {
-  return (s ?? 'NXXX').trim().toUpperCase();
+function normalizeIata(code: string | null): string {
+  return (code ?? 'NXXX').trim().toUpperCase();
 }
 
-function normalizeDepartureDatetime(f: Flight): string {
-  const rec = f as Record<string, unknown>;
-  const raw = getString(rec.departure_datetime) ?? 'NDEP';
+function getOriginIata(f: Flight): string {
+  const rec = f as unknown as Record<string, unknown>;
 
-  // Si parsea, normalizamos a ISO en precisión minuto
-  const t = Date.parse(raw);
-  if (!Number.isNaN(t)) {
-    return new Date(t).toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
-  }
+  // 1) si existe origin_iata plano, úsalo
+  const originIata = rec['origin_iata'];
+  if (typeof originIata === 'string' && originIata.trim()) return originIata.trim().toUpperCase();
 
-  return raw.trim();
+  // 2) si existe origin_airport, puede ser string u objeto
+  const originAirport = rec['origin_airport'];
+  const fromAirport = getAirportCode(originAirport);
+  if (fromAirport) return fromAirport;
+
+  return 'NORIG';
+}
+
+function getDestinationIata(f: Flight): string {
+  const rec = f as unknown as Record<string, unknown>;
+
+  const destIata = rec['destination_iata'];
+  if (typeof destIata === 'string' && destIata.trim()) return destIata.trim().toUpperCase();
+
+  const destAirport = rec['destination_airport'];
+  const fromAirport = getAirportCode(destAirport);
+  if (fromAirport) return fromAirport;
+
+  return 'NDEST';
 }
 
 function flightDedupeKey(f: Flight): string {
-  const rec = f as Record<string, unknown>;
-
   const airline = normalizeAirlineCode(f);
   const flightNumber = normalizeFlightNumber(f);
 
-  const origin =
-    getNestedString(rec.origin_airport, ['iata_code']) ??
-    getString(rec.origin_iata) ??
-    'NORIG';
+  const origin = getOriginIata(f);
+  const destination = getDestinationIata(f);
 
-  const dest =
-    getNestedString(rec.destination_airport, ['iata_code']) ??
-    getString(rec.destination_iata) ??
-    'NDEST';
+  const departure = normalizeDepartureDatetime(f);
 
-  const dep = normalizeDepartureDatetime(f);
-
-  return `${airline}|${flightNumber}|${normalizeIata(origin)}|${normalizeIata(dest)}|${dep}`;
+  return `${airline}|${flightNumber}|${normalizeIata(origin)}|${normalizeIata(destination)}|${departure}`;
 }
 
-
-function asString(v: unknown): string {
-  return typeof v === 'string' ? v : '';
-}
-
+/* ===========================
+   Ranking
+=========================== */
 
 function sortFlightsAgencyFirst(a: Flight, b: Flight): number {
-  // 1️⃣ Exclusivas primero
   if (a.is_exclusive_offer !== b.is_exclusive_offer) {
     return a.is_exclusive_offer ? -1 : 1;
   }
 
-  // 2️⃣ Prioridad por source (agency < external)
-  const SOURCE_PRIORITY: Record<string, number> = {
+  const sourcePriority: Record<string, number> = {
     agency: 1,
     'agency-inventory': 1,
     external: 2,
     'external-stub': 2,
   };
 
-  const sourceA = asString(a.offerSource) || asString(a.provider) || 'external';
-  const sourceB = asString(b.offerSource) || asString(b.provider) || 'external';
+  const aRec = a as unknown as Record<string, unknown>;
+  const bRec = b as unknown as Record<string, unknown>;
 
-  const sa = SOURCE_PRIORITY[sourceA] ?? 99;
-  const sb = SOURCE_PRIORITY[sourceB] ?? 99;
-  if (sa !== sb) return sa - sb;
+  const sourceA =
+    typeof aRec['offerSource'] === 'string'
+      ? aRec['offerSource']
+      : typeof aRec['provider'] === 'string'
+      ? aRec['provider']
+      : 'external';
 
-  // 3️⃣ Precio ascendente
-  const pa = Number(a.final_price ?? a.price ?? 0);
-  const pb = Number(b.final_price ?? b.price ?? 0);
-  if (pa !== pb) return pa - pb;
+  const sourceB =
+    typeof bRec['offerSource'] === 'string'
+      ? bRec['offerSource']
+      : typeof bRec['provider'] === 'string'
+      ? bRec['provider']
+      : 'external';
 
-  // 4️⃣ Hora de salida ascendente
-  const da = Date.parse(asString(a.departure_datetime)) || 0;
-  const db = Date.parse(asString(b.departure_datetime)) || 0;
-  if (da !== db) return da - db;
+  const priorityA = sourcePriority[sourceA] ?? 99;
+  const priorityB = sourcePriority[sourceB] ?? 99;
+  if (priorityA !== priorityB) return priorityA - priorityB;
 
-  // 5️⃣ Desempate determinístico final
-  const ka = `${asString(a.provider)}:${asString(a.id)}`;
-  const kb = `${asString(b.provider)}:${asString(b.id)}`;
-  return ka.localeCompare(kb);
+  const priceA = Number((a as unknown as Record<string, unknown>)['final_price'] ?? a.price ?? 0);
+  const priceB = Number((b as unknown as Record<string, unknown>)['final_price'] ?? b.price ?? 0);
+  if (priceA !== priceB) return priceA - priceB;
+
+  const depA = Date.parse(safeString(a.departure_datetime)) || 0;
+  const depB = Date.parse(safeString(b.departure_datetime)) || 0;
+  if (depA !== depB) return depA - depB;
+
+  const aId = safeString((a as unknown as Record<string, unknown>)['id']);
+  const bId = safeString((b as unknown as Record<string, unknown>)['id']);
+  const aProv = safeString((a as unknown as Record<string, unknown>)['provider']);
+  const bProv = safeString((b as unknown as Record<string, unknown>)['provider']);
+
+  return `${aProv}:${aId}`.localeCompare(`${bProv}:${bId}`);
 }
 
-
-function mapByLegIndex(res: ProviderSearchResponse): Map<number, Flight[]> {
-  const m = new Map<number, Flight[]>();
-  for (const item of res) {
-    m.set(item.legIndex, item.flights);
-  }
-  return m;
-}
+/* ===========================
+   Merge + Dedupe
+=========================== */
 
 function mergeDedupeAndRank(primary: Flight[], secondary: Flight[]): Flight[] {
   const bestByKey = new Map<string, Flight>();
@@ -160,14 +213,13 @@ function mergeDedupeAndRank(primary: Flight[], secondary: Flight[]): Flight[] {
       return;
     }
 
-    // Si el nuevo es mejor que el existente según el ranking final, lo reemplaza
     if (sortFlightsAgencyFirst(f, existing) < 0) {
       bestByKey.set(key, f);
     }
   };
 
-  for (const f of primary) consider(f);
-  for (const f of secondary) consider(f);
+  primary.forEach(consider);
+  secondary.forEach(consider);
 
   const merged = Array.from(bestByKey.values());
   merged.sort(sortFlightsAgencyFirst);
@@ -175,49 +227,50 @@ function mergeDedupeAndRank(primary: Flight[], secondary: Flight[]): Flight[] {
 }
 
 function takeTopN(arr: Flight[], n: number): Flight[] {
-  if (arr.length <= n) return arr;
-  return arr.slice(0, n);
+  return arr.length <= n ? arr : arr.slice(0, n);
 }
+
+function mapByLegIndex(res: ProviderSearchResponse): Map<number, Flight[]> {
+  const map = new Map<number, Flight[]>();
+  for (const item of res) {
+    map.set(item.legIndex, item.flights);
+  }
+  return map;
+}
+
+/* ===========================
+   Orchestrator
+=========================== */
 
 export const flightsOrchestrator = {
   id: 'agency-first-orchestrator',
 
-  /**
-   * Strategy:
-   * 1) Buscar agencia (DB) para todos los legs
-   * 2) Si algún leg queda con menos de TARGET_RESULTS_PER_LEG, buscar externo
-   * 3) Merge + dedupe + rank por leg
-   */
   async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
     const agencyRes = await agencyInventoryProvider.search(req);
     const agencyByLeg = mapByLegIndex(agencyRes);
 
-    // Chequear si necesitamos externo
     const needsExternal = req.legs.some((_, idx) => {
-      const cur = agencyByLeg.get(idx) ?? [];
-      return cur.length < TARGET_RESULTS_PER_LEG;
+      const flights = agencyByLeg.get(idx) ?? [];
+      return flights.length < TARGET_RESULTS_PER_LEG;
     });
 
     if (!needsExternal) {
-      // Igual rankeamos por si la DB no venía ordenada como queremos
-      const ranked: ProviderSearchResponse = req.legs.map((_, idx) => {
-        const flights = (agencyByLeg.get(idx) ?? []).slice().sort(sortFlightsAgencyFirst);
-        return { legIndex: idx, flights: takeTopN(flights, TARGET_RESULTS_PER_LEG) };
+      return req.legs.map((_, idx) => {
+        const ranked = (agencyByLeg.get(idx) ?? []).slice().sort(sortFlightsAgencyFirst);
+        return { legIndex: idx, flights: takeTopN(ranked, TARGET_RESULTS_PER_LEG) };
       });
-      return ranked;
     }
 
+    // Por ahora NO usamos APIs reales. Solo el stub.
     const externalRes = await externalStubProvider.search(req);
     const externalByLeg = mapByLegIndex(externalRes);
 
-    const final: ProviderSearchResponse = req.legs.map((_, idx) => {
+    return req.legs.map((_, idx) => {
       const agencyFlights = agencyByLeg.get(idx) ?? [];
       const externalFlights = externalByLeg.get(idx) ?? [];
 
       const merged = mergeDedupeAndRank(agencyFlights, externalFlights);
       return { legIndex: idx, flights: takeTopN(merged, TARGET_RESULTS_PER_LEG) };
     });
-
-    return final;
   },
 };

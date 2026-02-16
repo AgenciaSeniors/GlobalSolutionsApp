@@ -18,6 +18,7 @@ import FlightResultsList from '@/components/features/flights/FlightResultsList';
 
 import { useFlightSearch } from '@/hooks/useFlightSearch';
 import type { FlightOffer } from '@/types/models';
+import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
 
 type FilterState = {
   stops: string[];
@@ -32,16 +33,6 @@ type SearchPayload = {
   passengers: string;
   return?: string;
 };
-
-function formatDuration(ms: number): string {
-  const totalMinutes = Math.max(0, Math.round(ms / 60_000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours <= 0) return `${minutes}m`;
-  if (minutes === 0) return `${hours}h`;
-  return `${hours}h ${minutes}m`;
-}
 
 export default function FlightsPage() {
   const router = useRouter();
@@ -107,43 +98,12 @@ export default function FlightsPage() {
     }
   }, [activeLeg, lastSearch, search]);
 
-  // Map results -> FlightOffer para la UI
+  // ✅ Map results -> FlightOffer para la UI usando el mapper (segmentos reales si hay escalas)
   const flights: FlightOffer[] = useMemo(() => {
-    return results.map((f) => {
-      const departureMs = new Date(f.departure_datetime).getTime();
-      const arrivalMs = new Date(f.arrival_datetime).getTime();
-      const durationMs = arrivalMs - departureMs;
-
-      const duration = formatDuration(durationMs);
-
-      return {
-        id: f.id,
-        price: f.final_price,
-        currency: 'USD',
-        type: 'oneway',
-        totalDuration: duration,
-        segments: [
-          {
-            id: `${f.id}-seg-1`,
-            origin: f.origin_airport?.iata_code ?? '',
-            destination: f.destination_airport?.iata_code ?? '',
-            departureTime: f.departure_datetime,
-            arrivalTime: f.arrival_datetime,
-            flightNumber: f.flight_number,
-            duration,
-            airline: {
-              id: f.airline?.id ?? f.airline_id,
-              name: f.airline?.name ?? 'Aerolínea',
-              code: f.airline?.iata_code ?? '',
-              logoUrl: f.airline?.logo_url ?? undefined,
-            },
-          },
-        ],
-      };
-    });
+    return (results ?? []).map(mapApiFlightToOffer);
   }, [results]);
 
-  // Aplicar filtros (UI local)
+  // ✅ Aplicar filtros (UI local) — ahora sí funciona porque segments.length refleja escalas reales
   const filteredFlights = useMemo(() => {
     return flights.filter((flight) => {
       // Precio
@@ -157,7 +117,7 @@ export default function FlightsPage() {
         if (!filters.airlines.includes(airlineName)) return false;
       }
 
-      // Escalas (si mañana hay múltiples segmentos, esto funciona)
+      // Escalas
       if (filters.stops.length > 0) {
         const segmentsCount = flight.segments?.length ?? 1;
         const stopsCount = Math.max(0, segmentsCount - 1);
