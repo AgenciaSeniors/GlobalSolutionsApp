@@ -132,7 +132,7 @@ export default function FlightSearchResultsPage() {
                   isLoading={isLoading}
                   error={error}
                   onSelectFlight={(flightId) =>
-                    router.push(`/checkout?flight=${flightId}&passengers=${passengerCount}`)
+                    router.push(`/flights/${flightId}?passengers=${passengerCount}`)
                   }
                 />
               </div>

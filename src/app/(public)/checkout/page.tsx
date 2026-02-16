@@ -43,6 +43,48 @@ const FormField = ({
 
 type Gateway = 'stripe' | 'paypal' | 'zelle';
 
+type PassengerForm = {
+  first_name: string;
+  last_name: string;
+  dob: string;
+  nationality: string;
+  passport_number: string;
+  passport_expiry: string;
+};
+
+type PassengerField = keyof PassengerForm;
+
+type GatewayFeePctKey = 'stripe_fee_percentage' | 'paypal_fee_percentage' | 'zelle_fee_percentage';
+type GatewayFixedFeeKey = 'stripe_fee_fixed' | 'paypal_fee_fixed' | 'zelle_fee_fixed';
+
+function pctKeyForGateway(g: Gateway): GatewayFeePctKey {
+  switch (g) {
+    case 'stripe':
+      return 'stripe_fee_percentage';
+    case 'paypal':
+      return 'paypal_fee_percentage';
+    case 'zelle':
+      return 'zelle_fee_percentage';
+  }
+}
+
+function fixedKeyForGateway(g: Gateway): GatewayFixedFeeKey {
+  switch (g) {
+    case 'stripe':
+      return 'stripe_fee_fixed';
+    case 'paypal':
+      return 'paypal_fee_fixed';
+    case 'zelle':
+      return 'zelle_fee_fixed';
+  }
+}
+
+function safeInt(value: string | null, fallback: number): number {
+  if (!value) return fallback;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -51,22 +93,27 @@ export default function CheckoutPage() {
   const { settings, loading: settingsLoading, calculateGatewayFee } = useAppSettings();
 
   const flightId = searchParams.get('flight');
-  const passengerCount = parseInt(searchParams.get('passengers') || '1', 10);
+  const passengerCount = safeInt(searchParams.get('passengers'), 1);
+  const flightClass = (searchParams.get('class') || 'economy') as 'economy' | 'business' | 'first';
+
+  const classNames = {
+    economy: 'Clase Económica',
+    business: 'Clase Business',
+    first: 'Primera Clase'
+  };
+
+  const classMultipliers = {
+    economy: 1.0,
+    business: 2.5,
+    first: 4.0
+  };
 
   const [flight, setFlight] = useState<FlightWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [gateway, setGateway] = useState<Gateway>('stripe');
-  const [passengers, setPassengers] = useState<
-    Array<{
-      first_name: string;
-      last_name: string;
-      dob: string;
-      nationality: string;
-      passport_number: string;
-      passport_expiry: string;
-    }>
-  >([]);
+
+  const [passengers, setPassengers] = useState<PassengerForm[]>([]);
 
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,40 +134,45 @@ export default function CheckoutPage() {
       return;
     }
 
+    let cancelled = false;
+
     async function load() {
-      const { data } = await supabase
+      const { data, error: loadErr } = await supabase
         .from('flights')
         .select(
-          '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airports_id(*)'
+          '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airports_id(*)',
         )
         .eq('id', flightId)
         .single();
 
-      // The relationship name `destination_airports_id` above might differ in your DB.
-      // If your original version worked, keep that select string as you had it.
-      // If it errors, revert this select to your known-working select.
-      if (!data) {
+      if (loadErr || !data) {
         router.push('/flights');
         return;
       }
 
-      setFlight(data as unknown as FlightWithDetails);
+      if (cancelled) return;
+
+      setFlight(data as FlightWithDetails);
 
       setPassengers(
-        Array.from({ length: passengerCount }, () => ({
+        Array.from({ length: passengerCount }, (): PassengerForm => ({
           first_name: '',
           last_name: '',
           dob: '',
           nationality: '',
           passport_number: '',
           passport_expiry: '',
-        }))
+        })),
       );
 
       setLoading(false);
     }
 
     load();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flightId, user]);
 
@@ -136,23 +188,27 @@ export default function CheckoutPage() {
   }
 
   // Display-only pricing (real pricing must be computed in backend at payment time)
-  const subtotal = flight.final_price * passengerCount;
+ // Display-only pricing (real pricing must be computed in backend at payment time)
+  const classMultiplier = classMultipliers[flightClass];
+  const pricePerPerson = flight.final_price * classMultiplier;
+  const subtotal = pricePerPerson * passengerCount;
   const gatewayFee = calculateGatewayFee(subtotal, gateway);
   const total = Math.round((subtotal + gatewayFee) * 100) / 100;
-
   const breakdown: PriceBreakdown = {
     base_price: flight.base_price,
     markup_amount: flight.final_price - flight.base_price,
     subtotal,
     gateway_fee: Math.round(gatewayFee * 100) / 100,
-    gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
-    gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
+    gateway_fee_pct: settings[pctKeyForGateway(gateway)],
+    gateway_fixed_fee: settings[fixedKeyForGateway(gateway)],
     total,
     passengers: passengerCount,
   };
 
-  function updatePassenger(index: number, field: string, value: string) {
-    setPassengers((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: value } : p)));
+  function updatePassenger(index: number, field: PassengerField, value: string) {
+    setPassengers((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, [field]: value } : p)),
+    );
   }
 
   function validatePassengers(): boolean {
@@ -187,7 +243,7 @@ export default function CheckoutPage() {
     return true;
   }
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!user || !flight) return;
 
@@ -207,6 +263,7 @@ export default function CheckoutPage() {
           booking_code: newBookingCode,
           user_id: user.id,
           flight_id: flight.id,
+          flight_class: flightClass,
           subtotal: breakdown.subtotal,
           payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
           total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
@@ -220,6 +277,7 @@ export default function CheckoutPage() {
         .single();
 
       if (bookingErr) throw bookingErr;
+      if (!booking?.id) throw new Error('No se pudo crear la reserva.');
 
       // Insert passengers (keep your existing table name)
       for (const p of passengers) {
@@ -251,8 +309,11 @@ export default function CheckoutPage() {
       }
 
       // Stripe/PayPal payment happens in /pay (Module 2)
-      router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
+      router.push(
+        `/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`,
+      );
     } catch (err) {
+      // Keep error formatting safe
       console.error(err);
       setError(err instanceof Error ? err.message : 'Error al procesar la reserva.');
     } finally {
@@ -313,7 +374,7 @@ export default function CheckoutPage() {
                         {flight.origin_airport.city} ({flight.origin_airport.iata_code}) →{' '}
                         {flight.destination_airport.city} ({flight.destination_airport.iata_code})
                       </p>
-                      <p className="text-xs text-neutral-400">
+                   <p className="text-xs text-neutral-400">
                         {new Date(flight.departure_datetime).toLocaleDateString('es', {
                           weekday: 'long',
                           day: 'numeric',
@@ -321,10 +382,21 @@ export default function CheckoutPage() {
                           year: 'numeric',
                         })}
                       </p>
+                      <div className="mt-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-100 px-3 py-1 text-xs font-semibold text-brand-700">
+                          {flightClass === 'business' && '💼'}
+                          {flightClass === 'first' && '👑'}
+                          {flightClass === 'economy' && '✈️'}
+                          {' '}{classNames[flightClass]}
+                        </span>
+                      </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-lg font-bold text-brand-600">${flight.final_price.toFixed(2)}</p>
+                      <p className="text-lg font-bold text-brand-600">${pricePerPerson.toFixed(2)}</p>
                       <p className="text-xs text-neutral-400">por persona</p>
+                      {classMultiplier > 1 && (
+                        <p className="text-xs text-brand-500">x{classMultiplier} clase premium</p>
+                      )}
                     </div>
                   </div>
 
@@ -336,7 +408,7 @@ export default function CheckoutPage() {
                 </Card>
 
                 {passengers.map((p, i) => (
-                  <Card key={i} variant="bordered">
+                  <Card key={`${flight.id}-p-${i}`} variant="bordered">
                     <h3 className="mb-4 font-bold">
                       Pasajero {i + 1} de {passengerCount}
                     </h3>
@@ -454,7 +526,9 @@ export default function CheckoutPage() {
 
                 <Button type="submit" isLoading={processing} className="w-full gap-2">
                   <Lock className="h-4 w-4" />
-                  {gateway === 'zelle' ? `Reservar $${breakdown.subtotal.toFixed(2)}` : `Continuar a pagar`}
+                  {gateway === 'zelle'
+                    ? `Reservar $${breakdown.subtotal.toFixed(2)}`
+                    : `Continuar a pagar`}
                 </Button>
 
                 <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">
@@ -464,8 +538,10 @@ export default function CheckoutPage() {
                 {settings.loyalty_points_per_dollar > 0 && (
                   <div className="rounded-xl bg-amber-50 px-4 py-3 text-center text-xs text-amber-700">
                     ⭐ Ganarás{' '}
-                    <strong>{Math.floor(breakdown.subtotal * settings.loyalty_points_per_dollar)} puntos</strong> de
-                    fidelidad con esta compra
+                    <strong>
+                      {Math.floor(breakdown.subtotal * settings.loyalty_points_per_dollar)} puntos
+                    </strong>{' '}
+                    de fidelidad con esta compra
                   </div>
                 )}
               </div>
