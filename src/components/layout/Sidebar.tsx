@@ -6,7 +6,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { authService } from '@/services/auth.service';
 import {
   LayoutDashboard,
   Plane,
@@ -36,7 +37,24 @@ interface SidebarProps {
 
 export default function Sidebar({ links }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await authService.signOut();
+      
+      // Forzamos la redirección al login y refrescamos el estado del servidor
+      router.push('/login');
+      router.refresh();
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   return (
     <aside
@@ -84,10 +102,15 @@ export default function Sidebar({ links }: SidebarProps) {
       {/* Bottom actions */}
       <div className="border-t border-neutral-100 p-3">
         <button
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-500 transition-colors hover:bg-red-50 hover:text-accent-red"
+          onClick={handleLogout}
+          disabled={isLoggingOut}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-500 transition-colors hover:bg-red-50 hover:text-accent-red",
+            isLoggingOut && "opacity-50 cursor-not-allowed"
+          )}
         >
           <LogOut className="h-5 w-5 flex-shrink-0" />
-          {!collapsed && <span>Cerrar Sesión</span>}
+          {!collapsed && <span>{isLoggingOut ? 'Saliendo...' : 'Cerrar Sesión'}</span>}
         </button>
       </div>
     </aside>
