@@ -153,6 +153,15 @@ function mergeDedupeAndRank(primary: Flight[], secondary: Flight[]): Flight[] {
   const bestByKey = new Map<string, Flight>();
 
   const consider = (f: Flight) => {
+    // ✅ NUEVO: Filtrar "Duffel Airways" (aerolínea ficticia de test)
+    const airlineCode = (f as any)?.airline?.iata_code;
+    const airlineName = (f as any)?.airline?.name;
+    
+    if (airlineCode === 'ZZ' || airlineName === 'Duffel Airways') {
+      console.log('🚫 [ORCHESTRATOR] Filtrando Duffel Airways:', f.id);
+      return; // Ignorar este vuelo
+    }
+
     const key = flightDedupeKey(f);
     const existing = bestByKey.get(key);
 

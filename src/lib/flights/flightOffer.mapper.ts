@@ -128,11 +128,10 @@ export function mapApiFlightToOffer(f: any): FlightOffer {
     Array.isArray(rawSegments) && rawSegments.length > 0
       ? rawSegments.map((s, i) => toUiSegment(s, offerId, i))
       : Array.from({ length: placeholderSegmentsCount }).map((_, i) => {
-          // Para vuelos con escalas, necesitamos información de cada tramo
           const isFirstSegment = i === 0;
           const isLastSegment = i === placeholderSegmentsCount - 1;
           
-          // Si tenemos información de escalas de la DB, usarla
+          // Calcular origen y destino del segmento
           let segmentOrigin = "—";
           let segmentDestination = "—";
           
@@ -147,14 +146,56 @@ export function mapApiFlightToOffer(f: any): FlightOffer {
             segmentDestination = stopsFromDb[i]?.airport ?? "—";
           }
 
+          // ✅ NUEVO: Calcular horarios específicos de cada segmento
+          let segmentDeparture = fallbackDeparture;
+          let segmentArrival = fallbackArrival;
+          let segmentDuration = fallbackDuration;
+
+          if (fallbackDeparture && fallbackArrival && stopsFromDb.length > 0) {
+            const totalDepTime = new Date(fallbackDeparture).getTime();
+            const totalArrTime = new Date(fallbackArrival).getTime();
+            const totalDuration = totalArrTime - totalDepTime;
+
+            if (isFirstSegment && stopsFromDb[0]?.duration_minutes) {
+              // Primer segmento: desde salida hasta primera escala
+              const stopDuration = stopsFromDb[0].duration_minutes * 60000;
+              segmentDeparture = fallbackDeparture;
+              segmentArrival = new Date(totalDepTime + stopDuration).toISOString();
+              segmentDuration = formatDurationFromDates(segmentDeparture, segmentArrival);
+            } else if (isLastSegment) {
+              // Último segmento: desde última escala hasta llegada
+              const previousStops = stopsFromDb.slice(0, i);
+              const previousDuration = previousStops.reduce(
+                (sum, stop) => sum + (stop.duration_minutes || 0) * 60000,
+                0
+              );
+              segmentDeparture = new Date(totalDepTime + previousDuration).toISOString();
+              segmentArrival = fallbackArrival;
+              segmentDuration = formatDurationFromDates(segmentDeparture, segmentArrival);
+            } else {
+              // Segmento intermedio
+              const previousStops = stopsFromDb.slice(0, i);
+              const currentStop = stopsFromDb[i];
+              const previousDuration = previousStops.reduce(
+                (sum, stop) => sum + (stop.duration_minutes || 0) * 60000,
+                0
+              );
+              const currentDuration = (currentStop?.duration_minutes || 0) * 60000;
+              
+              segmentDeparture = new Date(totalDepTime + previousDuration).toISOString();
+              segmentArrival = new Date(totalDepTime + previousDuration + currentDuration).toISOString();
+              segmentDuration = formatDurationFromDates(segmentDeparture, segmentArrival);
+            }
+          }
+
           return {
             id: `${offerId}-seg-${i + 1}`,
             origin: segmentOrigin,
             destination: segmentDestination,
-            departureTime: fallbackDeparture,
-            arrivalTime: fallbackArrival,
+            departureTime: segmentDeparture,
+            arrivalTime: segmentArrival,
             flightNumber,
-            duration: fallbackDuration,
+            duration: segmentDuration,
             airline: {
               id: airlineId,
               name: airlineName,

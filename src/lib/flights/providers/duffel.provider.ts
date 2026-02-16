@@ -67,6 +67,22 @@ function toFlightFromDuffelOffer(offer: any): Flight {
   const operatingCarrier = firstSegment?.operating_carrier;
   const carrier = marketingCarrier || operatingCarrier;
 
+  // 🔍 DEBUG: Ver qué datos trae Duffel
+  console.log('🔍 [DUFFEL] Carrier data:', {
+    offerId: id,
+    marketingCarrier: {
+      iata_code: marketingCarrier?.iata_code,
+      name: marketingCarrier?.name,
+      logo: marketingCarrier?.logo_symbol_url,
+    },
+    operatingCarrier: {
+      iata_code: operatingCarrier?.iata_code,
+      name: operatingCarrier?.name,
+      logo: operatingCarrier?.logo_symbol_url,
+    },
+    selected: carrier?.name,
+  });
+
   // Flight number del primer segmento
   const flightNumber = firstSegment?.marketing_carrier_flight_number || 
                        firstSegment?.operating_carrier_flight_number || 
@@ -234,6 +250,19 @@ export const duffelProvider: FlightsProvider = {
   hasOffers: !!response?.data?.offers,
   offersCount: response?.data?.offers?.length || 0
 });
+
+      // 🔍 DEBUG: Ver estructura del primer offer
+      if (response?.data?.offers?.[0]) {
+        const firstOffer = response.data.offers[0];
+        console.log('🔍 [DUFFEL] Primer offer estructura:', {
+          id: firstOffer.id,
+          slices: firstOffer.slices?.length,
+          firstSegment: {
+            marketing_carrier: firstOffer.slices?.[0]?.segments?.[0]?.marketing_carrier,
+            operating_carrier: firstOffer.slices?.[0]?.segments?.[0]?.operating_carrier,
+          }
+        });
+      }
 
       const offers = response?.data?.offers ?? [];
       const flights = Array.isArray(offers) ? offers.slice(0, 20).map(toFlightFromDuffelOffer) : [];
