@@ -7,7 +7,9 @@ import type {
 
 import { SkyScrapperClient } from "./skyScrapper.client";
 
-/* -------------------------- JSON TYPES -------------------------- */
+/* -------------------------------------------------- */
+/* ----------------- JSON HELPERS ------------------- */
+/* -------------------------------------------------- */
 
 type JsonValue =
   | null
@@ -44,44 +46,59 @@ function getString(v: JsonValue, key: string): string | null {
 function getNumber(v: JsonValue, key: string): number | null {
   if (!isObject(v)) return null;
   const child = v[key];
-  return typeof child === "number" && Number.isFinite(child)
-    ? child
-    : null;
+  return typeof child === "number" ? child : null;
 }
 
-/* -------------------------- HELPERS -------------------------- */
+/* -------------------------------------------------- */
+/* ----------------- UTILIDADES --------------------- */
+/* -------------------------------------------------- */
 
 async function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Hace 1 intento extra si status === incomplete
+ * Polling controlado hasta que status === "complete"
+ * Máximo 5 intentos
  */
-async function maybeCompleteOnce(
+async function completeSearch(
   client: SkyScrapperClient,
-  json: JsonValue
+  initialJson: JsonValue
 ): Promise<JsonValue> {
-  const data = getObject(json, "data");
-  const context = data ? getObject(data, "context") : null;
-  const status = context ? getString(context, "status") : null;
+  let json = initialJson;
 
-  if (status !== "incomplete") return json;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const data = getObject(json, "data");
+    const context = data ? getObject(data, "context") : null;
+    const status = context ? getString(context, "status") : null;
 
-  const sessionId = context ? getString(context, "sessionId") : null;
-  if (!sessionId) return json;
+    if (status === "complete") {
+      return json;
+    }
 
-  await sleep(800);
+    const sessionId = context ? getString(context, "sessionId") : null;
+    if (!sessionId) {
+      return json;
+    }
 
-  return await client.get(
-    `/flights/search-incomplete?sessionId=${encodeURIComponent(
-      sessionId
-    )}`
-  );
+    await sleep(1200);
+
+    try {
+      json = await client.get(
+        `/flights/search-incomplete?sessionId=${encodeURIComponent(
+          sessionId
+        )}`
+      );
+    } catch {
+      return json;
+    }
+  }
+
+  return json;
 }
 
 /**
- * Resuelve presentation.id (base64) usando auto-complete
+ * Resuelve IATA → entityId
  */
 async function resolvePlaceId(
   client: SkyScrapperClient,
@@ -108,14 +125,14 @@ async function resolvePlaceId(
     const id = getString(presentation, "id");
 
     if (skyId && id && skyId.toUpperCase() === upper) {
-      return id; // presentation.id (base64)
+      return id;
     }
   }
 
-  // fallback al primero válido
-  for (const item of dataArr) {
-    if (!isObject(item)) continue;
-    const presentation = getObject(item, "presentation");
+  // fallback primer resultado
+  const first = dataArr[0];
+  if (isObject(first)) {
+    const presentation = getObject(first, "presentation");
     const id = presentation ? getString(presentation, "id") : null;
     if (id) return id;
   }
@@ -123,7 +140,9 @@ async function resolvePlaceId(
   throw new Error(`Invalid place data for ${query}`);
 }
 
-/* -------------------------- MAPPER -------------------------- */
+/* -------------------------------------------------- */
+/* ----------------- MAPPER ------------------------- */
+/* -------------------------------------------------- */
 
 function mapItineraryToFlight(
   it: JsonValue,
@@ -131,10 +150,10 @@ function mapItineraryToFlight(
 ): Flight | null {
   if (!isObject(it)) return null;
 
-  const id = getString(it, "id") ?? `sky_${legIndex}_${Date.now()}`;
+  const id = getString(it, "id") ?? `sky_${Date.now()}`;
 
   const priceObj = getObject(it, "price");
-  const rawPrice = priceObj ? getNumber(priceObj, "raw") : null;
+  const price = priceObj ? getNumber(priceObj, "raw") : 0;
 
   const legs = getArray(it, "legs");
   if (!legs || legs.length === 0) return null;
@@ -144,41 +163,41 @@ function mapItineraryToFlight(
 
   const duration = getNumber(leg, "durationInMinutes") ?? 0;
   const stopCount = getNumber(leg, "stopCount") ?? 0;
-
   const departure = getString(leg, "departure") ?? "";
   const arrival = getString(leg, "arrival") ?? "";
 
   const carriers = getObject(leg, "carriers");
   const marketing = carriers ? getArray(carriers, "marketing") : null;
 
-  let airlineName: string | null = null;
-  let airlineCode: string | null = null;
+  let airline: string | undefined;
+  let airlineCode: string | undefined;
 
   if (marketing && marketing.length > 0) {
     const first = marketing[0];
     if (isObject(first)) {
-      airlineName = getString(first, "name");
-      airlineCode = getString(first, "alternateId");
+      airline = getString(first, "name") ?? undefined;
+      airlineCode = getString(first, "alternateId") ?? undefined;
     }
   }
 
   return {
     id,
-    price: rawPrice ?? 0,
+    price: price ?? 0,
     duration,
     provider: "sky-scrapper",
     offerSource: "external",
     legIndex,
-
     departure_datetime: departure,
     arrival_datetime: arrival,
-    airline: airlineName ?? undefined,
-    airline_code: airlineCode ?? undefined,
+    airline,
+    airline_code: airlineCode,
     stops_count: stopCount,
-  } as Flight;
+  };
 }
 
-/* -------------------------- PROVIDER -------------------------- */
+/* -------------------------------------------------- */
+/* ----------------- PROVIDER ----------------------- */
+/* -------------------------------------------------- */
 
 export const skyScrapperProvider: FlightsProvider = {
   id: "sky-scrapper",
@@ -189,10 +208,8 @@ export const skyScrapperProvider: FlightsProvider = {
     const client = new SkyScrapperClient();
     const result: ProviderSearchResponse = [];
 
-    const legs = req.legs ?? [];
-
-    for (let legIndex = 0; legIndex < legs.length; legIndex++) {
-      const leg = legs[legIndex];
+    for (let legIndex = 0; legIndex < req.legs.length; legIndex++) {
+      const leg = req.legs[legIndex];
 
       const date = String(leg.departure_date ?? "").trim();
       if (!date) {
@@ -200,31 +217,24 @@ export const skyScrapperProvider: FlightsProvider = {
         continue;
       }
 
-      const fromEntityId = await resolvePlaceId(
-        client,
-        String(leg.origin)
-      );
-
-      const toEntityId = await resolvePlaceId(
-        client,
-        String(leg.destination)
-      );
+      const fromEntityId = await resolvePlaceId(client, leg.origin);
+      const toEntityId = await resolvePlaceId(client, leg.destination);
 
       const qs = new URLSearchParams({
         fromEntityId,
         toEntityId,
         departDate: date,
         adults: String(req.passengers ?? 1),
+        market: "US",
+        locale: "en-US",
+        currency: "USD",
       });
 
       const initialJson = await client.get(
         `/flights/search-one-way?${qs.toString()}`
       );
 
-      const finalJson = await maybeCompleteOnce(
-        client,
-        initialJson
-      );
+      const finalJson = await completeSearch(client, initialJson);
 
       const data = getObject(finalJson, "data");
       const itineraries = data

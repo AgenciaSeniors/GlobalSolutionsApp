@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -15,12 +15,31 @@ import { useFlightSearch } from '@/hooks/useFlightSearch';
 import type { FlightOffer } from '@/types/models';
 import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
 
-// Copiamos el tipo local que usa FlightFilters
 type FilterState = {
   stops: string[];
   priceRange: { min: number; max: number };
   airlines: string[];
 };
+
+function toStopsCountFilter(stops: string[]): number | null {
+  // stops UI suele mandar: ["direct", "1stop", "2stops"] (según tu componente)
+  // aquí hacemos “máximo” permitido:
+  // - si incluye "direct" => maxStops = 0
+  // - si incluye "1stop" => maxStops = 1
+  // - si incluye "2stops" => maxStops = 2
+  if (!stops.length) return null;
+
+  const hasDirect = stops.includes('direct');
+  const has1 = stops.includes('1stop') || stops.includes('1');
+  const has2 = stops.includes('2stops') || stops.includes('2') || stops.includes('2plus');
+
+  // si el usuario marca varios, tomamos el más “permisivo”
+  if (has2) return 2;
+  if (has1) return 1;
+  if (hasDirect) return 0;
+
+  return null;
+}
 
 export default function FlightSearchResultsPage() {
   const searchParams = useSearchParams();
@@ -30,10 +49,8 @@ export default function FlightSearchResultsPage() {
 
   const passengerCount = Number(searchParams.get('passengers')) || 1;
 
-  // Tabs (ida / regreso)
-  const [activeLeg, setActiveLeg] = useState(0);
+  const [activeLeg, setActiveLeg] = useState<number>(0);
 
-  // Filtros (sidebar)
   const [filters, setFilters] = useState<FilterState>({
     stops: [],
     priceRange: { min: 0, max: 2000 },
@@ -45,82 +62,86 @@ export default function FlightSearchResultsPage() {
   const departure = searchParams.get('departure') || '';
   const returnDate = searchParams.get('return') || '';
 
-  // Legs para tabs
   const legs = useMemo(() => {
     const base = [{ origin: from, destination: to, date: departure }];
     if (returnDate) base.push({ origin: to, destination: from, date: returnDate });
     return base.filter((l) => l.origin && l.destination && l.date);
   }, [from, to, departure, returnDate]);
 
-  // Dispara búsqueda según tab activa
+  // ✅ anti-loop: si el effect corre varias veces (StrictMode/dev), no spamear
+  const lastRequestKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    // Si no hay params mínimos, no buscamos
     if (!from || !to || !departure) return;
 
-    // Ida
-    if (activeLeg === 0) {
-      search({
-        origin: from,
-        destination: to,
-        departure_date: departure,
-        passengers: passengerCount,
-      });
-      return;
-    }
+    const origin = activeLeg === 0 ? from : to;
+    const destination = activeLeg === 0 ? to : from;
+    const date = activeLeg === 0 ? departure : returnDate;
 
-    // Regreso (solo si existe returnDate)
-    if (activeLeg === 1 && returnDate) {
-      search({
-        origin: to,
-        destination: from,
-        departure_date: returnDate,
-        passengers: passengerCount,
-      });
-    }
+    // si está en tab regreso pero no hay return, no dispares
+    if (!date) return;
+
+    const requestKey = `${origin.toUpperCase()}-${destination.toUpperCase()}-${date}-p${passengerCount}`;
+
+    if (lastRequestKeyRef.current === requestKey) return;
+    lastRequestKeyRef.current = requestKey;
+
+    void search({
+      origin,
+      destination,
+      departure_date: date,
+      passengers: passengerCount,
+    });
   }, [activeLeg, from, to, departure, returnDate, passengerCount, search]);
 
-  // ✅ Mapeo a FlightOffer para UI usando el mapper (soporta segmentos reales si viene raw)
   const flights: FlightOffer[] = useMemo(() => {
-    useEffect(() => {
-  const first = results?.[0];
-  if (!first) return;
-
-  console.log("FIRST RESULT KEYS:", Object.keys(first));
-  console.log("raw exists?", Boolean((first as any).raw));
-  console.log("raw segments len:", (first as any)?.raw?.slices?.[0]?.segments?.length);
-  console.log("stops exists?", Array.isArray((first as any).stops), "len:", (first as any)?.stops?.length);
-}, [results]);
-
-    return results.map(mapApiFlightToOffer);
+    return Array.isArray(results) ? results.map(mapApiFlightToOffer) : [];
   }, [results]);
 
-  // ✅ Por ahora no aplicamos filtros (evita romper). Luego lo conectamos con `filters`.
-  const filteredFlights = flights;
+  // ✅ aplica filtros básicos para que `filters` no quede unused
+  const filteredFlights: FlightOffer[] = useMemo(() => {
+    const min = Number(filters.priceRange.min ?? 0);
+    const max = Number(filters.priceRange.max ?? Number.MAX_SAFE_INTEGER);
+    const allowedAirlines = new Set(filters.airlines.map((a) => a.toUpperCase()));
+    const maxStops = toStopsCountFilter(filters.stops);
+
+    return flights.filter((f) => {
+      const priceOk = typeof f.price === 'number' ? f.price >= min && f.price <= max : true;
+
+      const airlineCode = (f.airline_code ?? '').toUpperCase();
+      const airlineOk = allowedAirlines.size ? allowedAirlines.has(airlineCode) : true;
+
+      const stopsCount =
+        typeof f.stops_count === 'number'
+          ? f.stops_count
+          : Array.isArray(f.stops)
+            ? f.stops.length
+            : 0;
+
+      const stopsOk = maxStops == null ? true : stopsCount <= maxStops;
+
+      return priceOk && airlineOk && stopsOk;
+    });
+  }, [flights, filters]);
 
   return (
     <>
       <Navbar />
       <main className="pt-[72px]">
-        {/* Form arriba */}
         <section className="bg-white py-12">
           <div className="mx-auto max-w-6xl px-6">
             <FlightSearchForm />
           </div>
         </section>
 
-        {/* Resultados */}
         <section className="bg-neutral-50 py-12">
           <div className="mx-auto max-w-6xl px-6">
-            <h2 className="mb-6 text-3xl font-extrabold text-[#0F2545]">
-              Resultados de Búsqueda
-            </h2>
+            <h2 className="mb-6 text-3xl font-extrabold text-[#0F2545]">Resultados de Búsqueda</h2>
 
-            {/* Tabs Ida/Regreso */}
             {legs.length > 0 && (
               <FlightLegTabs legs={legs} activeLeg={activeLeg} onLegChange={setActiveLeg} />
             )}
 
-            {/* Layout: filtros izquierda + lista derecha */}
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
               <div className="lg:col-span-4">
                 <FlightFilters onFilterChange={setFilters} />
