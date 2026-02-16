@@ -6,6 +6,7 @@ import type {
 
 import { agencyInventoryProvider } from '@/lib/flights/providers/agencyInventoryProvider';
 import { externalStubProvider } from '@/lib/flights/providers/externalStubProvider';
+import { skyScrapperProvider } from '@/lib/flights/providers/skyScrapperProvider';
 
 const TARGET_RESULTS_PER_LEG = 20;
 
@@ -156,8 +157,9 @@ function sortFlightsAgencyFirst(a: Flight, b: Flight): number {
   const sourcePriority: Record<string, number> = {
     agency: 1,
     'agency-inventory': 1,
+    'sky-scrapper': 2,
     external: 2,
-    'external-stub': 2,
+    'external-stub': 3,
   };
 
   const aRec = a as unknown as Record<string, unknown>;
@@ -261,8 +263,14 @@ export const flightsOrchestrator = {
       });
     }
 
-    // Por ahora NO usamos APIs reales. Solo el stub.
-    const externalRes = await externalStubProvider.search(req);
+    let externalRes: ProviderSearchResponse = [];
+    try {
+      externalRes = await skyScrapperProvider.search(req);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[sky-scrapper] failed; fallback to stub:', msg);
+      externalRes = await externalStubProvider.search(req);
+    }
     const externalByLeg = mapByLegIndex(externalRes);
 
     return req.legs.map((_, idx) => {

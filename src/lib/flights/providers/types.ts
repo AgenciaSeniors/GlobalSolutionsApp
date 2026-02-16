@@ -4,6 +4,7 @@ export type Flight = {
   id: string;
   price: number;
   duration: number;
+  raw?: unknown;
   [key: string]: unknown;
 };
 
