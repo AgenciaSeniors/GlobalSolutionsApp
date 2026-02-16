@@ -3,7 +3,6 @@
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-// ✅ IMPORTACIÓN CORREGIDA: Incluimos ArrowLeft y Lock
 import { ArrowLeft, Lock, ShieldCheck } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -30,39 +29,26 @@ export default function LoginForm() {
       if (step === 'credentials') {
         const validation = loginSchema.safeParse(form);
         if (!validation.success) {
-          setServerError("Correo o contraseña inválidos");
-          setIsLoading(false);
-          return;
-        }
-        await authService.signInStepOne(form.email, form.password);
-        setStep('otp'); 
-      } else {
-        const result = await authService.verifyLoginOtp(form.email, otpCode);
-        if (!result.ok) {
-          setServerError('Error al verificar el código.');
+          setServerError('Correo o contraseña inválidos');
           return;
         }
 
-        // OTP verified — now we have two paths to establish a session:
-        if (result.sessionLink) {
-          // Path A: magic link from admin.generateLink — redirects through Supabase
-          window.location.href = result.sessionLink;
-        } else {
-          // Path B: fallback — re-authenticate with password (we know it's valid)
-          // This sets the session cookies directly via the browser client
-          const supabase = (await import('@/lib/supabase/client')).createClient();
-          const { error } = await supabase.auth.signInWithPassword({
-            email: form.email,
-            password: form.password,
-          });
-          if (error) {
-            setServerError('Error al iniciar sesión. Intenta de nuevo.');
-            return;
-          }
-          // Redirect to panel which does role-based routing
-          window.location.href = '/panel';
-        }
+        // ✅ Envía OTP por email (Supabase)
+        await authService.signInStepOne(form.email, form.password);
+        setStep('otp');
+        return;
       }
+
+      // ✅ Verifica OTP (Supabase) y queda logueado en este dispositivo
+      if (otpCode.trim().length !== 6) {
+        setServerError('Ingresa un código de 6 dígitos.');
+        return;
+      }
+
+      await authService.verifyLoginOtp(form.email, otpCode.trim());
+
+      // ✅ Ir a HOME ya logueado
+      window.location.href = '/';
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error en la autenticación';
       setServerError(message);
@@ -93,7 +79,7 @@ export default function LoginForm() {
               type="email"
               placeholder="correo@ejemplo.com"
               value={form.email}
-              onChange={(e) => setForm({...form, email: e.target.value})}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
               required
             />
           </div>
@@ -104,7 +90,7 @@ export default function LoginForm() {
               type="password"
               placeholder="••••••••"
               value={form.password}
-              onChange={(e) => setForm({...form, password: e.target.value})}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
               required
             />
           </div>
@@ -121,18 +107,20 @@ export default function LoginForm() {
         </>
       ) : (
         <div className="space-y-4 animate-in slide-in-from-right-4">
-          <button 
-            type="button" 
-            onClick={() => setStep('credentials')} 
+          <button
+            type="button"
+            onClick={() => setStep('credentials')}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-brand-600"
           >
-            <ArrowLeft className="h-3 w-3" /> {/* 👈 Aquí estaba el error */}
+            <ArrowLeft className="h-3 w-3" />
             Volver
           </button>
-          
+
           <div className="text-center bg-brand-50 rounded-xl p-4 border border-brand-100">
             <Lock className="h-5 w-5 text-brand-600 mx-auto mb-2" />
-            <p className="text-sm text-neutral-600">Código enviado a <b>{form.email}</b></p>
+            <p className="text-sm text-neutral-600">
+              Código enviado a <b>{form.email}</b>
+            </p>
           </div>
 
           <div className="space-y-1">
@@ -155,9 +143,12 @@ export default function LoginForm() {
       </Button>
 
       <p className="text-center text-sm text-neutral-600">
-        ¿No tienes cuenta? <Link href={ROUTES.REGISTER} className="font-semibold text-brand-600 underline">Regístrate</Link>
+        ¿No tienes cuenta?{' '}
+        <Link href={ROUTES.REGISTER} className="font-semibold text-brand-600 underline">
+          Regístrate
+        </Link>
       </p>
-      
+
       <div className="flex items-center justify-center gap-1.5 pt-2 opacity-50">
         <ShieldCheck className="h-3.5 w-3.5" />
         <span className="text-[10px] uppercase tracking-widest font-bold">Secure Auth</span>

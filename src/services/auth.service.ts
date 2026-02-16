@@ -1,56 +1,95 @@
 /**
- * @fileoverview Auth service for server-side authentication operations.
+ * @fileoverview Auth service for client-side authentication operations.
  * @module services/auth.service
  */
 import { createClient } from '@/lib/supabase/client';
 import type { Profile } from '@/types/models';
 
 /**
- * PASO 1: Iniciar sesión con credenciales.
- * Valida la contraseña y dispara el envío del OTP.
+ * LOGIN - PASO 1:
+ * Validar contraseña (opcional) y enviar OTP por email usando Supabase.
+ * Esto asegura que en un dispositivo nuevo siempre pida código.
  */
 async function signInStepOne(email: string, pass: string) {
   const supabase = createClient();
-  
-  // 1. Validamos email y contraseña
+
+  // 1) Validamos email + password (si tú quieres 2 pasos)
   const { error } = await supabase.auth.signInWithPassword({
     email,
     password: pass,
   });
-
   if (error) throw error;
 
-  // 2. Si las credenciales son válidas, disparamos el envío del OTP 
-  const response = await fetch('/api/auth/request-otp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
+  // 2) Cerramos la sesión temporal (no queremos sesión hasta OTP)
+  await supabase.auth.signOut();
+
+  // 3) Enviamos OTP por email (Supabase)
+  const { error: otpErr } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: false, // login: no crear usuario
+    },
   });
 
-  if (!response.ok) {
-    throw new Error('Error al enviar el código de seguridad');
-  }
-
-  // Por seguridad, cerramos la sesión temporal. 
-  await supabase.auth.signOut();
+  if (otpErr) throw otpErr;
 
   return { success: true, message: 'OTP_SENT' };
 }
 
 /**
- * PASO 2: Verificar el código de 6 dígitos.
+ * LOGIN - PASO 2:
+ * Verificar el código de 6 dígitos que llega por EMAIL y crear sesión.
  */
 async function verifyLoginOtp(email: string, code: string) {
-  const response = await fetch('/api/auth/verify-otp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, code }),
+  const supabase = createClient();
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token: code,
+    type: 'email',
   });
 
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Código inválido');
+  if (error) throw error;
 
-  return result;
+  return { ok: true, session: data.session };
+}
+
+/**
+ * SIGNUP - PASO 1:
+ * Crear usuario (manda confirmación por email si tienes "Confirm email" activo).
+ */
+async function signUpStepOne(email: string, password: string, fullName: string) {
+  const supabase = createClient();
+
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { full_name: fullName, role: 'client' },
+    },
+  });
+
+  if (error) throw error;
+
+  return { ok: true, message: 'OTP_SENT' };
+}
+
+/**
+ * SIGNUP - PASO 2:
+ * Verificar OTP de signup (código del email) y crear sesión.
+ */
+async function verifySignupOtp(email: string, code: string) {
+  const supabase = createClient();
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token: code,
+    type: 'signup',
+  });
+
+  if (error) throw error;
+
+  return { ok: true, session: data.session };
 }
 
 /**
@@ -87,7 +126,7 @@ async function updateProfile(updates: Partial<Pick<Profile, 'full_name' | 'phone
 }
 
 /**
- * CERRAR SESIÓN (Agregado para el Sidebar)
+ * Cerrar sesión
  */
 async function signOut() {
   const supabase = createClient();
@@ -95,11 +134,19 @@ async function signOut() {
   if (error) throw error;
 }
 
-// Exportamos todas las funciones juntas
-export const authService = { 
-  signInStepOne, 
-  verifyLoginOtp, 
-  getCurrentProfile, 
+export const authService = {
+  // login (password + OTP)
+  signInStepOne,
+  verifyLoginOtp,
+
+  // signup (confirmación por OTP)
+  signUpStepOne,
+  verifySignupOtp,
+
+  // profile
+  getCurrentProfile,
   updateProfile,
-  signOut // <-- Incluida en el export
+
+  // logout
+  signOut,
 };
