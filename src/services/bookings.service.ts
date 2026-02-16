@@ -35,20 +35,24 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
 
   // 2. Crear la Reserva (Booking Header)
   const { data: booking, error: bookingErr } = await supabase
-    .from('bookings')
-    .insert({
-      booking_code: generateBookingCode(),
-      user_id: user.id,
-      flight_id: payload.flight_id,
-      subtotal,
-      total_amount: totalAmount,
-      booking_status: 'pending',
-      payment_status: 'pending'
-    })
-    .select()
-    .single();
+  .from('bookings')
+  .insert({
+    booking_code: generateBookingCode(),
+    user_id: user.id,
+    flight_id: payload.flight_id,
+    subtotal,
+    payment_gateway_fee: 0,          // 👈 agrega
+    total_amount: totalAmount,
+    payment_method: 'stripe',        // 👈 agrega
+    payment_status: 'pending',       // 👈 agrega
+    booking_status: 'pending_emission', // 👈 agrega
+  })
+  .select()
+  .single();
 
-  if (bookingErr || !booking) throw new Error('Error creando la reserva.');
+
+  if (bookingErr || !booking) throw new Error(bookingErr?.message ?? 'Error creando la reserva.');
+
 
   // 3. Insertar Pasajeros con ENCRIPTACIÓN (Módulo 3.2)
   const secretKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

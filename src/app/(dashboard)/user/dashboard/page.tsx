@@ -1,6 +1,3 @@
-/**
- * @fileoverview Client Dashboard — Real-time KPIs, recent bookings, loyalty points.
- */
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -11,7 +8,10 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
-import { CalendarCheck, Plane, Star, Clock, ArrowRight, DollarSign } from 'lucide-react';
+import {
+  CalendarCheck, Plane, Star, Clock, ArrowRight,
+  DollarSign, Sparkles, Trophy,
+} from 'lucide-react';
 
 interface DashboardStats {
   totalBookings: number;
@@ -69,11 +69,11 @@ export default function UserDashboardPage() {
             .select('id, booking_status, payment_status, total_amount')
             .eq('user_id', user.id),
 
-          // ✅ IMPORTANTE: profiles se busca por profiles.user_id (auth uid)
+          // FIX: profiles PK is 'id' (which equals auth.uid()), NOT 'user_id'
           supabase
             .from('profiles')
             .select('loyalty_points')
-            .eq('user_id', user.id)
+            .eq('id', user.id)
             .single(),
 
           supabase.from('reviews').select('id').eq('user_id', user.id),
@@ -102,14 +102,6 @@ export default function UserDashboardPage() {
             .eq('booking_status', 'completed')
             .eq('review_requested', false),
         ]);
-
-      // Logs útiles (podés borrar cuando quede ok)
-      console.log('DASHBOARD auth uid:', user.id);
-      console.log('bookingsRes', bookingsRes.status, bookingsRes.error);
-      console.log('profileRes', profileRes.status, profileRes.error);
-      console.log('reviewsRes', reviewsRes.status, reviewsRes.error);
-      console.log('recentRes', recentRes.status, recentRes.error);
-      console.log('completedNoReviewRes', completedNoReviewRes.status, completedNoReviewRes.error);
 
       const allBookings = bookingsRes.data || [];
       const paidBookings = allBookings.filter((b) => b.payment_status === 'paid');
@@ -156,7 +148,17 @@ export default function UserDashboardPage() {
   };
 
   const formatMoney = (n: number) =>
-    new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n || 0);
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0);
+
+  // Loyalty tier
+  const getLoyaltyTier = (pts: number) => {
+    if (pts >= 5000) return { name: 'Platino', color: 'text-purple-700 bg-purple-100', icon: '💎' };
+    if (pts >= 2000) return { name: 'Oro', color: 'text-amber-700 bg-amber-100', icon: '🥇' };
+    if (pts >= 500) return { name: 'Plata', color: 'text-gray-600 bg-gray-100', icon: '🥈' };
+    return { name: 'Bronce', color: 'text-orange-700 bg-orange-100', icon: '🥉' };
+  };
+
+  const tier = getLoyaltyTier(stats.loyaltyPoints);
 
   return (
     <div className="flex min-h-screen">
@@ -180,82 +182,98 @@ export default function UserDashboardPage() {
             <>
               {/* KPIs */}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <Card className="p-4">
+                <Card className="p-4 border border-gray-100">
                   <div className="flex items-center justify-between">
-                    <div className="text-sm opacity-80">Reservas totales</div>
-                    <Plane size={18} />
+                    <div className="text-sm text-gray-500">Reservas totales</div>
+                    <Plane size={18} className="text-brand-500" />
                   </div>
-                  <div className="mt-2 text-2xl font-semibold">{stats.totalBookings}</div>
+                  <div className="mt-2 text-2xl font-semibold text-navy">{stats.totalBookings}</div>
                 </Card>
 
-                <Card className="p-4">
+                <Card className="p-4 border border-gray-100">
                   <div className="flex items-center justify-between">
-                    <div className="text-sm opacity-80">Activas</div>
-                    <CalendarCheck size={18} />
+                    <div className="text-sm text-gray-500">Activas</div>
+                    <CalendarCheck size={18} className="text-emerald-500" />
                   </div>
-                  <div className="mt-2 text-2xl font-semibold">{stats.activeBookings}</div>
+                  <div className="mt-2 text-2xl font-semibold text-navy">{stats.activeBookings}</div>
                 </Card>
 
-                <Card className="p-4">
+                <Card className="p-4 border border-gray-100">
                   <div className="flex items-center justify-between">
-                    <div className="text-sm opacity-80">Puntos</div>
-                    <Star size={18} />
+                    <div className="text-sm text-gray-500">Total gastado</div>
+                    <DollarSign size={18} className="text-emerald-500" />
                   </div>
-                  <div className="mt-2 text-2xl font-semibold">{stats.loyaltyPoints}</div>
+                  <div className="mt-2 text-2xl font-semibold text-navy">{formatMoney(stats.totalSpent)}</div>
                 </Card>
 
-                <Card className="p-4">
+                {/* Loyalty Points Card */}
+                <Card className="p-4 border border-amber-200 bg-amber-50/30">
                   <div className="flex items-center justify-between">
-                    <div className="text-sm opacity-80">Total gastado</div>
-                    <DollarSign size={18} />
+                    <div className="text-sm text-amber-700 flex items-center gap-1">
+                      <Sparkles size={14} /> Puntos de Lealtad
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${tier.color}`}>
+                      {tier.icon} {tier.name}
+                    </span>
                   </div>
-                  <div className="mt-2 text-2xl font-semibold">{formatMoney(stats.totalSpent)}</div>
+                  <div className="mt-2 text-2xl font-bold text-amber-700">{stats.loyaltyPoints.toLocaleString()} pts</div>
+                  <Link
+                    href="/user/dashboard/loyalty"
+                    className="mt-2 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
+                  >
+                    Ver historial de puntos <ArrowRight size={12} />
+                  </Link>
                 </Card>
               </div>
 
-              {/* Acciones */}
+              {/* Quick Actions */}
               <div className="flex flex-wrap gap-3">
                 <Link
-                  href="/user/bookings"
-                  className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                  href="/user/dashboard/bookings"
+                  className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white px-4 py-2.5 text-sm font-medium text-brand-700 hover:bg-brand-50 transition"
                 >
-                  Ver mis reservas <ArrowRight size={16} />
+                  <Plane size={16} /> Ver mis reservas <ArrowRight size={16} />
                 </Link>
 
-                <div className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                  Pendientes de reseña:{' '}
+                <Link
+                  href="/user/dashboard/reviews"
+                  className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white px-4 py-2.5 text-sm font-medium text-brand-700 hover:bg-brand-50 transition"
+                >
+                  <Star size={16} />
+                  Pendientes de reseña
                   <Badge variant={stats.pendingReviews > 0 ? 'warning' : 'success'}>
                     {stats.pendingReviews}
                   </Badge>
-                </div>
+                </Link>
 
-                <div className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                  Reseñas escritas:{' '}
-                  <Badge variant="info">
-                    {stats.reviewsWritten}
-                  </Badge>
-                </div>
+                <Link
+                  href="/user/dashboard/loyalty"
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-100 transition"
+                >
+                  <Trophy size={16} /> Mis puntos
+                  <Badge variant="offer">{stats.loyaltyPoints}</Badge>
+                </Link>
               </div>
 
-              {/* Recientes */}
-              <Card className="p-4">
+              {/* Recent Bookings */}
+              <Card className="p-4 border border-gray-100">
                 <div className="flex items-center justify-between">
-                  <div className="font-medium">Reservas recientes</div>
-                  <Link href="/user/bookings" className="text-sm underline">
+                  <div className="font-medium text-navy">Reservas recientes</div>
+                  <Link href="/user/dashboard/bookings" className="text-sm text-coral hover:underline">
                     Ver todas
                   </Link>
                 </div>
 
                 {recentBookings.length === 0 ? (
-                  <div className="mt-4 text-sm opacity-80">Aún no tenés reservas recientes.</div>
+                  <div className="mt-4 text-sm text-gray-500">Aún no tenés reservas recientes.</div>
                 ) : (
                   <div className="mt-4 overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="text-left opacity-70">
+                      <thead className="text-left text-gray-500 text-xs">
                         <tr>
                           <th className="py-2 pr-4">Código</th>
+                          <th className="py-2 pr-4">Ruta</th>
                           <th className="py-2 pr-4">Estado</th>
-                          <th className="py-2 pr-4">Pago</th>
                           <th className="py-2 pr-4">Total</th>
                           <th className="py-2 pr-4">PNR</th>
                         </tr>
@@ -267,18 +285,16 @@ export default function UserDashboardPage() {
                             variant: 'info' as const,
                           };
                           return (
-                            <tr key={b.id} className="border-t">
-                              <td className="py-2 pr-4">{b.booking_code}</td>
-                              <td className="py-2 pr-4">
+                            <tr key={b.id} className="border-t border-gray-100">
+                              <td className="py-3 pr-4 font-mono font-bold text-brand-600">{b.booking_code}</td>
+                              <td className="py-3 pr-4 text-gray-600">
+                                {b.flight?.origin_airport?.iata_code || '?'} → {b.flight?.destination_airport?.iata_code || '?'}
+                              </td>
+                              <td className="py-3 pr-4">
                                 <Badge variant={cfg.variant}>{cfg.label}</Badge>
                               </td>
-                              <td className="py-2 pr-4">
-                                <Badge variant={b.payment_status === 'paid' ? 'success' : 'warning'}>
-                                  {b.payment_status}
-                                </Badge>
-                              </td>
-                              <td className="py-2 pr-4">{formatMoney(Number(b.total_amount) || 0)}</td>
-                              <td className="py-2 pr-4">{b.airline_pnr ?? '-'}</td>
+                              <td className="py-3 pr-4">{formatMoney(Number(b.total_amount) || 0)}</td>
+                              <td className="py-3 pr-4 font-mono">{b.airline_pnr ?? '—'}</td>
                             </tr>
                           );
                         })}
