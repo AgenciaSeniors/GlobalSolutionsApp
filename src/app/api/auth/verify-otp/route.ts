@@ -69,7 +69,7 @@ export async function POST(req: Request) {
     // 4) Marcar como verificado en DB
     await supabaseAdmin
       .from('auth_otps')
-      .update({ used_at: now.toISOString(), verified_at: now.toISOString() })
+      .update({ verified_at: now.toISOString() })
       .eq('id', otpRow.id);
 
     // 5) Generar link de sesión con Supabase

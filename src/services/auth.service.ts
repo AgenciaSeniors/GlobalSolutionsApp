@@ -13,7 +13,7 @@ import type { Profile } from '@/types/models';
 async function signInStepOne(email: string, pass: string) {
   const supabase = createClient();
 
-  // 1) Validamos email + password (si tú quieres 2 pasos)
+  // 1) Validar email + password (login clásico)
   const { error } = await supabase.auth.signInWithPassword({
     email,
     password: pass,
@@ -23,15 +23,15 @@ async function signInStepOne(email: string, pass: string) {
   // 2) Cerramos la sesión temporal (no queremos sesión hasta OTP)
   await supabase.auth.signOut();
 
-  // 3) Enviamos OTP por email (Supabase)
-  const { error: otpErr } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      shouldCreateUser: false, // login: no crear usuario
-    },
+  // 3) Enviamos OTP por email (Resend) vía nuestro endpoint
+  const res = await fetch('/api/auth/request-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
   });
 
-  if (otpErr) throw otpErr;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error ?? 'No se pudo enviar el código.');
 
   return { success: true, message: 'OTP_SENT' };
 }
@@ -41,17 +41,17 @@ async function signInStepOne(email: string, pass: string) {
  * Verificar el código de 6 dígitos que llega por EMAIL y crear sesión.
  */
 async function verifyLoginOtp(email: string, code: string) {
-  const supabase = createClient();
-
-  const { data, error } = await supabase.auth.verifyOtp({
-    email,
-    token: code,
-    type: 'email',
+  const res = await fetch('/api/auth/verify-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code }),
   });
 
-  if (error) throw error;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error ?? 'No se pudo verificar el código.');
 
-  return { ok: true, session: data.session };
+  // El backend devuelve sessionLink (magiclink) para que Supabase guarde la sesión por redirect
+  return data as { ok: true; verified: true; sessionLink: string | null };
 }
 
 /**
