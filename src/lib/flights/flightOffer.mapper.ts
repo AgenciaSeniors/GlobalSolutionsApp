@@ -224,5 +224,11 @@ export function mapApiFlightToOffer(f: any): FlightOffer {
     segments,
     totalDuration,
     type: "oneway",
+    // Filter-friendly fields
+    airline_code: airlineCode || undefined,
+    stops_count: Math.max(0, segments.length - 1),
+    stops: Array.isArray(f?.stops) ? f.stops : undefined,
+    is_exclusive_offer: Boolean(f?.is_exclusive_offer),
+    provider: String(f?.provider ?? f?.offerSource ?? ""),
   };
 }

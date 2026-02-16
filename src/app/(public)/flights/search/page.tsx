@@ -22,18 +22,12 @@ type FilterState = {
 };
 
 function toStopsCountFilter(stops: string[]): number | null {
-  // stops UI suele mandar: ["direct", "1stop", "2stops"] (según tu componente)
-  // aquí hacemos “máximo” permitido:
-  // - si incluye "direct" => maxStops = 0
-  // - si incluye "1stop" => maxStops = 1
-  // - si incluye "2stops" => maxStops = 2
   if (!stops.length) return null;
 
   const hasDirect = stops.includes('direct');
   const has1 = stops.includes('1stop') || stops.includes('1');
   const has2 = stops.includes('2stops') || stops.includes('2') || stops.includes('2plus');
 
-  // si el usuario marca varios, tomamos el más “permisivo”
   if (has2) return 2;
   if (has1) return 1;
   if (hasDirect) return 0;
@@ -68,8 +62,8 @@ export default function FlightSearchResultsPage() {
     return base.filter((l) => l.origin && l.destination && l.date);
   }, [from, to, departure, returnDate]);
 
-  // ✅ anti-loop: si el effect corre varias veces (StrictMode/dev), no spamear
-  const lastRequestKeyRef = useRef<string | null>(null);
+  // Single-fire guard: build a stable request key and only fire when it changes
+  const lastFiredKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!from || !to || !departure) return;
@@ -78,13 +72,14 @@ export default function FlightSearchResultsPage() {
     const destination = activeLeg === 0 ? to : from;
     const date = activeLeg === 0 ? departure : returnDate;
 
-    // si está en tab regreso pero no hay return, no dispares
+    // If on return tab but no return date, don't search
     if (!date) return;
 
     const requestKey = `${origin.toUpperCase()}-${destination.toUpperCase()}-${date}-p${passengerCount}`;
 
-    if (lastRequestKeyRef.current === requestKey) return;
-    lastRequestKeyRef.current = requestKey;
+    // Strict dedup: only fire if key actually changed
+    if (lastFiredKeyRef.current === requestKey) return;
+    lastFiredKeyRef.current = requestKey;
 
     void search({
       origin,
@@ -98,7 +93,7 @@ export default function FlightSearchResultsPage() {
     return Array.isArray(results) ? results.map(mapApiFlightToOffer) : [];
   }, [results]);
 
-  // ✅ aplica filtros básicos para que `filters` no quede unused
+  // Apply client-side filters
   const filteredFlights: FlightOffer[] = useMemo(() => {
     const min = Number(filters.priceRange.min ?? 0);
     const max = Number(filters.priceRange.max ?? Number.MAX_SAFE_INTEGER);

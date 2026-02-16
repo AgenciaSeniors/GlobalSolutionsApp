@@ -49,38 +49,53 @@ export function useFlightSearch(initialParams?: FlightSearchParams | null): UseF
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // evita spam por re-renders/strict-mode
+  // Prevent duplicate calls from StrictMode / re-renders
   const lastKeyRef = useRef<string | null>(null);
   const inFlightRef = useRef<boolean>(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const search = useCallback(async (params: FlightSearchParams): Promise<void> => {
     const key = stableRequestKey(params);
 
-    // ✅ dedupe: si es el mismo requestKey, no repitas
-    if (lastKeyRef.current === key) return;
+    // Dedupe: same request key = skip
+    if (lastKeyRef.current === key && !error) return;
 
-    // ✅ evita disparos paralelos si hay un request en vuelo
-    if (inFlightRef.current) return;
+    // Cancel any in-flight request
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
 
     lastKeyRef.current = key;
     inFlightRef.current = true;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setIsLoading(true);
     setError(null);
 
     try {
       const data = await flightsService.search(params);
+
+      // If this request was aborted while in flight, discard
+      if (controller.signal.aborted) return;
+
       setResults(Array.isArray(data) ? data : []);
     } catch (e: unknown) {
+      if (controller.signal.aborted) return;
+
       const msg = e instanceof Error ? e.message : 'Error buscando vuelos';
       setError(msg);
       setResults([]);
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
+      }
       inFlightRef.current = false;
     }
-  }, []);
+  }, [error]);
 
+  // Auto-search with initial params
   const initialKey = useMemo(() => {
     if (!initialParams) return null;
     return stableRequestKey(initialParams);
@@ -88,12 +103,19 @@ export function useFlightSearch(initialParams?: FlightSearchParams | null): UseF
 
   useEffect(() => {
     if (!initialParams) return;
-
-    // evita re-llamar initial si ya lo hicimos
     if (initialKey && lastKeyRef.current === initialKey) return;
 
     void search(initialParams);
   }, [initialParams, initialKey, search]);
+
+  // Cleanup abort on unmount
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+    };
+  }, []);
 
   return { results, isLoading, error, search };
 }

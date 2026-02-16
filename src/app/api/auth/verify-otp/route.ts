@@ -73,10 +73,14 @@ export async function POST(req: Request) {
       .eq('id', otpRow.id);
 
     // 5) Generar link de sesión con Supabase
+    // IMPORTANT: redirectTo must point to a route that EXISTS and can 
+    // process the auth session. /auth/callback handles the PKCE code exchange.
+    // If Supabase sends hash fragments instead, /panel will pick them up
+    // via the browser client's detectSessionInUrl.
     const { data, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
       type: 'magiclink',
       email: normalizedEmail,
-      options: { redirectTo: '/dashboard' },
+      options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/auth/callback?next=/panel` },
     });
 
     if (linkErr) throw linkErr;

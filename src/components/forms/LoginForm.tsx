@@ -38,15 +38,32 @@ export default function LoginForm() {
         setStep('otp'); 
       } else {
         const result = await authService.verifyLoginOtp(form.email, otpCode);
-        if (result.ok && result.sessionLink) {
-          // Redirección forzada para inyectar cookies
+        if (!result.ok) {
+          setServerError('Error al verificar el código.');
+          return;
+        }
+
+        // OTP verified — now we have two paths to establish a session:
+        if (result.sessionLink) {
+          // Path A: magic link from admin.generateLink — redirects through Supabase
           window.location.href = result.sessionLink;
         } else {
-          setServerError('Error al verificar el código.');
+          // Path B: fallback — re-authenticate with password (we know it's valid)
+          // This sets the session cookies directly via the browser client
+          const supabase = (await import('@/lib/supabase/client')).createClient();
+          const { error } = await supabase.auth.signInWithPassword({
+            email: form.email,
+            password: form.password,
+          });
+          if (error) {
+            setServerError('Error al iniciar sesión. Intenta de nuevo.');
+            return;
+          }
+          // Redirect to panel which does role-based routing
+          window.location.href = '/panel';
         }
       }
     } catch (err: unknown) {
-      // ✅ MANEJO DE ERROR SIN 'ANY'
       const message = err instanceof Error ? err.message : 'Error en la autenticación';
       setServerError(message);
     } finally {

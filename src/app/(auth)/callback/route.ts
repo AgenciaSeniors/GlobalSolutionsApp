@@ -1,7 +1,12 @@
 /**
- * @fileoverview Auth callback handler.
- * Supabase redirects here after email confirmation / magic link / OAuth.
- * Exchanges the auth code for a session and redirects to the appropriate page.
+ * @fileoverview Auth callback handler (duplicate under (auth) group).
+ * Supabase redirects here after email confirmation, magic link, or OAuth.
+ *
+ * Handles TWO flows:
+ *   1. PKCE flow  → ?code=...        → exchangeCodeForSession
+ *   2. Magic link → ?token_hash=...&type=magiclink → verifyOtp
+ *
+ * After successful session creation, redirects to `?next=` or /panel.
  */
 import { NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
@@ -10,39 +15,52 @@ import { cookies } from 'next/headers';
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/login?confirmed=true';
+  const tokenHash = searchParams.get('token_hash');
+  const type = searchParams.get('type');
+  const next = searchParams.get('next') ?? '/panel';
 
-  if (code) {
-    const cookieStore = cookies();
+  const cookieStore = cookies();
 
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options),
-              );
-            } catch {
-              // Ignore — setAll can fail in read-only context
-            }
-          },
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options),
+            );
+          } catch {
+            // setAll can fail in read-only context
+          }
         },
       },
-    );
+    },
+  );
 
+  let authError: Error | null = null;
+
+  if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-    if (!error) {
-      return NextResponse.redirect(new URL(next, origin));
-    }
+    authError = error;
+  } else if (tokenHash && type) {
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: type as 'magiclink' | 'signup' | 'recovery' | 'email',
+    });
+    authError = error;
+  } else {
+    return NextResponse.redirect(new URL('/login?error=missing_params', origin));
   }
 
-  // If no code or exchange failed, redirect to login
+  if (!authError) {
+    return NextResponse.redirect(new URL(next, origin));
+  }
+
+  console.error('[auth/callback] Error:', authError.message);
   return NextResponse.redirect(new URL('/login?error=auth', origin));
 }

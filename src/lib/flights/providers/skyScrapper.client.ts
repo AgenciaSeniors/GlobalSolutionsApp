@@ -35,7 +35,7 @@ export class SkyScrapperClient {
   async get(pathAndQuery: string): Promise<JsonValue> {
     const url = `${this.baseUrl}${pathAndQuery}`;
 
-    console.log("SkyScrapper CALL:", url);
+    console.log("SkyScrapper CALL:", url.split("?")[0]);
 
     const res = await fetch(url, {
       method: "GET",
@@ -44,14 +44,14 @@ export class SkyScrapperClient {
 
     const text = await res.text();
 
-    console.log("SkyScrapper STATUS:", res.status);
-    console.log("SkyScrapper BODY:", text.slice(0, 400));
-
     if (!res.ok) {
+      console.warn("SkyScrapper ERROR:", res.status, text.slice(0, 150));
       throw new Error(
         `SkyScrapper HTTP ${res.status}`
       );
     }
+
+    console.log("SkyScrapper OK:", res.status);
 
     try {
       return JSON.parse(text) as JsonValue;
