@@ -2,7 +2,7 @@
  * @fileoverview Service layer for booking CRUD operations.
  * @module services/bookings.service
  */
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/server';
 import type { CreateBookingPayload } from '@/types/api.types';
 import type { Booking } from '@/types/models';
 
@@ -12,11 +12,13 @@ function generateBookingCode(): string {
 }
 
 async function create(payload: CreateBookingPayload): Promise<Booking> {
-  const supabase = createClient();
+  // CORRECCIÓN: Añadido 'await' porque createClient en el servidor es una Promesa
+  const supabase = await createClient();
+  
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Debes iniciar sesión para reservar.');
 
-  // Fetch flight price
+  // 1. Validar Vuelo y Disponibilidad
   const { data: flight, error: flightErr } = await supabase
     .from('flights')
     .select('final_price, available_seats')
@@ -29,9 +31,9 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
   }
 
   const subtotal = flight.final_price * payload.passengers.length;
-  const totalAmount = subtotal; // gateway fee added during payment
+  const totalAmount = subtotal; 
 
-  // Insert booking
+  // 2. Crear la Reserva (Booking Header)
   const { data: booking, error: bookingErr } = await supabase
   .from('bookings')
   .insert({
@@ -52,32 +54,49 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
   if (bookingErr || !booking) throw new Error(bookingErr?.message ?? 'Error creando la reserva.');
 
 
-  // Insert passengers (passport encrypted via DB function)
-  const passengers = payload.passengers.map((p) => ({
-    booking_id: booking.id,
-    first_name: p.first_name,
-    last_name: p.last_name,
-    date_of_birth: p.date_of_birth,
-    nationality: p.nationality,
-    passport_number: p.passport_number, // Will be encrypted by RPC in production
-    passport_expiry_date: p.passport_expiry_date,
-  }));
+  // 3. Insertar Pasajeros con ENCRIPTACIÓN (Módulo 3.2)
+  const secretKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const { error: paxErr } = await supabase
-    .from('booking_passengers')
-    .insert(passengers);
+  if (!secretKey) {
+    console.error('❌ CRITICAL ERROR: SUPABASE_SERVICE_ROLE_KEY faltante en .env.local');
+    // Borramos la reserva huérfana para no dejar basura en la DB
+    await supabase.from('bookings').delete().eq('id', booking.id);
+    throw new Error('Error interno de seguridad: Llave de encriptación no configurada.');
+  }
 
-  if (paxErr) throw new Error(paxErr.message);
+  // Iteramos cada pasajero para encriptarlo individualmente usando la función de DB
+  for (const p of payload.passengers) {
+    const { error: rpcError } = await supabase.rpc('insert_encrypted_passenger', {
+      p_booking_id: booking.id,
+      p_first_name: p.first_name,
+      p_last_name: p.last_name,
+      p_date_of_birth: p.date_of_birth,
+      p_nationality: p.nationality,
+      p_passport_number: p.passport_number, // El dato sensible
+      p_passport_expiry_date: p.passport_expiry_date,
+      p_secret_key: secretKey
+    });
+
+    if (rpcError) {
+      console.error('⚠️ Error guardando pasajero encriptado:', rpcError.message);
+      throw new Error('Error guardando datos protegidos de los pasajeros.');
+    }
+  }
 
   return booking as Booking;
 }
 
 async function listForCurrentUser(): Promise<Booking[]> {
-  const supabase = createClient();
+  // CORRECCIÓN: Añadido 'await'
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return [];
 
   const { data, error } = await supabase
     .from('bookings')
     .select('*')
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -85,7 +104,8 @@ async function listForCurrentUser(): Promise<Booking[]> {
 }
 
 async function getById(id: string): Promise<Booking | null> {
-  const supabase = createClient();
+  // CORRECCIÓN: Añadido 'await'
+  const supabase = await createClient();
 
   const { data, error } = await supabase
     .from('bookings')
