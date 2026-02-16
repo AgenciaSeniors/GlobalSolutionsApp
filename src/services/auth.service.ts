@@ -1,63 +1,90 @@
+import { createClient } from "@/lib/supabase/client";
+import type { Profile } from "@/types/models";
+
+const TRUSTED_DEVICE_KEY = "gst_trusted_device_v1";
+
 /**
- * @fileoverview Auth service for client-side authentication operations.
- * @module services/auth.service
+ * Devuelve true si este dispositivo ya fue "confiado" (no pedir OTP).
+ * Nota: esto es por dispositivo/navegador (localStorage).
  */
-import { createClient } from '@/lib/supabase/client';
-import type { Profile } from '@/types/models';
+function isTrustedDevice(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(TRUSTED_DEVICE_KEY) === "1";
+}
+
+function markTrustedDevice() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TRUSTED_DEVICE_KEY, "1");
+}
 
 /**
  * LOGIN - PASO 1:
- * Validar contraseña (opcional) y enviar OTP por email usando Supabase.
- * Esto asegura que en un dispositivo nuevo siempre pida código.
+ * - Si ya hay sesión: no hacer nada (no pedir OTP).
+ * - Si el dispositivo es confiable: login normal (password) y listo.
+ * - Si es dispositivo nuevo: validar password y pedir OTP (Resend) SIN dejar sesión activa.
  */
 async function signInStepOne(email: string, pass: string) {
   const supabase = createClient();
 
-  // 1) Validar email + password (login clásico)
+  // ✅ Si ya hay sesión, NO pedir login/OTP
+  const {
+    data: { user: existingUser },
+  } = await supabase.auth.getUser();
+  if (existingUser) {
+    return { success: true, message: "ALREADY_AUTHENTICATED" };
+  }
+
+  // Si este dispositivo ya se confió, hacemos login normal y listo
+  if (isTrustedDevice()) {
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+    return { success: true, message: "SIGNED_IN_TRUSTED_DEVICE" };
+  }
+
+  // Dispositivo NUEVO: validamos password y forzamos OTP
   const { error } = await supabase.auth.signInWithPassword({
     email,
     password: pass,
   });
   if (error) throw error;
 
-  // 2) Cerramos la sesión temporal (no queremos sesión hasta OTP)
+  // ✅ Importante: cerramos sesión para que NO quede autenticado hasta OTP
   await supabase.auth.signOut();
 
-  // 3) Enviamos OTP por email (Resend) vía nuestro endpoint
-  const res = await fetch('/api/auth/request-otp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  // Pedimos OTP por Resend vía endpoint
+  const res = await fetch("/api/auth/request-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error ?? 'No se pudo enviar el código.');
+  if (!res.ok) throw new Error(data?.error ?? "No se pudo enviar el código.");
 
-  return { success: true, message: 'OTP_SENT' };
+  return { success: true, message: "OTP_SENT" };
 }
 
 /**
- * LOGIN - PASO 2:
- * Verificar el código de 6 dígitos que llega por EMAIL y crear sesión.
+ * LOGIN - PASO 2 (solo para dispositivo nuevo):
+ * Verifica OTP y devuelve sessionLink (magic link).
+ * Marcamos el dispositivo como confiable para que la próxima vez NO pida OTP.
  */
 async function verifyLoginOtp(email: string, code: string) {
-  const res = await fetch('/api/auth/verify-otp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const res = await fetch("/api/auth/verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, code }),
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error ?? 'No se pudo verificar el código.');
+  if (!res.ok) throw new Error(data?.error ?? "No se pudo verificar el código.");
 
-  // El backend devuelve sessionLink (magiclink) para que Supabase guarde la sesión por redirect
+  // ✅ Al verificar OTP por primera vez, confiamos este dispositivo
+  markTrustedDevice();
+
   return data as { ok: true; verified: true; sessionLink: string | null };
 }
 
-/**
- * SIGNUP - PASO 1:
- * Crear usuario (manda confirmación por email si tienes "Confirm email" activo).
- */
 async function signUpStepOne(email: string, password: string, fullName: string) {
   const supabase = createClient();
 
@@ -65,69 +92,55 @@ async function signUpStepOne(email: string, password: string, fullName: string) 
     email,
     password,
     options: {
-      data: { full_name: fullName, role: 'client' },
+      data: { full_name: fullName, role: "client" },
     },
   });
 
   if (error) throw error;
-
-  return { ok: true, message: 'OTP_SENT' };
+  return { ok: true, message: "OTP_SENT" };
 }
 
-/**
- * SIGNUP - PASO 2:
- * Verificar OTP de signup (código del email) y crear sesión.
- */
 async function verifySignupOtp(email: string, code: string) {
   const supabase = createClient();
 
   const { data, error } = await supabase.auth.verifyOtp({
     email,
     token: code,
-    type: 'signup',
+    type: "signup",
   });
 
   if (error) throw error;
 
+  // Si signup quedó autenticado en este dispositivo, lo marcamos también
+  markTrustedDevice();
+
   return { ok: true, session: data.session };
 }
 
-/**
- * Obtener el perfil del usuario actual.
- */
 async function getCurrentProfile(): Promise<Profile | null> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
-
-  return data as Profile | null;
+  const { data } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+  return (data as Profile) ?? null;
 }
 
-/**
- * Actualizar datos del perfil.
- */
-async function updateProfile(updates: Partial<Pick<Profile, 'full_name' | 'phone' | 'avatar_url'>>) {
+async function updateProfile(
+  updates: Partial<Pick<Profile, "full_name" | "phone" | "avatar_url">>
+) {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('No autenticado');
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("No autenticado");
 
-  const { error } = await supabase
-    .from('profiles')
-    .update(updates)
-    .eq('id', user.id);
-
+  const { error } = await supabase.from("profiles").update(updates).eq("id", user.id);
   if (error) throw error;
 }
 
-/**
- * Cerrar sesión
- */
 async function signOut() {
   const supabase = createClient();
   const { error } = await supabase.auth.signOut();
@@ -135,18 +148,11 @@ async function signOut() {
 }
 
 export const authService = {
-  // login (password + OTP)
   signInStepOne,
   verifyLoginOtp,
-
-  // signup (confirmación por OTP)
   signUpStepOne,
   verifySignupOtp,
-
-  // profile
   getCurrentProfile,
   updateProfile,
-
-  // logout
   signOut,
 };

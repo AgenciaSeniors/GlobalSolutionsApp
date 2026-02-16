@@ -7,7 +7,7 @@
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Global Solutions Travel <noreply@globalsolutionstravel.com>';
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Global Solutions Travel <onboarding@resend.dev>';
 
 export interface SendEmailOptions {
   to: string | string[];
