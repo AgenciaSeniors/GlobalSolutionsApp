@@ -7,36 +7,37 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { BookingVoucherDocument, type VoucherBooking } from '@/lib/pdf/bookingVoucher';
 
 export const runtime = 'nodejs';
-function isUuid(v: string) {
+
+function isUuid(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const bookingId = searchParams.get('booking_id');
+    // Back-compat: accept ?id= OR ?booking_id=
+    const { searchParams } = new URL(request.url);
+    const bookingId = searchParams.get('booking_id') ?? searchParams.get('id');
 
     if (!bookingId) {
-      return NextResponse.json({ error: 'booking_id is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Falta el ID de reserva' }, { status: 400 });
+    }
+    if (!isUuid(bookingId)) {
+      return NextResponse.json({ error: 'Invalid booking id format' }, { status: 400 });
     }
 
-    if (!isUuid(bookingId)) {
-  return NextResponse.json({ error: 'Invalid booking_id format' }, { status: 400 });
-}
-
-
-    // 1) Require auth
+    // 1) Auth required
     const supabase = await createClient();
     const { data: authData, error: authError } = await supabase.auth.getUser();
     const user = authData?.user;
 
     if (authError || !user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+      return NextResponse.json({ error: 'No autorizado. Inicia sesión.' }, { status: 401 });
     }
 
+    // 2) Admin client for complex relations (RLS bypass). We MUST check permissions ourselves.
     const supabaseAdmin = createAdminClient();
 
-    // 2) Requester role
+    // Optional: determine role to allow admins to view any voucher
     const { data: requesterProfile } = await supabaseAdmin
       .from('profiles')
       .select('role')
@@ -44,57 +45,39 @@ export async function GET(req: NextRequest) {
       .single();
 
     const requesterRole = requesterProfile?.role ?? 'client';
+    const isAdmin = requesterRole === 'admin';
 
     // 3) Fetch booking + relations
-    const isPrivileged = requesterRole === 'admin' || requesterRole === 'agent';
-
-// 🔒 Query base
-let bookingQuery = supabaseAdmin
-  .from('bookings')
-  .select(
-    `
-      id,
-      user_id,
-      booking_code,
-      airline_pnr,
-      booking_status,
-      payment_status,
-      payment_method,
-      subtotal,
-      payment_gateway_fee,
-      total_amount,
-      profile:profiles!user_id(full_name, email),
-      flight:flights(
-        flight_number,
-        departure_datetime,
-        arrival_datetime,
-        aircraft_type,
-        airline:airlines(name, iata_code),
-        origin_airport:airports!flights_origin_airport_id_fkey(iata_code, name, city),
-        destination_airport:airports!flights_destination_airport_id_fkey(iata_code, name, city)
-      ),
-      passengers:booking_passengers(first_name, last_name, nationality, ticket_number)
-    `
-  )
-  .eq('id', bookingId);
-
-// 🔒 Si NO es admin/agent, solo permite reservas del mismo usuario
-if (!isPrivileged) {
-  bookingQuery = bookingQuery.eq('user_id', user.id);
-}
-
-const { data: booking, error: bookingError } = await bookingQuery.single();
-
-if (bookingError || !booking) {
-  return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
-}
-
+    const { data: booking, error: bookingError } = await supabaseAdmin
+      .from('bookings')
+      .select(`
+        *,
+        profile:profiles!user_id(full_name, email),
+        flight:flights(
+          flight_number, departure_datetime, arrival_datetime, aircraft_type,
+          airline:airlines(name, iata_code),
+          origin_airport:airports!origin_airport_id(iata_code, name, city),
+          destination_airport:airports!destination_airport_id(iata_code, name, city)
+        ),
+        passengers:booking_passengers(first_name, last_name, ticket_number, nationality)
+      `)
+      .eq('id', bookingId)
+      .single();
 
     if (bookingError || !booking) {
-      return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Reserva no encontrada' }, { status: 404 });
     }
 
-    // 4) Normalize embedded rows (Supabase can return arrays)
+    // 4) SECURITY (IDOR): allow if owner or assigned agent, or admin role
+    const isOwner = booking.user_id === user.id;
+    const isAgent = booking.assigned_agent_id === user.id;
+
+    if (!isAdmin && !isOwner && !isAgent) {
+      console.warn(`[SECURITY] Unauthorized PDF access attempt booking=${bookingId} user=${user.id}`);
+      return NextResponse.json({ error: 'Prohibido: No tienes permiso para ver esta reserva.' }, { status: 403 });
+    }
+
+    // 5) Normalize embedded rows (Supabase can return arrays)
     const profileRow = Array.isArray(booking.profile) ? booking.profile[0] : booking.profile;
 
     const flightRow = Array.isArray(booking.flight) ? booking.flight[0] : booking.flight;
@@ -108,9 +91,7 @@ if (bookingError || !booking) {
       : null;
 
     const destinationRow = flightRow
-      ? (Array.isArray(flightRow.destination_airport)
-          ? flightRow.destination_airport[0]
-          : flightRow.destination_airport)
+      ? (Array.isArray(flightRow.destination_airport) ? flightRow.destination_airport[0] : flightRow.destination_airport)
       : null;
 
     const normalizedFlight = flightRow
@@ -139,10 +120,8 @@ if (bookingError || !booking) {
       passengers: (booking.passengers ?? []) as any,
     };
 
-    // 5) Generate PDF
+    // 6) Generate PDF (binary)
     const doc = React.createElement(BookingVoucherDocument as any, { booking: voucherBooking });
-
-    // toBuffer() a veces queda tipado como Uint8Array -> lo normalizamos a Buffer
     const raw = await (pdf(doc as any) as any).toBuffer();
     const body = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
 
@@ -150,7 +129,7 @@ if (bookingError || !booking) {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="voucher-${booking.booking_code}.pdf"`,
+        'Content-Disposition': `attachment; filename="GST-Voucher-${booking.booking_code}.pdf"`,
         'Cache-Control': 'no-store',
       },
     });
