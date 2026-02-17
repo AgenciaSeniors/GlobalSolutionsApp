@@ -1,3 +1,4 @@
+//src\services\flights.service.ts
 import type { FlightWithDetails } from '@/types/models';
 import type { FlightLeg, FlightSearchParams, FlightSearchFilters } from '@/types/api.types';
 
@@ -114,7 +115,6 @@ function buildSearchBody(params: FlightSearchParams): {
 /* -------------------------------------------------- */
 /* ---- ERROR HELPERS ------------------------------- */
 /* -------------------------------------------------- */
-
 
 function extractErrorMessage(json: unknown): string {
   if (typeof json === 'object' && json !== null && 'error' in json) {

@@ -1,3 +1,4 @@
+//src\app\api\flights\search\[sessionId]\route.ts
 /**
  * GET /api/flights/search/:sessionId
  *
@@ -273,10 +274,10 @@ async function executeSearchWorker(
 
 export async function GET(
   _req: Request,
-  ctx: { params: Promise<{ sessionId: string }> }
+  ctx: { params: { sessionId: string } }
 ) {
   const supabase = createAdminClient();
-  const { sessionId: rawSessionId } = await ctx.params;
+  const { sessionId: rawSessionId } = ctx.params;
   const sessionId = String(rawSessionId ?? "").trim();
 
   if (!sessionId) {
