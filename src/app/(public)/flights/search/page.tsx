@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -74,9 +74,16 @@ export default function FlightSearchResultsPage() {
     return base.filter((l) => l.origin && l.destination && l.date);
   }, [from, to, departure, returnDate]);
 
-  // Single-fire guard: build a stable request key and only fire when it changes
-  const lastFiredKeyRef = useRef<string | null>(null);
-
+  /**
+   * v3 FIX: Removed the redundant `lastFiredKeyRef` dedup guard.
+   *
+   * The hook (useFlightSearch) already has its own dedup via `lastKeyRef`.
+   * Having TWO dedup layers caused a deadlock in React StrictMode:
+   *   1. Mount#1: both refs set → fetch starts → StrictMode unmounts → abort
+   *   2. Mount#2: page ref sees "already fired" → skips → no search ever runs
+   *
+   * Now only the hook handles dedup, which correctly resets on abort.
+   */
   useEffect(() => {
     if (!from || !to || !departure) return;
 
@@ -84,14 +91,7 @@ export default function FlightSearchResultsPage() {
     const destination = activeLeg === 0 ? to : from;
     const date = activeLeg === 0 ? departure : returnDate;
 
-    // If on return tab but no return date, don't search
     if (!date) return;
-
-    const requestKey = `${origin.toUpperCase()}-${destination.toUpperCase()}-${date}-p${passengerCount}`;
-
-    // Strict dedup: only fire if key actually changed
-    if (lastFiredKeyRef.current === requestKey) return;
-    lastFiredKeyRef.current = requestKey;
 
     void search({
       origin,
