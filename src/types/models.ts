@@ -93,6 +93,7 @@ export interface Booking {
   paid_at: string | null;
   booking_status: BookingStatus;
   airline_pnr: string | null;
+  voucher_pdf_url: string | null;
   return_date: string | null;
   emitted_at: string | null;
   emitted_by: string | null;

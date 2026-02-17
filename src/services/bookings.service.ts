@@ -4,7 +4,8 @@
  */
 import { createClient } from '@/lib/supabase/client';
 import type { CreateBookingPayload } from '@/types/api.types';
-import type { Booking } from '@/types/models';
+import type { Booking, BookingWithDetails } from '@/types/models';
+
 
 function generateBookingCode(): string {
   const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -90,5 +91,36 @@ async function getById(id: string): Promise<Booking | null> {
   if (error) throw error;
   return data as Booking;
 }
+async function listWithDetails(): Promise<BookingWithDetails[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-export const bookingsService = { create, listForCurrentUser, getById };
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .select(
+      `
+      *,
+      flight:flights(
+        *,
+        airline:airlines(*),
+        origin_airport:airports!origin_airport_id(*),
+        destination_airport:airports!destination_airport_id(*)
+      ),
+      passengers:booking_passengers(*)
+    `,
+    )
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  return (data ?? []) as BookingWithDetails[];
+}
+
+
+export const bookingsService = { create, listForCurrentUser, listWithDetails, getById };
+

@@ -9,9 +9,12 @@ import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { Plane, FileText, Clock, CheckCircle, XCircle, CreditCard } from 'lucide-react';
+import type { BookingWithDetails } from '@/types/models'
+
+// ✅ NUEVO: consumir endpoint real a través del service
+import { bookingsService } from '@/services/bookings.service';
 
 interface UserBooking {
   id: string;
@@ -22,13 +25,14 @@ interface UserBooking {
   airline_pnr: string | null;
   voucher_pdf_url: string | null;
   created_at: string;
-  flight: {
+    flight?: {
     flight_number: string;
     departure_datetime: string;
     airline: { name: string } | null;
     origin_airport: { iata_code: string; city: string } | null;
     destination_airport: { iata_code: string; city: string } | null;
   } | null;
+
   passengers: { first_name: string; last_name: string; ticket_number: string | null }[];
 }
 
@@ -40,7 +44,6 @@ type StatusConfig = {
 };
 
 export default function UserBookingsPage() {
-  const supabase = createClient();
   const { user } = useAuthContext();
   const [bookings, setBookings] = useState<UserBooking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,44 +51,30 @@ export default function UserBookingsPage() {
   useEffect(() => {
     if (!user) return;
 
-    // Capture ID here to satisfy TypeScript null checks inside the async function
-    const userId = user.id;
-
     async function load() {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select(
-          `
-          id, booking_code, booking_status, payment_status, total_amount, airline_pnr, voucher_pdf_url, created_at,
-          flight:flights(
-            flight_number,
-            departure_datetime,
-            airline:airlines(name),
-            origin_airport:airports!origin_airport_id(iata_code, city),
-            destination_airport:airports!destination_airport_id(iata_code, city)
-          ),
-          passengers:booking_passengers(first_name, last_name, ticket_number)
-        `,
-        )
-        .eq('user_id', userId) // Use the captured userId
-        .order('created_at', { ascending: false })
-        .returns<UserBooking[]>();
+      try {
+        // ✅ Nuevo: viene del endpoint /api/bookings vía service
+        const data = await bookingsService.listWithDetails();
 
-      if (error) {
-        // No rompemos la UI: dejamos lista vacía y quitamos loading
+        // ✅ Normalizamos para que la UI nunca crashee por passengers undefined
+        const normalized: UserBooking[] = (data ?? []).map((b: BookingWithDetails ) => ({
+          ...b,
+          passengers: Array.isArray(b.passengers) ? b.passengers : [],
+          voucher_pdf_url: b.voucher_pdf_url ?? null,
+        }));
+
+        setBookings(normalized);
+      } catch {
+        // No rompemos la UI
         setBookings([]);
+      } finally {
         setLoading(false);
-        return;
       }
-
-      setBookings(data ?? []);
-      setLoading(false);
     }
 
     void load();
-  }, [supabase, user]);
+  }, [user]);
 
-  // Updated 'variant' type to match Badge props (changed 'error' to 'destructive')
   const statusConfig: Record<string, StatusConfig> = {
     pending_emission: {
       icon: Clock,
@@ -133,6 +122,10 @@ export default function UserBookingsPage() {
                 const cfg = statusConfig[b.booking_status] || statusConfig.pending_emission;
                 const StatusIcon = cfg.icon;
 
+                // ✅ Fix robusto: no dependemos de 'PAID' vs enum
+                const payment = String(b.payment_status ?? '').toLowerCase();
+                const isPaid = payment === 'paid';
+
                 return (
                   <Card key={b.id} variant="bordered">
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -161,9 +154,9 @@ export default function UserBookingsPage() {
                             </p>
                           )}
 
-                          {b.passengers.length > 0 && (
+                          {(b.passengers?.length ?? 0) > 0 && (
                             <div className="mt-2 text-xs text-neutral-500">
-                              Pasajeros: {b.passengers.map((p) => `${p.first_name} ${p.last_name}`).join(', ')}
+                              Pasajeros: {(b.passengers ?? []).map((p) => `${p.first_name} ${p.last_name}`).join(', ')}
                             </div>
                           )}
                         </div>
@@ -171,7 +164,7 @@ export default function UserBookingsPage() {
 
                       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-end">
                         {/* BOTÓN PAGAR (solo si NO está pagado) */}
-                        {b.payment_status !== 'PAID' && (
+                        {!isPaid && (
                           <a
                             href={`/pay?booking_id=${b.id}`}
                             className="flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
@@ -205,3 +198,4 @@ export default function UserBookingsPage() {
     </div>
   );
 }
+
