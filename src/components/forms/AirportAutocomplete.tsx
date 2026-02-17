@@ -1,296 +1,277 @@
-"use client";
+/**
+ * @fileoverview Airport autocomplete input with debounced search.
+ * Type a country, city or code and get matching airport suggestions.
+ * Can resolve an IATA code to its display label on mount.
+ * @module components/forms/AirportAutocomplete
+ */
+'use client';
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { MapPin, Plane, Building2, Loader2 } from "lucide-react";
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
 
-interface AutocompletePlace {
-  entityId: string;
-  skyId: string;
-  entityType: "AIRPORT" | "CITY" | "COUNTRY";
+type AirportOption = {
+  code: string;
   name: string;
-  iata: string;
   city: string;
   country: string;
-  parentId: string | null;
-}
+  label: string;
+};
 
-interface AirportAutocompleteProps {
-  value: string;
-  onChange: (iataCode: string, displayLabel: string) => void;
+type Props = {
+  value: string;             // IATA code selected
+  onChange: (code: string) => void;
   placeholder?: string;
   required?: boolean;
-  label?: string;
-  id?: string;
-}
-
-function displayLabel(place: AutocompletePlace): string {
-  if (place.entityType === "AIRPORT") {
-    return `${place.name} (${place.iata}) – ${place.country}`;
-  }
-  return `${place.name} (${place.iata}) – ${place.country}`;
-}
-
-function groupIcon(type: string) {
-  switch (type) {
-    case "AIRPORT":
-      return <Plane className="h-4 w-4 text-brand-500" />;
-    case "CITY":
-      return <Building2 className="h-4 w-4 text-amber-500" />;
-    default:
-      return <MapPin className="h-4 w-4 text-neutral-400" />;
-  }
-}
-
-function groupLabel(type: string): string {
-  switch (type) {
-    case "AIRPORT":
-      return "Aeropuertos";
-    case "CITY":
-      return "Ciudades (todos los aeropuertos)";
-    default:
-      return "Otros";
-  }
-}
+  disabled?: boolean;
+  /** Codes to exclude from results (e.g. already-selected airport) */
+  excludeCodes?: string[];
+  className?: string;
+};
 
 export default function AirportAutocomplete({
   value,
   onChange,
-  placeholder = "Escribe ciudad, país o código IATA...",
-  required = false,
-  label,
-  id = "airport-autocomplete",
-}: AirportAutocompleteProps) {
-  const [inputValue, setInputValue] = useState("");
-  const [places, setPlaces] = useState<AutocompletePlace[]>([]);
+  placeholder = 'Escribe país, ciudad o código',
+  required,
+  disabled,
+  excludeCodes = [],
+  className,
+}: Props) {
+  const [inputValue, setInputValue] = useState('');
+  const [options, setOptions] = useState<AirportOption[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const [hasSelected, setHasSelected] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [resolvedCode, setResolvedCode] = useState<string | null>(null);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
+  // Resolve an IATA code to its display label on mount or when value changes externally
   useEffect(() => {
-    if (value && !hasSelected) {
-      setInputValue(value);
-    }
-  }, [value, hasSelected]);
-
-  const fetchPlaces = useCallback(async (query: string) => {
-    if (query.length < 2) {
-      setPlaces([]);
-      setIsOpen(false);
+    if (!value) {
+      setInputValue('');
+      setResolvedCode(null);
       return;
     }
 
-    setIsLoading(true);
+    // Already resolved this code
+    if (resolvedCode === value && inputValue) return;
 
-    try {
-      const res = await fetch(
-        `/api/flights/autocomplete?query=${encodeURIComponent(query)}`
-      );
-      const json = (await res.json()) as { places?: AutocompletePlace[] };
-      const results = json.places ?? [];
-      setPlaces(results);
-      setIsOpen(results.length > 0);
-      setActiveIndex(-1);
-    } catch {
-      setPlaces([]);
-    } finally {
-      setIsLoading(false);
+    // Check if we already have this in our cached options
+    const cached = options.find((o) => o.code === value);
+    if (cached) {
+      setInputValue(cached.label);
+      setResolvedCode(value);
+      return;
     }
-  }, []);
 
-  function handleInputChange(text: string) {
-    setInputValue(text);
-    setHasSelected(false);
+    // Fetch the airport info for this code
+    const controller = new AbortController();
 
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      void fetchPlaces(text);
-    }, 300);
-  }
+    fetch(`/api/flights/autocomplete?query=${encodeURIComponent(value)}`, {
+      signal: controller.signal,
+    })
+      .then((res) => res.json())
+      .then((json) => {
+        const match = (json.results ?? []).find(
+          (o: AirportOption) => o.code === value
+        );
+        if (match) {
+          setInputValue(match.label);
+          setResolvedCode(value);
+        } else {
+          // Fallback: just show the code
+          setInputValue(value);
+          setResolvedCode(value);
+        }
+      })
+      .catch(() => {
+        // Fallback on error
+        setInputValue(value);
+        setResolvedCode(value);
+      });
 
-  function selectPlace(place: AutocompletePlace) {
-    const lbl = displayLabel(place);
-    setInputValue(lbl);
-    setHasSelected(true);
-    setIsOpen(false);
-    setPlaces([]);
-    onChange(place.iata || place.skyId, lbl);
-  }
+    return () => controller.abort();
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (!isOpen || places.length === 0) return;
-
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActiveIndex((prev) => Math.min(prev + 1, places.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveIndex((prev) => Math.max(prev - 1, 0));
-    } else if (e.key === "Enter" && activeIndex >= 0) {
-      e.preventDefault();
-      selectPlace(places[activeIndex]);
-    } else if (e.key === "Escape") {
-      setIsOpen(false);
-    }
-  }
-
-  useEffect(() => {
-    if (activeIndex >= 0 && listRef.current) {
-      const items = listRef.current.querySelectorAll('[role="option"]');
-      const activeItem = items[activeIndex];
-      if (activeItem) {
-        activeItem.scrollIntoView({ block: "nearest" });
-      }
-    }
-  }, [activeIndex]);
-
+  // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
+  const fetchSuggestions = useCallback(
+    async (query: string) => {
+      if (query.length < 2) {
+        setOptions([]);
+        setIsOpen(false);
+        return;
+      }
 
-  const grouped = places.reduce<Record<string, AutocompletePlace[]>>(
-    (acc, place) => {
-      const key = place.entityType;
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(place);
-      return acc;
+      // Cancel previous request
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setIsLoading(true);
+
+      try {
+        const res = await fetch(
+          `/api/flights/autocomplete?query=${encodeURIComponent(query)}`,
+          { signal: controller.signal }
+        );
+        const json = await res.json();
+
+        if (controller.signal.aborted) return;
+
+        const excludeSet = new Set(excludeCodes);
+        const filtered = (json.results ?? []).filter(
+          (o: AirportOption) => !excludeSet.has(o.code)
+        );
+
+        setOptions(filtered);
+        setIsOpen(filtered.length > 0);
+        setHighlightedIndex(-1);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        console.error('[AirportAutocomplete] fetch error:', err);
+        setOptions([]);
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
+      }
     },
-    {}
+    [excludeCodes]
   );
 
-  const groupOrder = ["AIRPORT", "CITY", "COUNTRY"];
+  function handleInputChange(text: string) {
+    setInputValue(text);
+    setResolvedCode(null);
+
+    // If user clears input, clear selection
+    if (!text.trim()) {
+      onChange('');
+      setOptions([]);
+      setIsOpen(false);
+      return;
+    }
+
+    // Debounce the search
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void fetchSuggestions(text.trim());
+    }, 250);
+  }
+
+  function selectOption(option: AirportOption) {
+    onChange(option.code);
+    setInputValue(option.label);
+    setResolvedCode(option.code);
+    setIsOpen(false);
+    setHighlightedIndex(-1);
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (!isOpen || options.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev < options.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : options.length - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightedIndex >= 0 && highlightedIndex < options.length) {
+        selectOption(options[highlightedIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      setIsOpen(false);
+    }
+  }
+
+  function handleFocus() {
+    // Re-open if we have cached options and user is actively typing
+    if (options.length > 0 && inputValue.length >= 2 && !resolvedCode) {
+      setIsOpen(true);
+    }
+  }
 
   return (
     <div ref={wrapperRef} className="relative">
-      {label && (
-        <label
-          htmlFor={id}
-          className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-700"
-        >
-          <MapPin className="h-3.5 w-3.5 text-brand-500" />
-          {label}
-        </label>
+      <input
+        ref={inputRef}
+        type="text"
+        value={inputValue}
+        onChange={(e) => handleInputChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        placeholder={placeholder}
+        required={required}
+        disabled={disabled}
+        autoComplete="off"
+        className={
+          className ??
+          `w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 text-[15px]
+           focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20`
+        }
+      />
+
+      {/* Hidden input to hold the actual IATA code for form validation */}
+      <input type="hidden" value={value} />
+
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+        </div>
       )}
 
-      <div className="relative">
-        <input
-          ref={inputRef}
-          id={id}
-          type="text"
-          role="combobox"
-          aria-expanded={isOpen}
-          aria-autocomplete="list"
-          aria-controls={`${id}-listbox`}
-          aria-activedescendant={
-            activeIndex >= 0 ? `${id}-option-${activeIndex}` : undefined
-          }
-          value={inputValue}
-          onChange={(e) => handleInputChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={() => {
-            if (places.length > 0) setIsOpen(true);
-          }}
-          placeholder={placeholder}
-          required={required}
-          autoComplete="off"
-          className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 pr-10 text-[15px]
-                     focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20
-                     transition-colors"
-        />
-
-        {isLoading && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <Loader2 className="h-4 w-4 animate-spin text-neutral-400" />
-          </div>
-        )}
-      </div>
-
-      {isOpen && places.length > 0 && (
+      {/* Dropdown */}
+      {isOpen && options.length > 0 && (
         <ul
-          ref={listRef}
-          id={`${id}-listbox`}
+          className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-neutral-200
+                     bg-white py-1 shadow-lg"
           role="listbox"
-          className="absolute z-50 mt-1 max-h-80 w-full overflow-auto rounded-xl border border-neutral-200 bg-white shadow-xl shadow-black/10"
         >
-          {groupOrder.map((groupType) => {
-            const items = grouped[groupType];
-            if (!items || items.length === 0) return null;
-
-            return (
-              <li key={groupType}>
-                <div className="sticky top-0 flex items-center gap-2 border-b border-neutral-100 bg-neutral-50/95 px-4 py-2 backdrop-blur-sm">
-                  {groupIcon(groupType)}
-                  <span className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                    {groupLabel(groupType)}
-                  </span>
-                </div>
-
-                <ul>
-                  {items.map((place) => {
-                    const flatIndex = places.indexOf(place);
-                    const isActive = flatIndex === activeIndex;
-
-                    return (
-                      <li
-                        key={`${place.entityId}-${place.iata}`}
-                        id={`${id}-option-${flatIndex}`}
-                        role="option"
-                        aria-selected={isActive}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          selectPlace(place);
-                        }}
-                        onMouseEnter={() => setActiveIndex(flatIndex)}
-                        className={`flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors ${
-                          isActive
-                            ? "bg-brand-50 text-brand-700"
-                            : "text-neutral-700 hover:bg-neutral-50"
-                        }`}
-                      >
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100">
-                          <span className="text-xs font-bold text-neutral-600">
-                            {place.iata || "—"}
-                          </span>
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{place.name}</p>
-                          <p className="truncate text-xs text-neutral-500">
-                            {place.city}
-                            {place.country ? `, ${place.country}` : ""}
-                          </p>
-                        </div>
-
-                        {place.entityType === "CITY" && (
-                          <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                            Todos
-                          </span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
-            );
-          })}
+          {options.map((option, idx) => (
+            <li
+              key={option.code}
+              role="option"
+              aria-selected={highlightedIndex === idx}
+              onClick={() => selectOption(option)}
+              onMouseEnter={() => setHighlightedIndex(idx)}
+              className={`cursor-pointer px-4 py-2.5 text-sm transition-colors ${
+                highlightedIndex === idx
+                  ? 'bg-brand-50 text-brand-700'
+                  : 'text-neutral-700 hover:bg-neutral-50'
+              }`}
+            >
+              <span className="font-semibold">{option.city}</span>
+              <span className="ml-1 text-neutral-500">
+                ({option.code})
+              </span>
+              <span className="ml-1 text-neutral-400">– {option.country}</span>
+              <div className="text-xs text-neutral-400">{option.name}</div>
+            </li>
+          ))}
         </ul>
+      )}
+
+      {/* No results message */}
+      {isOpen && options.length === 0 && !isLoading && inputValue.length >= 2 && (
+        <div
+          className="absolute z-50 mt-1 w-full rounded-xl border border-neutral-200
+                     bg-white px-4 py-3 text-sm text-neutral-500 shadow-lg"
+        >
+          No se encontraron aeropuertos
+        </div>
       )}
     </div>
   );

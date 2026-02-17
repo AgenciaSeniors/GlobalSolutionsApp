@@ -1,18 +1,19 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
-import FlightSearchForm from "@/components/forms/FlightSearchForm";
-import FlightLegTabs from "@/components/features/flights/FlightLegTabs";
-import FlightFilters from "@/components/features/flights/FlightFilters";
-import FlightResultsList from "@/components/features/flights/FlightResultsList";
+import Navbar from '@/components/layout/Navbar';
+import Footer from '@/components/layout/Footer';
+import FlightSearchForm from '@/components/forms/FlightSearchForm';
 
-import { useFlightSearch } from "@/hooks/useFlightSearch";
-import type { FlightOffer } from "@/types/models";
-import { mapApiFlightToOffer } from "@/lib/flights/flightOffer.mapper";
+import FlightLegTabs from '@/components/features/flights/FlightLegTabs';
+import FlightFilters from '@/components/features/flights/FlightFilters';
+import FlightResultsList from '@/components/features/flights/FlightResultsList';
+
+import { useFlightSearch } from '@/hooks/useFlightSearch';
+import type { FlightOffer } from '@/types/models';
+import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
 
 type FilterState = {
   stops: string[];
@@ -22,33 +23,50 @@ type FilterState = {
 
 function toStopsCountFilter(stops: string[]): number | null {
   if (!stops.length) return null;
-  const hasDirect = stops.includes("direct");
-  const has1 = stops.includes("1stop") || stops.includes("1");
-  const has2 = stops.includes("2stops") || stops.includes("2") || stops.includes("2plus");
+
+  const hasDirect = stops.includes('direct');
+  const has1 = stops.includes('1stop') || stops.includes('1');
+  const has2 = stops.includes('2stops') || stops.includes('2') || stops.includes('2plus');
+
   if (has2) return 2;
   if (has1) return 1;
   if (hasDirect) return 0;
+
   return null;
 }
 
 export default function FlightSearchResultsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
+
   const { results, isLoading, error, search } = useFlightSearch();
 
-  const passengerCount = Number(searchParams.get("passengers")) || 1;
-  const cabinClass = searchParams.get("cabinClass") || "economy";
+  const passengerCount = Number(searchParams.get('passengers')) || 1;
+
   const [activeLeg, setActiveLeg] = useState<number>(0);
+
   const [filters, setFilters] = useState<FilterState>({
     stops: [],
     priceRange: { min: 0, max: 2000 },
     airlines: [],
   });
 
-  const from = searchParams.get("from") || "";
-  const to = searchParams.get("to") || "";
-  const departure = searchParams.get("departure") || "";
-  const returnDate = searchParams.get("return") || "";
+  const from = searchParams.get('from') || '';
+  const to = searchParams.get('to') || '';
+  const departure = searchParams.get('departure') || '';
+  const returnDate = searchParams.get('return') || '';
+
+  // Pre-fill the search form with URL params
+  const formInitialValues = useMemo(
+    () => ({
+      origin: from,
+      destination: to,
+      departure,
+      returnDate,
+      passengers: String(passengerCount),
+    }),
+    [from, to, departure, returnDate, passengerCount]
+  );
 
   const legs = useMemo(() => {
     const base = [{ origin: from, destination: to, date: departure }];
@@ -56,6 +74,7 @@ export default function FlightSearchResultsPage() {
     return base.filter((l) => l.origin && l.destination && l.date);
   }, [from, to, departure, returnDate]);
 
+  // Single-fire guard: build a stable request key and only fire when it changes
   const lastFiredKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -64,9 +83,13 @@ export default function FlightSearchResultsPage() {
     const origin = activeLeg === 0 ? from : to;
     const destination = activeLeg === 0 ? to : from;
     const date = activeLeg === 0 ? departure : returnDate;
+
+    // If on return tab but no return date, don't search
     if (!date) return;
 
-    const requestKey = `${origin.toUpperCase()}-${destination.toUpperCase()}-${date}-p${passengerCount}-${cabinClass}`;
+    const requestKey = `${origin.toUpperCase()}-${destination.toUpperCase()}-${date}-p${passengerCount}`;
+
+    // Strict dedup: only fire if key actually changed
     if (lastFiredKeyRef.current === requestKey) return;
     lastFiredKeyRef.current = requestKey;
 
@@ -75,14 +98,14 @@ export default function FlightSearchResultsPage() {
       destination,
       departure_date: date,
       passengers: passengerCount,
-      cabinClass,
     });
-  }, [activeLeg, from, to, departure, returnDate, passengerCount, cabinClass, search]);
+  }, [activeLeg, from, to, departure, returnDate, passengerCount, search]);
 
   const flights: FlightOffer[] = useMemo(() => {
-    return Array.isArray(results) ? results.map((r) => mapApiFlightToOffer(r)) : [];
+    return Array.isArray(results) ? results.map(mapApiFlightToOffer) : [];
   }, [results]);
 
+  // Apply client-side filters
   const filteredFlights: FlightOffer[] = useMemo(() => {
     const min = Number(filters.priceRange.min ?? 0);
     const max = Number(filters.priceRange.max ?? Number.MAX_SAFE_INTEGER);
@@ -90,11 +113,20 @@ export default function FlightSearchResultsPage() {
     const maxStops = toStopsCountFilter(filters.stops);
 
     return flights.filter((f) => {
-      const priceOk = typeof f.price === "number" ? f.price >= min && f.price <= max : true;
-      const airlineCode = (f.airline_code ?? "").toUpperCase();
+      const priceOk = typeof f.price === 'number' ? f.price >= min && f.price <= max : true;
+
+      const airlineCode = (f.airline_code ?? '').toUpperCase();
       const airlineOk = allowedAirlines.size ? allowedAirlines.has(airlineCode) : true;
-      const stopsCount = typeof f.stops_count === "number" ? f.stops_count : Array.isArray(f.stops) ? f.stops.length : 0;
+
+      const stopsCount =
+        typeof f.stops_count === 'number'
+          ? f.stops_count
+          : Array.isArray(f.stops)
+            ? f.stops.length
+            : 0;
+
       const stopsOk = maxStops == null ? true : stopsCount <= maxStops;
+
       return priceOk && airlineOk && stopsOk;
     });
   }, [flights, filters]);
@@ -105,7 +137,7 @@ export default function FlightSearchResultsPage() {
       <main className="pt-[72px]">
         <section className="bg-white py-12">
           <div className="mx-auto max-w-6xl px-6">
-            <FlightSearchForm />
+            <FlightSearchForm initialValues={formInitialValues} />
           </div>
         </section>
 
@@ -121,6 +153,7 @@ export default function FlightSearchResultsPage() {
               <div className="lg:col-span-4">
                 <FlightFilters onFilterChange={setFilters} />
               </div>
+
               <div className="lg:col-span-8">
                 <FlightResultsList
                   flights={filteredFlights}

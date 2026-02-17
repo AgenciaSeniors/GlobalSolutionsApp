@@ -1,6 +1,6 @@
 'use client';
 
-import { AIRPORTS } from '@/lib/constants/config';
+import AirportAutocomplete from '@/components/forms/AirportAutocomplete';
 
 type Props = {
   stops: string[];
@@ -22,7 +22,6 @@ export default function MultiLegEditor({ stops, onChange, origin, destination }:
     onChange(stops.filter((_, i) => i !== index));
   }
 
-  const forbidden = new Set([origin, destination].filter(Boolean) as string[]);
 
   return (
     <div className="mt-6 rounded-2xl border-2 border-neutral-200 bg-neutral-50 p-4">
@@ -49,35 +48,32 @@ export default function MultiLegEditor({ stops, onChange, origin, destination }:
         </p>
       ) : (
         <div className="space-y-3">
-          {stops.map((stop, index) => (
-            <div key={`${index}-${stop}`} className="flex gap-3">
-              <select
-                value={stop}
-                onChange={(e) => updateStop(index, e.target.value)}
-                className="h-12 flex-1 rounded-xl border-2 border-neutral-200 bg-white px-4 text-[15px]
-                           focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-              >
-                <option value="">Seleccionar escala</option>
+          {stops.map((stop, index) => {
+            // Exclude codes: origin, destination, and other selected stops (not the current one)
+            const otherStops = stops.filter((_, i) => i !== index);
+            const excludeCodes = [origin, destination, ...otherStops].filter(Boolean) as string[];
 
-                {AIRPORTS.map((a) => {
-                  const disabled = forbidden.has(a.code);
-                  return (
-                    <option key={a.code} value={a.code} disabled={disabled}>
-                      {a.city} ({a.code}) – {a.country}
-                    </option>
-                  );
-                })}
-              </select>
+            return (
+              <div key={`stop-${index}`} className="flex gap-3">
+                <div className="flex-1">
+                  <AirportAutocomplete
+                    value={stop}
+                    onChange={(code) => updateStop(index, code)}
+                    placeholder="Buscar escala..."
+                    excludeCodes={excludeCodes}
+                  />
+                </div>
 
-              <button
-                type="button"
-                onClick={() => removeStop(index)}
-                className="h-12 rounded-xl border-2 border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-              >
-                Eliminar
-              </button>
-            </div>
-          ))}
+                <button
+                  type="button"
+                  onClick={() => removeStop(index)}
+                  className="h-12 rounded-xl border-2 border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                >
+                  Eliminar
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
