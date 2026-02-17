@@ -3,8 +3,8 @@ const nextConfig = {
     reactStrictMode: true,
     poweredByHeader: false, // Oculta que usamos Next.js (seguridad por oscuridad básica)
 
-    // AÑADE ESTA LÍNEA PARA SOLUCIONAR EL ERROR DE PINO Y LOS WORKERS
-    serverExternalPackages: ['pino', 'pino-pretty'],
+    // EN NEXT.JS 14 SE ESCRIBE ASÍ:
+    serverComponentsExternalPackages: ['pino', 'pino-pretty'],
 
     // Headers de seguridad HTTP estrictos
     async headers() {
@@ -31,7 +31,6 @@ const nextConfig = {
                     value: 'max-age=63072000; includeSubDomains; preload', // Fuerza HTTPS por 2 años
                 },
                 // CSP Básico (Content Security Policy)
-                // Nota: 'unsafe-eval' y 'unsafe-inline' se permiten solo donde es estrictamente necesario por librerías externas
                 {
                     key: 'Content-Security-Policy',
                     value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com https://www.paypal.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://api.stripe.com https://www.paypal.com https://*.supabase.co https://flights-sky.p.rapidapi.com;",
