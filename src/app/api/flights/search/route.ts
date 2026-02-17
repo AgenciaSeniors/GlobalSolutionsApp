@@ -9,21 +9,46 @@
  * - If cache is fresh (<= 5 min): return session already complete with cached results.
  * - If cache is stale but valid (<= 15 min): return session "refreshing" with cached results.
  * - Otherwise: return session "pending".
+ *
+ * v2 — Fixes:
+ *   1. HMAC secret no longer falls back to SUPABASE_SERVICE_ROLE_KEY (C0.3 compliance)
+ *   2. Added `makeRouteKeys` consistency with polling endpoint
+ *   3. Improved validation error messages
+ *   4. Tighter type guards
  */
 
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
-import type { FlightLeg, FlightSearchFilters, FlightSearchParams } from "@/types/api.types";
+import type {
+  FlightLeg,
+  FlightSearchFilters,
+  FlightSearchParams,
+} from "@/types/api.types";
+
+/* -------------------------------------------------- */
+/* ---- CONSTANTS ----------------------------------- */
+/* -------------------------------------------------- */
 
 const CACHE_TTL_MINUTES = 15;
 const FRESH_MS = 5 * 60 * 1000;
-const STALE_MS = 10 * 60 * 1000;
 const SESSION_TTL_MINUTES = 20;
+
+const RATE_LIMIT_WINDOW_MS = 30_000;
+const RATE_LIMIT_ANON = 5;
+const RATE_LIMIT_AUTH = 10;
+
+/* -------------------------------------------------- */
+/* ---- TYPES --------------------------------------- */
+/* -------------------------------------------------- */
 
 type FlightRecord = Record<string, unknown>;
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
+
+/* -------------------------------------------------- */
+/* ---- GUARDS -------------------------------------- */
+/* -------------------------------------------------- */
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -45,6 +70,10 @@ function isValidHHMM(x: string): boolean {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
 }
 
+/* -------------------------------------------------- */
+/* ---- CLIENT IDENTIFICATION ----------------------- */
+/* -------------------------------------------------- */
+
 function getClientIp(req: Request): string {
   const candidates = [
     req.headers.get("x-real-ip"),
@@ -58,13 +87,33 @@ function getClientIp(req: Request): string {
   return raw.split(",")[0]?.trim() || "0.0.0.0";
 }
 
+/**
+ * C1.3: HMAC fingerprint for anonymous rate limiting.
+ * Uses dedicated RATE_LIMIT_HMAC_SECRET — never falls back to service_role key.
+ */
 function makeRateLimitKey(ip: string, userAgent: string): string {
-  const secret =
-    process.env.RATE_LIMIT_HMAC_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "dev-rate-limit-secret";
+  const secret = process.env.RATE_LIMIT_HMAC_SECRET;
+  if (!secret) {
+    // Fallback: deterministic but weaker — log warning in dev
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "[RATE_LIMIT] RATE_LIMIT_HMAC_SECRET not set — using IP-only fingerprint"
+      );
+    }
+    // Hash IP+UA with a static salt (not ideal but never uses service_role)
+    const hash = crypto
+      .createHash("sha256")
+      .update(`rate-limit-salt:${ip}|${userAgent}`)
+      .digest("hex")
+      .slice(0, 40);
+    return `anon:${hash}`;
+  }
 
-  const fp = crypto.createHmac("sha256", secret).update(`${ip}|${userAgent}`).digest("hex").slice(0, 40);
+  const fp = crypto
+    .createHmac("sha256", secret)
+    .update(`${ip}|${userAgent}`)
+    .digest("hex")
+    .slice(0, 40);
   return `anon:${fp}`;
 }
 
@@ -78,7 +127,13 @@ async function getAuthenticatedUserId(): Promise<string | null> {
   }
 }
 
-function normalizeFilters(raw: unknown): FlightSearchFilters | undefined {
+/* -------------------------------------------------- */
+/* ---- NORMALIZATION ------------------------------- */
+/* -------------------------------------------------- */
+
+function normalizeFilters(
+  raw: unknown
+): FlightSearchFilters | undefined {
   if (!raw || !isRecord(raw)) return undefined;
 
   const airlineCodes =
@@ -86,21 +141,30 @@ function normalizeFilters(raw: unknown): FlightSearchFilters | undefined {
       ? raw.airlineCodes.map((c) => String(c).toUpperCase()).sort()
       : undefined;
 
-  const minPrice = raw.minPrice != null ? Number(raw.minPrice) : undefined;
-  const maxPrice = raw.maxPrice != null ? Number(raw.maxPrice) : undefined;
+  const minPrice =
+    raw.minPrice != null ? Number(raw.minPrice) : undefined;
+  const maxPrice =
+    raw.maxPrice != null ? Number(raw.maxPrice) : undefined;
 
   const departureTimeRange =
-    isRecord(raw.departureTimeRange) && raw.departureTimeRange.from && raw.departureTimeRange.to
-      ? { from: String(raw.departureTimeRange.from), to: String(raw.departureTimeRange.to) }
+    isRecord(raw.departureTimeRange) &&
+    raw.departureTimeRange.from &&
+    raw.departureTimeRange.to
+      ? {
+          from: String(raw.departureTimeRange.from),
+          to: String(raw.departureTimeRange.to),
+        }
       : undefined;
 
-  const maxStops = raw.maxStops != null ? Number(raw.maxStops) : undefined;
+  const maxStops =
+    raw.maxStops != null ? Number(raw.maxStops) : undefined;
 
   const cleaned: FlightSearchFilters = {};
   if (airlineCodes?.length) cleaned.airlineCodes = airlineCodes;
   if (Number.isFinite(minPrice as number)) cleaned.minPrice = minPrice;
   if (Number.isFinite(maxPrice as number)) cleaned.maxPrice = maxPrice;
-  if (departureTimeRange?.from && departureTimeRange?.to) cleaned.departureTimeRange = departureTimeRange;
+  if (departureTimeRange?.from && departureTimeRange?.to)
+    cleaned.departureTimeRange = departureTimeRange;
   if (Number.isFinite(maxStops as number)) cleaned.maxStops = maxStops;
 
   return Object.keys(cleaned).length ? cleaned : undefined;
@@ -112,10 +176,16 @@ function normalizeToRequest(params: FlightSearchParams): {
   filters?: FlightSearchFilters;
 } {
   const anyParams: unknown = params;
-  const filters = normalizeFilters(isRecord(anyParams) ? anyParams.filters : undefined);
+  const filters = normalizeFilters(
+    isRecord(anyParams) ? anyParams.filters : undefined
+  );
 
   // New format: { legs, passengers, filters }
-  if ("legs" in params && Array.isArray(params.legs) && params.legs.length > 0) {
+  if (
+    "legs" in params &&
+    Array.isArray(params.legs) &&
+    params.legs.length > 0
+  ) {
     const legs = params.legs.map((l) => ({
       origin: String(l.origin).toUpperCase(),
       destination: String(l.destination).toUpperCase(),
@@ -126,10 +196,18 @@ function normalizeToRequest(params: FlightSearchParams): {
   }
 
   // Legacy format
-  const origin = isRecord(anyParams) ? String(anyParams.origin ?? "").toUpperCase() : "";
-  const destination = isRecord(anyParams) ? String(anyParams.destination ?? "").toUpperCase() : "";
-  const departure_date = isRecord(anyParams) ? String(anyParams.departure_date ?? "") : "";
-  const passengers = isRecord(anyParams) ? Number(anyParams.passengers ?? 1) : 1;
+  const origin = isRecord(anyParams)
+    ? String(anyParams.origin ?? "").toUpperCase()
+    : "";
+  const destination = isRecord(anyParams)
+    ? String(anyParams.destination ?? "").toUpperCase()
+    : "";
+  const departure_date = isRecord(anyParams)
+    ? String(anyParams.departure_date ?? "")
+    : "";
+  const passengers = isRecord(anyParams)
+    ? Number(anyParams.passengers ?? 1)
+    : 1;
 
   const legs: FlightLeg[] = [{ origin, destination, departure_date }];
 
@@ -144,9 +222,20 @@ function normalizeToRequest(params: FlightSearchParams): {
   return { legs, passengers, filters };
 }
 
-function makeCacheKey(body: { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters }): string {
+/* -------------------------------------------------- */
+/* ---- CACHE KEY ----------------------------------- */
+/* -------------------------------------------------- */
+
+function makeCacheKey(body: {
+  legs: FlightLeg[];
+  passengers: number;
+  filters?: FlightSearchFilters;
+}): string {
   const legsKey = body.legs
-    .map((l) => `${l.origin.toUpperCase()}-${l.destination.toUpperCase()}-${l.departure_date}`)
+    .map(
+      (l) =>
+        `${l.origin.toUpperCase()}-${l.destination.toUpperCase()}-${l.departure_date}`
+    )
     .join("|");
 
   const f = body.filters;
@@ -156,12 +245,28 @@ function makeCacheKey(body: { legs: FlightLeg[]; passengers: number; filters?: F
   if (f?.minPrice != null) parts.push(`min=${f.minPrice}`);
   if (f?.maxPrice != null) parts.push(`max=${f.maxPrice}`);
   if (f?.departureTimeRange?.from && f?.departureTimeRange?.to)
-    parts.push(`time=${f.departureTimeRange.from}-${f.departureTimeRange.to}`);
+    parts.push(
+      `time=${f.departureTimeRange.from}-${f.departureTimeRange.to}`
+    );
   if (f?.maxStops != null) parts.push(`stops=${f.maxStops}`);
 
   const filtersKey = parts.length ? `:${parts.join(":")}` : "";
   return `flights:${legsKey}:p${body.passengers}${filtersKey}`;
 }
+
+/**
+ * Builds route keys like ["MAD-BCN-2025-06-15"] for cache invalidation.
+ */
+function makeRouteKeys(body: { legs: FlightLeg[] }): string[] {
+  return body.legs.map(
+    (l) =>
+      `${l.origin.toUpperCase()}-${l.destination.toUpperCase()}-${l.departure_date}`
+  );
+}
+
+/* -------------------------------------------------- */
+/* ---- UTILITIES ----------------------------------- */
+/* -------------------------------------------------- */
 
 function extractProvidersUsed(results: ResultsByLeg): string[] {
   const set = new Set<string>();
@@ -174,24 +279,42 @@ function extractProvidersUsed(results: ResultsByLeg): string[] {
   return Array.from(set).sort();
 }
 
-function validateRequest(body: { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters }): string | null {
-  if (!Array.isArray(body.legs) || body.legs.length === 0) return "Parámetros inválidos: legs vacío.";
-  if (!Number.isFinite(body.passengers) || body.passengers < 1 || body.passengers > 9)
-    return "Parámetros inválidos: passengers fuera de rango.";
+function validateRequest(body: {
+  legs: FlightLeg[];
+  passengers: number;
+  filters?: FlightSearchFilters;
+}): string | null {
+  if (!Array.isArray(body.legs) || body.legs.length === 0)
+    return "Parámetros inválidos: legs vacío.";
+  if (body.legs.length > 6)
+    return "Parámetros inválidos: máximo 6 tramos.";
+  if (
+    !Number.isFinite(body.passengers) ||
+    body.passengers < 1 ||
+    body.passengers > 9
+  )
+    return "Parámetros inválidos: passengers fuera de rango (1-9).";
 
   for (let i = 0; i < body.legs.length; i++) {
     const leg = body.legs[i];
-    if (!isValidIATA(String(leg.origin ?? "")) || !isValidIATA(String(leg.destination ?? ""))) {
-      return `IATA inválido en tramo ${i + 1}`;
+    if (
+      !isValidIATA(String(leg.origin ?? "")) ||
+      !isValidIATA(String(leg.destination ?? ""))
+    ) {
+      return `IATA inválido en tramo ${i + 1}.`;
     }
     if (!isValidDateYYYYMMDD(String(leg.departure_date ?? ""))) {
-      return `Fecha inválida en tramo ${i + 1} (usa YYYY-MM-DD)`;
+      return `Fecha inválida en tramo ${i + 1} (usa YYYY-MM-DD).`;
+    }
+    if (String(leg.origin) === String(leg.destination)) {
+      return `Origen y destino iguales en tramo ${i + 1}.`;
     }
   }
 
   const tr = body.filters?.departureTimeRange;
   if (tr) {
-    if (!isValidHHMM(tr.from) || !isValidHHMM(tr.to)) return "Rango horario inválido (usa HH:MM).";
+    if (!isValidHHMM(tr.from) || !isValidHHMM(tr.to))
+      return "Rango horario inválido (usa HH:MM).";
   }
 
   return null;
@@ -203,11 +326,15 @@ function safeParseDateIso(v: unknown): Date | null {
   return Number.isNaN(t) ? null : new Date(t);
 }
 
+/* -------------------------------------------------- */
+/* ---- HANDLER ------------------------------------- */
+/* -------------------------------------------------- */
+
 export async function POST(req: Request) {
   const supabase = createAdminClient();
 
   try {
-    // 1) RATE LIMIT (C1.3)
+    // ── 1) RATE LIMIT (C1.3) ─────────────────────────
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -215,12 +342,11 @@ export async function POST(req: Request) {
     const ip = getClientIp(req);
     const userId = await getAuthenticatedUserId();
 
-    // Authenticated users: rate limit by user id.
-    // Anonymous: rate limit by HMAC(ip|userAgent) to reduce spoofing.
-    const rlKey = userId ? `user:${userId}` : makeRateLimitKey(ip, userAgent);
+    const rlKey = userId
+      ? `user:${userId}`
+      : makeRateLimitKey(ip, userAgent);
 
-    const maxPerWindow = userId ? 10 : 5; // slightly higher for authenticated users
-    const windowMs = 30_000;
+    const maxPerWindow = userId ? RATE_LIMIT_AUTH : RATE_LIMIT_ANON;
 
     const { data: rlData } = await supabase
       .from("search_rate_limits")
@@ -229,35 +355,56 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     const rl = rlData as unknown;
-    if (isRecord(rl) && isNonEmptyString(rl.last_search_at) && typeof rl.search_count === "number") {
-      const diffMs = now.getTime() - new Date(rl.last_search_at).getTime();
+    if (
+      isRecord(rl) &&
+      isNonEmptyString(rl.last_search_at) &&
+      typeof rl.search_count === "number"
+    ) {
+      const diffMs =
+        now.getTime() - new Date(rl.last_search_at).getTime();
 
-      if (rl.search_count >= maxPerWindow && diffMs < windowMs) {
-        return NextResponse.json({ error: "Demasiadas búsquedas. Intente de nuevo en breve." }, { status: 429 });
+      if (rl.search_count >= maxPerWindow && diffMs < RATE_LIMIT_WINDOW_MS) {
+        return NextResponse.json(
+          {
+            error: "Demasiadas búsquedas. Intente de nuevo en breve.",
+          },
+          { status: 429, headers: { "Cache-Control": "no-store" } }
+        );
       }
 
-      const newCount = diffMs > windowMs ? 1 : rl.search_count + 1;
+      const newCount =
+        diffMs > RATE_LIMIT_WINDOW_MS ? 1 : rl.search_count + 1;
 
       await supabase
         .from("search_rate_limits")
         .update({ last_search_at: nowIso, search_count: newCount })
         .eq("ip_address", rlKey);
     } else {
-      await supabase
-        .from("search_rate_limits")
-        .upsert({ ip_address: rlKey, last_search_at: nowIso, search_count: 1 }, { onConflict: "ip_address" });
+      await supabase.from("search_rate_limits").upsert(
+        {
+          ip_address: rlKey,
+          last_search_at: nowIso,
+          search_count: 1,
+        },
+        { onConflict: "ip_address" }
+      );
     }
 
-    // 2) Parse + normalize
+    // ── 2) Parse + normalize ─────────────────────────
     const raw = (await req.json()) as FlightSearchParams;
     const body = normalizeToRequest(raw);
 
     const validationErr = validateRequest(body);
-    if (validationErr) return NextResponse.json({ error: validationErr }, { status: 400 });
+    if (validationErr)
+      return NextResponse.json(
+        { error: validationErr },
+        { status: 400, headers: { "Cache-Control": "no-store" } }
+      );
 
     const cache_key = makeCacheKey(body);
+    const route_keys = makeRouteKeys(body);
 
-    // 3) Cache read (valid only within total TTL)
+    // ── 3) Cache read ────────────────────────────────
     const { data: cached } = await supabase
       .from("flight_search_cache")
       .select("response, expires_at, fresh_until, created_at")
@@ -273,14 +420,20 @@ export async function POST(req: Request) {
     if (cached?.response) {
       const expiresAt = safeParseDateIso(cached.expires_at);
       if (expiresAt && expiresAt.getTime() > now.getTime()) {
-        const freshUntil = safeParseDateIso((cached as unknown as Record<string, unknown>).fresh_until);
+        const freshUntil = safeParseDateIso(
+          (cached as unknown as Record<string, unknown>).fresh_until
+        );
         const cachedResults: ResultsByLeg = Array.isArray(cached.response)
           ? (cached.response as unknown[])
               .filter(isRecord)
               .map((r) => ({
                 legIndex: Number((r as FlightRecord).legIndex ?? 0),
                 flights: Array.isArray((r as FlightRecord).flights)
-                  ? (((r as FlightRecord).flights as unknown[]).filter(isRecord) as FlightRecord[])
+                  ? (
+                      ((r as FlightRecord).flights as unknown[]).filter(
+                        isRecord
+                      ) as FlightRecord[]
+                    )
                   : [],
               }))
           : [];
@@ -289,11 +442,15 @@ export async function POST(req: Request) {
         providersUsed = extractProvidersUsed(cachedResults);
 
         const createdAt =
-          safeParseDateIso((cached as unknown as Record<string, unknown>).created_at) ??
-          new Date(expiresAt.getTime() - CACHE_TTL_MINUTES * 60 * 1000);
+          safeParseDateIso(
+            (cached as unknown as Record<string, unknown>).created_at
+          ) ?? new Date(expiresAt.getTime() - CACHE_TTL_MINUTES * 60 * 1000);
         const ageMs = now.getTime() - createdAt.getTime();
 
-        if ((freshUntil && freshUntil.getTime() > now.getTime()) || ageMs <= FRESH_MS) {
+        if (
+          (freshUntil && freshUntil.getTime() > now.getTime()) ||
+          ageMs <= FRESH_MS
+        ) {
           status = "complete";
           source = "cache";
         } else {
@@ -303,7 +460,10 @@ export async function POST(req: Request) {
       }
     }
 
-    const sessionExpiresAt = new Date(Date.now() + SESSION_TTL_MINUTES * 60 * 1000).toISOString();
+    // ── 4) Create session ────────────────────────────
+    const sessionExpiresAt = new Date(
+      Date.now() + SESSION_TTL_MINUTES * 60 * 1000
+    ).toISOString();
 
     const { data: sessionRow, error: sessionErr } = await supabase
       .from("flight_search_sessions")
@@ -323,19 +483,25 @@ export async function POST(req: Request) {
       .single();
 
     if (sessionErr || !sessionRow) {
-      // If sessions table isn't available yet, fall back to legacy sync behavior.
-      const msg = String((sessionErr as unknown as { message?: unknown })?.message ?? "");
-      console.warn("[FLIGHTS_SEARCH] session insert failed, falling back to legacy sync:", msg);
+      const msg = String(
+        (sessionErr as unknown as { message?: unknown })?.message ?? ""
+      );
+      console.warn(
+        "[FLIGHTS_SEARCH] session insert failed:",
+        msg
+      );
       return NextResponse.json(
         {
           error:
-            "No se pudo crear la sesión de búsqueda. Aplique la migración 006 en Supabase.",
+            "No se pudo crear la sesión de búsqueda. Verifique que la migración 006 esté aplicada en Supabase.",
         },
         { status: 500 }
       );
     }
 
-    const sessionId = String((sessionRow as unknown as Record<string, unknown>).session_id);
+    const sessionId = String(
+      (sessionRow as unknown as Record<string, unknown>).session_id
+    );
 
     const payload: Record<string, unknown> = {
       sessionId,
@@ -350,7 +516,10 @@ export async function POST(req: Request) {
     return res;
   } catch (err: unknown) {
     console.error("[FLIGHT_SEARCH_ERROR]", err);
-    const msg = err instanceof Error ? err.message : String(err ?? "Internal server error");
+    const msg =
+      err instanceof Error
+        ? err.message
+        : String(err ?? "Internal server error");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

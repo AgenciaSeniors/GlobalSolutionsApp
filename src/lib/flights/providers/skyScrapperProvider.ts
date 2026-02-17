@@ -1,11 +1,12 @@
 /**
  * skyScrapperProvider — Provider de vuelos vía RapidAPI SkyScrapper.
  *
- * v6 — Fixes:
- *  1. In-memory cache for resolved place IDs (avoids repeated auto-complete calls)
- *  2. Fallback from /flights/auto-complete to /api/v1/flights/searchAirport
- *  3. Increased auto-complete timeout to 15s
- *  4. Fully typed (zero any)
+ * v7 — Fixes:
+ *  1. Backoff adjusted to audit spec: [1500, 3000, 6000] ms
+ *  2. Concurrent place resolution deduplication (avoids duplicate calls for same IATA)
+ *  3. Improved polling budget enforcement
+ *  4. Better logging with elapsed times
+ *  5. Fully typed (zero any)
  */
 
 import type {
@@ -32,7 +33,8 @@ const POLL_CALL_TIMEOUT_MS = 6_000;
 const MAX_POLL_ATTEMPTS = 3;
 const AUTOCOMPLETE_TIMEOUT_MS = 15_000;
 
-const POLL_BACKOFF_MS = [1000, 2000, 4000] as const;
+/** Backoff per audit spec C1.1: 1.5s, 3s, 6s */
+const POLL_BACKOFF_MS = [1500, 3000, 6000] as const;
 
 /* -------------------------------------------------- */
 /* ----------------- JSON HELPERS ------------------- */
@@ -111,8 +113,6 @@ function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-
-
 function extractItineraries(json: JsonValue): JsonValue[] {
   const data = getObject(json, "data");
   if (!data) return [];
@@ -161,7 +161,8 @@ async function tryImproveResults(
     const remainingBudget = POLLING_BUDGET_MS - elapsed;
     if (remainingBudget <= 0) break;
 
-    const backoff = POLL_BACKOFF_MS[attempt] ?? POLL_BACKOFF_MS[POLL_BACKOFF_MS.length - 1];
+    const backoff =
+      POLL_BACKOFF_MS[attempt] ?? POLL_BACKOFF_MS[POLL_BACKOFF_MS.length - 1];
     const waitMs = Math.min(backoff, Math.max(0, remainingBudget - 500));
     if (waitMs > 0) await sleepWithSignal(waitMs, signal);
 
@@ -169,7 +170,10 @@ async function tryImproveResults(
 
     const remainingAfterWait = POLLING_BUDGET_MS - (Date.now() - pollingStart);
     if (remainingAfterWait <= 0) break;
-    const callTimeout = Math.min(POLL_CALL_TIMEOUT_MS, Math.max(1500, remainingAfterWait));
+    const callTimeout = Math.min(
+      POLL_CALL_TIMEOUT_MS,
+      Math.max(1500, remainingAfterWait)
+    );
 
     try {
       const pollJson = await client.get(
@@ -198,7 +202,6 @@ async function tryImproveResults(
       console.warn(
         `[SkyScrapper] search-incomplete poll failed (attempt ${attempt}): ${msg}`
       );
-      // Best-effort: continue polling within budget.
       continue;
     }
   }
@@ -210,13 +213,17 @@ async function tryImproveResults(
 /* ---- IN-MEMORY CACHE FOR RESOLVED PLACE IDS ------ */
 /* -------------------------------------------------- */
 
-/**
- * Cache of IATA code → entityId. Persists across requests within the
- * same server process, avoiding repeated auto-complete calls.
- * TTL: entries expire after 1 hour.
- */
-const placeIdCache = new Map<string, { entityId: string; timestamp: number }>();
+const placeIdCache = new Map<
+  string,
+  { entityId: string; timestamp: number }
+>();
 const PLACE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * In-flight deduplication: if multiple legs resolve the same IATA concurrently,
+ * share the same Promise instead of firing duplicate API calls.
+ */
+const placeIdInflight = new Map<string, Promise<string>>();
 
 function getCachedPlaceId(iata: string): string | null {
   const entry = placeIdCache.get(iata.toUpperCase());
@@ -229,17 +236,16 @@ function getCachedPlaceId(iata: string): string | null {
 }
 
 function setCachedPlaceId(iata: string, entityId: string): void {
-  placeIdCache.set(iata.toUpperCase(), { entityId, timestamp: Date.now() });
+  placeIdCache.set(iata.toUpperCase(), {
+    entityId,
+    timestamp: Date.now(),
+  });
 }
 
 /* -------------------------------------------------- */
 /* -------------- PLACE RESOLUTION ------------------ */
 /* -------------------------------------------------- */
 
-/**
- * Resolve IATA code to SkyScrapper entityId.
- * Strategy: cache → /flights/auto-complete → /api/v1/flights/searchAirport → error
- */
 async function resolvePlaceId(
   client: SkyScrapperClient,
   query: string,
@@ -247,33 +253,60 @@ async function resolvePlaceId(
 ): Promise<string> {
   const upper = query.toUpperCase().trim();
 
-  // 1. Check in-memory cache first
+  // 1. Check in-memory cache
   const cached = getCachedPlaceId(upper);
   if (cached) {
     console.log(`[SkyScrapper] Place cache HIT for ${upper}: ${cached}`);
     return cached;
   }
 
-  // 2. Try /flights/auto-complete (primary endpoint)
+  // 2. Check in-flight deduplication
+  const inflight = placeIdInflight.get(upper);
+  if (inflight) {
+    console.log(`[SkyScrapper] Place resolution dedupe HIT for ${upper}`);
+    return inflight;
+  }
+
+  // 3. Fire resolution and register in-flight
+  const promise = resolvePlaceIdInternal(client, upper, signal).finally(() => {
+    placeIdInflight.delete(upper);
+  });
+  placeIdInflight.set(upper, promise);
+
+  return promise;
+}
+
+async function resolvePlaceIdInternal(
+  client: SkyScrapperClient,
+  upper: string,
+  signal?: AbortSignal
+): Promise<string> {
+  // Try /flights/auto-complete (primary endpoint)
   try {
     const entityId = await resolveViaAutoComplete(client, upper, signal);
     setCachedPlaceId(upper, entityId);
-    console.log(`[SkyScrapper] Resolved ${upper} via auto-complete: ${entityId}`);
+    console.log(
+      `[SkyScrapper] Resolved ${upper} via auto-complete: ${entityId}`
+    );
     return entityId;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[SkyScrapper] auto-complete failed for ${upper}: ${msg}`);
   }
 
-  // 3. Fallback: try /api/v1/flights/searchAirport
+  // Fallback: try /api/v1/flights/searchAirport
   try {
     const entityId = await resolveViaSearchAirport(client, upper, signal);
     setCachedPlaceId(upper, entityId);
-    console.log(`[SkyScrapper] Resolved ${upper} via searchAirport: ${entityId}`);
+    console.log(
+      `[SkyScrapper] Resolved ${upper} via searchAirport: ${entityId}`
+    );
     return entityId;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[SkyScrapper] searchAirport also failed for ${upper}: ${msg}`);
+    console.warn(
+      `[SkyScrapper] searchAirport also failed for ${upper}: ${msg}`
+    );
   }
 
   throw new Error(`Could not resolve place ID for ${upper}`);
@@ -313,7 +346,9 @@ async function resolveViaAutoComplete(
     if (!firstFallback) firstFallback = id;
 
     const navigation = getObject(item, "navigation");
-    const entityType = navigation ? getString(navigation, "entityType") : null;
+    const entityType = navigation
+      ? getString(navigation, "entityType")
+      : null;
     const params = navigation
       ? getObject(navigation, "relevantFlightParams")
       : null;
@@ -370,13 +405,11 @@ async function resolveViaSearchAirport(
     const entityId = getString(item, "entityId");
     if (!entityId) continue;
 
-    // Prefer exact IATA match
     if (skyId && skyId.toUpperCase() === upper) {
       return entityId;
     }
   }
 
-  // Fallback: first valid entry
   for (const item of dataArr) {
     if (!isObject(item)) continue;
     const entityId = getString(item, "entityId");
@@ -390,7 +423,6 @@ async function resolveViaSearchAirport(
 /* ---------- TYPED SEGMENT STRUCTURES -------------- */
 /* -------------------------------------------------- */
 
-/** Segment data extracted from SkyScrapper API, passed through to the mapper */
 interface SkySegmentData {
   origin_iata: string;
   origin_name: string;
@@ -415,10 +447,6 @@ interface StopData {
 /* ----------- CARRIER LOGO RESOLUTION -------------- */
 /* -------------------------------------------------- */
 
-/**
- * Builds a name→logoUrl map from leg.carriers.marketing + leg.carriers.operating.
- * SkyScrapper puts logoUrl at the leg-level carrier, not inside each segment.
- */
 function buildCarrierLogoMap(legJson: JsonObject): Map<string, string> {
   const map = new Map<string, string>();
   const carriers = getObject(legJson, "carriers");
@@ -454,10 +482,14 @@ function mapSegment(
   const destination = getObject(segJson, "destination");
 
   const originIata = origin
-    ? (getString(origin, "displayCode") ?? getString(origin, "flightPlaceId") ?? "")
+    ? (getString(origin, "displayCode") ??
+      getString(origin, "flightPlaceId") ??
+      "")
     : "";
   const destIata = destination
-    ? (getString(destination, "displayCode") ?? getString(destination, "flightPlaceId") ?? "")
+    ? (getString(destination, "displayCode") ??
+      getString(destination, "flightPlaceId") ??
+      "")
     : "";
 
   const departure = getString(segJson, "departure") ?? "";
@@ -469,8 +501,12 @@ function mapSegment(
   const operatingCarrier = getObject(segJson, "operatingCarrier");
   const carrier = marketingCarrier ?? operatingCarrier;
 
-  const airlineName = carrier ? (getString(carrier, "name") ?? "Aerolínea") : "Aerolínea";
-  const airlineCode = carrier ? (getString(carrier, "alternateId") ?? "") : "";
+  const airlineName = carrier
+    ? (getString(carrier, "name") ?? "Aerolínea")
+    : "Aerolínea";
+  const airlineCode = carrier
+    ? (getString(carrier, "alternateId") ?? "")
+    : "";
 
   const logoUrl =
     logoMap.get(airlineName) ?? logoMap.get(airlineCode) ?? null;
@@ -479,12 +515,16 @@ function mapSegment(
     origin_iata: originIata,
     origin_name: origin ? (getString(origin, "name") ?? "") : "",
     destination_iata: destIata,
-    destination_name: destination ? (getString(destination, "name") ?? "") : "",
+    destination_name: destination
+      ? (getString(destination, "name") ?? "")
+      : "",
     departure,
     arrival,
     duration_minutes: durationMin,
     flight_number:
-      airlineCode && flightNumber ? `${airlineCode}${flightNumber}` : flightNumber,
+      airlineCode && flightNumber
+        ? `${airlineCode}${flightNumber}`
+        : flightNumber,
     airline_name: airlineName,
     airline_code: airlineCode,
     airline_logo_url: logoUrl,
@@ -522,10 +562,14 @@ function mapItineraryToFlight(
   const legOrigin = getObject(leg, "origin");
   const legDest = getObject(leg, "destination");
   const originIata = legOrigin
-    ? (getString(legOrigin, "displayCode") ?? getString(legOrigin, "id") ?? "")
+    ? (getString(legOrigin, "displayCode") ??
+      getString(legOrigin, "id") ??
+      "")
     : "";
   const destIata = legDest
-    ? (getString(legDest, "displayCode") ?? getString(legDest, "id") ?? "")
+    ? (getString(legDest, "displayCode") ??
+      getString(legDest, "id") ??
+      "")
     : "";
   const originName = legOrigin ? (getString(legOrigin, "name") ?? "") : "";
   const destName = legDest ? (getString(legDest, "name") ?? "") : "";
@@ -638,18 +682,26 @@ async function searchOneLeg(
   const onAbort = () => legController.abort();
   if (externalSignal) {
     if (externalSignal.aborted) legController.abort();
-    else externalSignal.addEventListener("abort", onAbort, { once: true });
+    else
+      externalSignal.addEventListener("abort", onAbort, { once: true });
   }
 
   try {
-    return await searchOneLegInternal(client, leg, legIndex, passengers, legController.signal);
+    return await searchOneLegInternal(
+      client,
+      leg,
+      legIndex,
+      passengers,
+      legController.signal
+    );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[SkyScrapper] Leg ${legIndex} failed/timeout: ${msg}`);
 
-    // For circuit breaker: track hard provider failures (timeouts / HTTP errors)
-    if (err instanceof SkyScrapperTimeoutError) providerErrors.push(`timeout:${legIndex}`);
-    else if (err instanceof SkyScrapperHttpError) providerErrors.push(`http:${legIndex}`);
+    if (err instanceof SkyScrapperTimeoutError)
+      providerErrors.push(`timeout:${legIndex}`);
+    else if (err instanceof SkyScrapperHttpError)
+      providerErrors.push(`http:${legIndex}`);
     else providerErrors.push(`error:${legIndex}`);
 
     return [];
@@ -672,6 +724,7 @@ async function searchOneLegInternal(
   passengers: number,
   signal?: AbortSignal
 ): Promise<Flight[]> {
+  const t0 = Date.now();
   const date = String(leg.departure_date ?? "").trim();
   if (!date) return [];
   if (signal?.aborted) return [];
@@ -681,7 +734,9 @@ async function searchOneLegInternal(
     resolvePlaceId(client, leg.destination, signal),
   ]);
 
-  console.log(`[SkyScrapper] Leg ${legIndex}: resolved ${leg.origin}→${fromEntityId}, ${leg.destination}→${toEntityId}`);
+  console.log(
+    `[SkyScrapper] Leg ${legIndex}: resolved ${leg.origin}→${fromEntityId}, ${leg.destination}→${toEntityId} (${Date.now() - t0}ms)`
+  );
 
   const qs = new URLSearchParams({
     fromEntityId,
@@ -701,11 +756,9 @@ async function searchOneLegInternal(
 
   const initialItineraries = extractItineraries(initialJson);
   console.log(
-    `[SkyScrapper] Leg ${legIndex}: search-one-way returned ${initialItineraries.length} itineraries`
+    `[SkyScrapper] Leg ${legIndex}: search-one-way returned ${initialItineraries.length} itineraries (${Date.now() - t0}ms)`
   );
 
-  // Even if the first response has 0 itineraries, polling may complete later.
-  // (This avoids false "no results" when provider is slow.)
   let finalJson = initialJson;
   try {
     finalJson = await tryImproveResults(client, initialJson, signal);
@@ -722,7 +775,7 @@ async function searchOneLegInternal(
   }
 
   console.log(
-    `[SkyScrapper] Leg ${legIndex}: mapped ${flights.length} flights total`
+    `[SkyScrapper] Leg ${legIndex}: mapped ${flights.length} flights total (${Date.now() - t0}ms)`
   );
 
   return flights;
@@ -735,21 +788,39 @@ async function searchOneLegInternal(
 export const skyScrapperProvider: FlightsProvider = {
   id: "sky-scrapper",
 
-  async search(req: ProviderSearchRequest, opts?: { signal?: AbortSignal }): Promise<ProviderSearchResponse> {
+  async search(
+    req: ProviderSearchRequest,
+    opts?: { signal?: AbortSignal }
+  ): Promise<ProviderSearchResponse> {
     const client = new SkyScrapperClient();
 
     const providerErrors: string[] = [];
 
     const legPromises = req.legs.map((leg, legIndex) =>
-      searchOneLeg(client, leg, legIndex, req.passengers ?? 1, providerErrors, opts?.signal)
+      searchOneLeg(
+        client,
+        leg,
+        legIndex,
+        req.passengers ?? 1,
+        providerErrors,
+        opts?.signal
+      )
     );
 
     const legResults = await Promise.all(legPromises);
 
-    // If everything failed due to provider errors, surface it so the circuit breaker can trip.
-    const total = legResults.reduce((sum, flights) => sum + flights.length, 0);
-    if (total === 0 && providerErrors.length >= Math.max(1, req.legs.length)) {
-      throw new Error(`SkyScrapper failed all legs (${providerErrors.join(",")})`);
+    // If everything failed, surface it so the circuit breaker can trip.
+    const total = legResults.reduce(
+      (sum, flights) => sum + flights.length,
+      0
+    );
+    if (
+      total === 0 &&
+      providerErrors.length >= Math.max(1, req.legs.length)
+    ) {
+      throw new Error(
+        `SkyScrapper failed all legs (${providerErrors.join(",")})`
+      );
     }
 
     return legResults.map((flights, legIndex) => ({
