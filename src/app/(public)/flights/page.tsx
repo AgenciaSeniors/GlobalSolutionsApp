@@ -5,7 +5,7 @@
  * @module app/(public)/flights/page
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -50,6 +50,9 @@ export default function FlightsPage() {
     priceRange: { min: 0, max: 2000 },
     airlines: [],
   });
+
+  // ✅ Map to keep raw results indexed by their mapped ID for sessionStorage
+  const rawResultsMapRef = useRef<Map<string, unknown>>(new Map());
 
   // Construye legs a partir de la última búsqueda
   const legs = useMemo(() => {
@@ -99,8 +102,22 @@ export default function FlightsPage() {
   }, [activeLeg, lastSearch, search]);
 
   // ✅ Map results -> FlightOffer para la UI usando el mapper (segmentos reales si hay escalas)
+  // Also build a raw results map indexed by the mapped ID
   const flights: FlightOffer[] = useMemo(() => {
-    return (results ?? []).map(mapApiFlightToOffer);
+    const rawArr = results ?? [];
+    const mapped = rawArr.map(mapApiFlightToOffer);
+
+    // Build a map: mappedId -> raw result data
+    const newMap = new Map<string, unknown>();
+    for (let i = 0; i < mapped.length; i++) {
+      const raw = rawArr[i];
+      if (raw) {
+        newMap.set(mapped[i].id, raw);
+      }
+    }
+    rawResultsMapRef.current = newMap;
+
+    return mapped;
   }, [results]);
 
   // ✅ Aplicar filtros (UI local) — ahora sí funciona porque segments.length refleja escalas reales
@@ -197,6 +214,21 @@ export default function FlightsPage() {
                   error={error}
                   onSelectFlight={(flightId) => {
                     const passengersCount = Number(lastSearch?.passengers) || 1;
+
+                    // ✅ Save selected flight raw data in sessionStorage
+                    // so checkout can use it even if the ID is not a real DB UUID
+                    try {
+                      const rawFlight = rawResultsMapRef.current.get(flightId);
+                      if (rawFlight) {
+                        sessionStorage.setItem(
+                          'selectedFlightData',
+                          JSON.stringify(rawFlight)
+                        );
+                      }
+                    } catch (e) {
+                      console.warn('[Flights] Could not save to sessionStorage:', e);
+                    }
+
                     router.push(`/checkout?flight=${flightId}&passengers=${passengersCount}`);
                   }}
                 />
