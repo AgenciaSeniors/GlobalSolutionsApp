@@ -24,10 +24,13 @@ export default function HeroSection() {
       <div className="absolute inset-0 bg-black/55" />
 
       {/* Watermark sutil (no depende de animaciones custom) */}
-      <Plane className="pointer-events-none absolute right-[10%] top-[18%] hidden h-44 w-44 -rotate-12 text-white/10 md:block" />
+    
 
-      <div className="relative z-10 mx-auto w-full max-w-7xl px-6 pb-20 pt-12 lg:pt-16">
-        <div className="max-w-2xl text-white">
+      <div className="relative z-10 mx-auto flex w-full max-w-7xl justify-center px-6 pb-20 pt-12 lg:pt-16">
+
+
+        <div className="flex max-w-2xl flex-col items-center text-center text-white">
+
           {/* Trust pill */}
           <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-[13px] font-semibold text-white backdrop-blur">
             <Shield className="h-3.5 w-3.5" />
@@ -47,12 +50,12 @@ export default function HeroSection() {
           </p>
 
           {/* CTA row */}
-          <div className="mt-9 flex flex-wrap gap-4">
+          <div className="mt-9 flex flex-wrap justify-center gap-4">
+
             <Link href={ROUTES.FLIGHTS}>
               <Button size="lg" className="gap-2.5">
                 <Plane className="h-5 w-5" />
                 Buscar Vuelos
-                <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
 
@@ -66,11 +69,6 @@ export default function HeroSection() {
 
           {/* Secondary CTA (branding original) */}
           <div className="mt-4">
-            <Link href={ROUTES.FLIGHTS}>
-              <Button variant="ghost" className="text-white/90 hover:text-white">
-                Reserva Ahora
-              </Button>
-            </Link>
           </div>
 
           {/* Stats */}
