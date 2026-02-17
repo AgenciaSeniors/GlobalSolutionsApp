@@ -7,6 +7,8 @@ import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import CarRentalCard from '@/components/features/cars/CarRentalCard';
 import type { CarRental } from '@/types/models';
+import { createClient } from '@/lib/supabase/server';
+
 
 export const metadata: Metadata = { title: 'Renta de Autos' };
 
@@ -17,7 +19,20 @@ const CARS: CarRental[] = [
   { id: '3', brand: 'Kia', model: 'Picanto', category: 'compact', transmission: 'manual', passenger_capacity: 4, luggage_capacity: 1, daily_rate: 35, available_units: 5, image_url: null, features: ['A/C', 'Radio FM'], is_active: true },
 ];
 
-export default function CarsPage() {
+export  default async function CarsPage() {
+  const supabase = await createClient();
+const { data, error } = await supabase
+  .from('car_rentals')
+  .select('id, brand, model, category, transmission, passenger_capacity, luggage_capacity, daily_rate, available_units, image_url, features, is_active')
+  .eq('is_active', true)
+  .order('daily_rate', { ascending: true });
+
+const cars = (data ?? []).map((row: any) => ({
+  ...row,
+  daily_rate: Number(row.daily_rate ?? 0),
+  features: Array.isArray(row.features) ? row.features : [],
+}));
+
   return (
     <>
       <Navbar />
@@ -36,9 +51,16 @@ export default function CarsPage() {
               </p>
             </div>
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {CARS.map((car) => (
-                <CarRentalCard key={car.id} car={car} />
-              ))}
+             {error ? (
+  <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+    No se pudieron cargar los autos desde la base de datos: {error.message}
+  </p>
+) : null}
+
+{cars.map((car) => (
+  <CarRentalCard key={car.id} car={car} />
+))}
+
             </div>
           </div>
         </section>

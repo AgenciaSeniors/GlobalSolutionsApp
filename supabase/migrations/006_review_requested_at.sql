@@ -1,0 +1,2 @@
+ALTER TABLE bookings
+  ADD COLUMN IF NOT EXISTS review_requested_at TIMESTAMPTZ;

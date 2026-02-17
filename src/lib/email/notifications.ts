@@ -12,6 +12,8 @@ import {
   bookingCancelledEmail, type BookingCancelledData,
   reviewRequestEmail, type ReviewRequestData,
   welcomeEmail, type WelcomeEmailData,
+  refundEmail, type RefundEmailData,
+
 } from './templates';
 
 /**
@@ -73,6 +75,21 @@ export async function notifyBookingCancelled(
     html: bookingCancelledEmail(data),
   });
 }
+/**
+ * Send refund processed notification.
+ * Triggered when: payment_status changes to 'refunded'
+ */
+export async function notifyRefund(
+  email: string,
+  data: RefundEmailData
+) {
+  return sendEmail({
+    to: email,
+    subject: `💸 Reembolso procesado — Reserva ${data.bookingCode}`,
+    html: refundEmail(data),
+  });
+}
+
 
 /**
  * Send review request after completed trip.

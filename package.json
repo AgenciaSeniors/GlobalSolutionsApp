@@ -20,6 +20,7 @@
     "@capacitor/ios": "^8.0.2",
     "@paypal/checkout-server-sdk": "^1.0.3",
     "@paypal/react-paypal-js": "^8.9.2",
+    "@react-pdf/renderer": "^4.3.2",
     "@stripe/react-stripe-js": "^5.6.0",
     "@stripe/stripe-js": "^8.7.0",
     "@supabase/ssr": "^0.5.1",

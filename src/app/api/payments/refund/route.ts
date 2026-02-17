@@ -25,6 +25,9 @@ import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { calculateRefundAmount } from "@/lib/payments/refundCalculator";
+import { notifyRefund } from "@/lib/email/notifications";
+import { formatCurrency } from "@/lib/utils/formatters";
+
 
 /* ───────────────────── Env ───────────────────── */
 
@@ -223,7 +226,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const { data: booking, error: bookingErr } = await supabaseAdmin
       .from("bookings")
       .select(
-        "id, total_amount, payment_gateway_fee, payment_status, payment_method, payment_gateway, payment_intent_id, paid_at, pricing_breakdown"
+        "id,booking_code, user_id,total_amount, payment_gateway_fee, payment_status, payment_method, payment_gateway, payment_intent_id, paid_at, pricing_breakdown"
       )
       .eq("id", booking_id)
       .single();
@@ -373,6 +376,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .then(({ error }) => {
         if (error) console.error("[Refund] Event log failed:", error.message);
       });
+
+      // Enviar email de reembolso (best-effort)
+try {
+  if (booking.user_id) {
+    const { data: customerProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("email, full_name")
+      .eq("id", booking.user_id)
+      .single();
+
+    const email = customerProfile?.email;
+    if (email) {
+      await notifyRefund(email, {
+        clientName: customerProfile?.full_name ?? "Cliente",
+        bookingCode: booking.booking_code,
+        refundAmount: formatCurrency(Number(refundCalc.refund_amount ?? 0)),
+        reason,
+        processedAt: new Date().toLocaleString("es-ES", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }),
+      });
+    }
+  }
+} catch (emailErr) {
+  console.warn("[Refund] Refund email failed:", emailErr);
+}
 
     // ── 8. Return result ──
     return NextResponse.json(
