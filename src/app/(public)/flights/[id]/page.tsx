@@ -9,7 +9,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
@@ -21,44 +21,56 @@ import { useAuthContext } from '@/components/providers/AuthProvider';
 import type { FlightWithDetails } from '@/types/models';
 import {
   Plane, MapPin, Calendar, Users, Shield,
-  Luggage, ArrowRight, ArrowLeft, CreditCard, ChevronDown
+  Luggage, ArrowRight, ArrowLeft, CreditCard, ChevronDown, Briefcase, Crown, Armchair
 } from 'lucide-react';
 
 export default function FlightDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const { user } = useAuthContext();
 
   const [flight, setFlight] = useState<FlightWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
-  const [passengers, setPassengers] = useState(1);
+  const [passengers, setPassengers] = useState(
+    parseInt(searchParams.get('passengers') || '1', 10)
+  );
   const [showPricing, setShowPricing] = useState(false);
+  const [flightClass, setFlightClass] = useState<'economy' | 'business' | 'first'>('economy');
 
   useEffect(() => {
-    async function load() {
-      const { data } = await supabase
-        .from('flights')
-        .select(`
-          *, 
-          airline:airlines(*),
-          origin_airport:airports!origin_airport_id(*),
-          destination_airport:airports!destination_airport_id(*)
-        `)
-        .eq('id', params.id)
-        .single();
-      setFlight(data as unknown as FlightWithDetails);
+  async function load() {
+    const { data, error } = await supabase
+      .from('flights')
+      .select('*')
+      .eq('id', params.id)
+      .single();
+    
+    console.log('Flight data:', data);
+    console.log('Flight error:', error);
+    
+    if (error) {
+      console.error('Error loading flight:', error);
+      setFlight(null);
       setLoading(false);
+      return;
     }
-    if (params.id) load();
-  }, [params.id]);
+    
+    if (data) {
+      setFlight(data as unknown as FlightWithDetails);
+    }
+    setLoading(false);
+  }
+  if (params.id) load();
+}, [params.id, supabase]);
 
   function handleBook() {
     if (!user) {
       router.push(`/login?redirect=/flights/${params.id}`);
       return;
     }
-    router.push(`/checkout?flight=${params.id}&passengers=${passengers}`);
+    router.push(`/checkout?flight=${params.id}&passengers=${passengers}&class=${flightClass}`);
   }
 
   if (loading) {
@@ -92,8 +104,16 @@ export default function FlightDetailPage() {
   const durationH = Math.floor(durationMs / 3600000);
   const durationM = Math.round((durationMs % 3600000) / 60000);
 
+  const classMultipliers = {
+    economy: 1.0,
+    business: 2.5,
+    first: 4.0
+  };
+
+  const classMultiplier = classMultipliers[flightClass];
+  const pricePerPerson = flight.final_price * classMultiplier;
   const markupAmount = flight.final_price - flight.base_price;
-  const subtotal = flight.final_price * passengers;
+  const subtotal = pricePerPerson * passengers;
   // Estimate gateway fee (Stripe default)
   const gatewayFee = subtotal * 0.054 + 0.30;
   const total = subtotal + gatewayFee;
@@ -124,7 +144,7 @@ export default function FlightDetailPage() {
                   <Badge variant="warning" className="mb-1">🔥 Oferta Exclusiva</Badge>
                 )}
                 <p className="text-3xl font-extrabold">${flight.final_price.toFixed(2)}</p>
-                <p className="text-brand-200 text-sm">por persona</p>
+                <p className="text-brand-200 text-sm">por persona (económica)</p>
               </div>
             </div>
           </Card>
@@ -264,6 +284,60 @@ export default function FlightDetailPage() {
                   </select>
                 </div>
 
+                {/* Clase de vuelo */}
+                <div className="mb-4">
+                  <label className="text-sm font-medium text-neutral-700 mb-2 block">
+                    Clase de Vuelo
+                  </label>
+                  <div className="space-y-2">
+                    {([
+                      { id: 'economy' as const, name: 'Económica', icon: Armchair, multiplier: 1.0 },
+                      { id: 'business' as const, name: 'Business', icon: Briefcase, multiplier: 2.5 },
+                      { id: 'first' as const, name: 'Primera', icon: Crown, multiplier: 4.0 }
+                    ]).map(option => {
+                      const Icon = option.icon;
+                      const classPrice = flight.final_price * option.multiplier;
+                      const isSelected = flightClass === option.id;
+                      
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => setFlightClass(option.id)}
+                          className={`w-full rounded-lg border-2 p-3 text-left transition-all ${
+                            isSelected
+                              ? 'border-brand-500 bg-brand-50'
+                              : 'border-neutral-200 hover:border-neutral-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                                isSelected ? 'bg-brand-600 text-white' : 'bg-neutral-100 text-neutral-600'
+                              }`}>
+                                <Icon className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <p className={`text-sm font-semibold ${isSelected ? 'text-brand-900' : 'text-neutral-900'}`}>
+                                  {option.name}
+                                </p>
+                                {option.multiplier > 1 && (
+                                  <p className="text-xs text-neutral-500">
+                                    {option.multiplier}x precio base
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <p className={`text-sm font-bold ${isSelected ? 'text-brand-600' : 'text-neutral-700'}`}>
+                              ${classPrice.toFixed(2)}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* §5.1 Price Breakdown — Transparent */}
                 <div className="space-y-2 rounded-xl bg-neutral-50 p-4 text-sm mb-4">
                   <div className="flex justify-between">
@@ -274,6 +348,12 @@ export default function FlightDetailPage() {
                     <span className="text-neutral-600">Margen de servicio</span>
                     <span>${markupAmount.toFixed(2)}</span>
                   </div>
+                  {classMultiplier > 1 && (
+                    <div className="flex justify-between text-brand-600">
+                      <span>Clase {flightClass === 'business' ? 'Business' : 'Primera'}</span>
+                      <span>x{classMultiplier}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-semibold">
                     <span>Subtotal ({passengers} pax)</span>
                     <span>${subtotal.toFixed(2)}</span>
