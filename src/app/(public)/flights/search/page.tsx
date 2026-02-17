@@ -56,6 +56,18 @@ export default function FlightSearchResultsPage() {
   const departure = searchParams.get('departure') || '';
   const returnDate = searchParams.get('return') || '';
 
+  // Pre-fill the search form with URL params
+  const formInitialValues = useMemo(
+    () => ({
+      origin: from,
+      destination: to,
+      departure,
+      returnDate,
+      passengers: String(passengerCount),
+    }),
+    [from, to, departure, returnDate, passengerCount]
+  );
+
   const legs = useMemo(() => {
     const base = [{ origin: from, destination: to, date: departure }];
     if (returnDate) base.push({ origin: to, destination: from, date: returnDate });
@@ -125,7 +137,7 @@ export default function FlightSearchResultsPage() {
       <main className="pt-[72px]">
         <section className="bg-white py-12">
           <div className="mx-auto max-w-6xl px-6">
-            <FlightSearchForm />
+            <FlightSearchForm initialValues={formInitialValues} />
           </div>
         </section>
 

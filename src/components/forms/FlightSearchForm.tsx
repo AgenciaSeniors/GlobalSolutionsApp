@@ -1,15 +1,16 @@
 /**
- * @fileoverview Flight search form with airport selectors, dates, passengers and submit.
+ * @fileoverview Flight search form with airport autocomplete, dates, passengers and submit.
+ * Accepts initialValues to pre-fill the form (e.g. from URL params on search results page).
  * @module components/forms/FlightSearchForm
  */
 'use client';
 
-import { useState, type FormEvent, type ChangeEvent } from 'react';
+import { useState, useEffect, type FormEvent, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { MapPin, Calendar, Users, Search } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
-import { AIRPORTS } from '@/lib/constants/config';
+import AirportAutocomplete from '@/components/forms/AirportAutocomplete';
 import MultiLegEditor from '@/components/forms/MultiLegEditor';
 import { ROUTES } from '@/lib/constants/routes';
 
@@ -23,7 +24,17 @@ type FlightSearchParams = {
   return?: string;
 };
 
+type InitialValues = {
+  origin?: string;
+  destination?: string;
+  departure?: string;
+  returnDate?: string;
+  passengers?: string;
+};
+
 type Props = {
+  /** Pre-fill form fields (e.g. from URL search params) */
+  initialValues?: InitialValues;
   /**
    * If provided, the form will call this callback instead of navigating
    * to /flights/search. Useful for same-page results + scroll.
@@ -31,7 +42,7 @@ type Props = {
   onSearch?: (params: FlightSearchParams) => void;
 };
 
-export default function FlightSearchForm({ onSearch }: Props) {
+export default function FlightSearchForm({ initialValues, onSearch }: Props) {
   const router = useRouter();
   const [tripType, setTripType] = useState<TripType>('roundtrip');
   const [form, setForm] = useState({
@@ -44,6 +55,29 @@ export default function FlightSearchForm({ onSearch }: Props) {
 
   const [useStopsMode, setUseStopsMode] = useState(false);
   const [stops, setStops] = useState<string[]>([]);
+  const [initialized, setInitialized] = useState(false);
+
+  // Populate form from initialValues on first render
+  useEffect(() => {
+    if (initialized || !initialValues) return;
+
+    setForm({
+      origin: initialValues.origin || '',
+      destination: initialValues.destination || '',
+      departure: initialValues.departure || '',
+      returnDate: initialValues.returnDate || '',
+      passengers: initialValues.passengers || '1',
+    });
+
+    // Set trip type based on whether there's a return date
+    if (!initialValues.returnDate) {
+      setTripType('oneway');
+    } else {
+      setTripType('roundtrip');
+    }
+
+    setInitialized(true);
+  }, [initialValues, initialized]);
 
   const update =
     (field: keyof typeof form) =>
@@ -51,8 +85,14 @@ export default function FlightSearchForm({ onSearch }: Props) {
       setForm((prev) => ({ ...prev, [field]: e.target.value }));
     };
 
+  const updateField = (field: keyof typeof form) => (value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+
+    if (!form.origin || !form.destination) return;
 
     const payload: FlightSearchParams = {
       from: form.origin,
@@ -65,13 +105,11 @@ export default function FlightSearchForm({ onSearch }: Props) {
       payload.return = form.returnDate;
     }
 
-    // ✅ NEW: if onSearch exists, do not navigate
     if (onSearch) {
       onSearch(payload);
       return;
     }
 
-    // ✅ OLD behavior (unchanged): navigate to /flights/search?...
     const params = new URLSearchParams({
       from: payload.from,
       to: payload.to,
@@ -123,7 +161,6 @@ export default function FlightSearchForm({ onSearch }: Props) {
         type="button"
         onClick={() => {
           setUseStopsMode((prev) => !prev);
-          // si lo apagas, borra escalas
           if (useStopsMode) setStops([]);
         }}
         className={`mb-6 rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${
@@ -142,20 +179,13 @@ export default function FlightSearchForm({ onSearch }: Props) {
           <label className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
             <MapPin className="h-3.5 w-3.5 text-brand-500" /> Origen
           </label>
-          <select
+          <AirportAutocomplete
             value={form.origin}
-            onChange={update('origin')}
+            onChange={updateField('origin')}
+            placeholder="Escribe país, ciudad o código"
             required
-            className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 text-[15px]
-                       focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-          >
-            <option value="">Seleccionar aeropuerto</option>
-            {AIRPORTS.map((a) => (
-              <option key={a.code} value={a.code}>
-                {a.city} ({a.code}) – {a.country}
-              </option>
-            ))}
-          </select>
+            excludeCodes={form.destination ? [form.destination] : []}
+          />
         </div>
 
         {/* Destination */}
@@ -163,20 +193,13 @@ export default function FlightSearchForm({ onSearch }: Props) {
           <label className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
             <MapPin className="h-3.5 w-3.5 text-brand-500" /> Destino
           </label>
-          <select
+          <AirportAutocomplete
             value={form.destination}
-            onChange={update('destination')}
+            onChange={updateField('destination')}
+            placeholder="Escribe país, ciudad o código"
             required
-            className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 text-[15px]
-                       focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-          >
-            <option value="">Seleccionar aeropuerto</option>
-            {AIRPORTS.map((a) => (
-              <option key={a.code} value={a.code}>
-                {a.city} ({a.code}) – {a.country}
-              </option>
-            ))}
-          </select>
+            excludeCodes={form.origin ? [form.origin] : []}
+          />
         </div>
 
         {/* Departure */}

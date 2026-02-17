@@ -35,7 +35,7 @@ export class SkyScrapperClient {
     this.key = key;
     this.host = host;
     this.baseUrl = `https://${host}`;
-    this.defaultTimeoutMs = opts?.timeoutMs ?? 10_000;
+    this.defaultTimeoutMs = opts?.timeoutMs ?? 15_000;
   }
 
   private headers(): Record<string, string> {
