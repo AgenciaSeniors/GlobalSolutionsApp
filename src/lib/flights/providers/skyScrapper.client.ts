@@ -1,12 +1,10 @@
 /**
  * SkyScrapperClient — HTTP client for RapidAPI flights-sky provider.
  *
- * v3 — Fixes:
- *  1. AbortController con timeout configurable (default 10s)
- *  2. Soporte para override de timeout por llamada (polling usa menos)
- *  3. Logging estructurado con duración
- *  4. Cleanup garantizado del timer (sin memory leaks)
- *  5. Error classes tipadas para catch selectivo
+ * v4 — Improvements:
+ *  1. Response body size guard (prevents OOM on malformed responses)
+ *  2. Better timeout error messages with endpoint context
+ *  3. AbortController cleanup guaranteed (no memory leaks)
  */
 
 type JsonValue =
@@ -16,6 +14,9 @@ type JsonValue =
   | string
   | JsonValue[]
   | { [k: string]: JsonValue };
+
+/** Max response size in bytes (5 MB) — prevents OOM on malformed API responses */
+const MAX_RESPONSE_SIZE = 5 * 1024 * 1024;
 
 export class SkyScrapperClient {
   private readonly baseUrl: string;
@@ -49,10 +50,12 @@ export class SkyScrapperClient {
    * GET con timeout vía AbortController.
    * @param pathAndQuery  — ruta + querystring
    * @param overrideTimeoutMs — timeout específico para esta llamada (opcional)
+   * @param externalSignal — AbortSignal opcional para abortar desde un nivel superior
    */
   async get(
     pathAndQuery: string,
-    overrideTimeoutMs?: number
+    overrideTimeoutMs?: number,
+    externalSignal?: AbortSignal
   ): Promise<JsonValue> {
     const url = `${this.baseUrl}${pathAndQuery}`;
     const endpoint = url.split("?")[0];
@@ -60,6 +63,12 @@ export class SkyScrapperClient {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const onAbort = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort();
+      else externalSignal.addEventListener("abort", onAbort, { once: true });
+    }
 
     const t0 = Date.now();
 
@@ -71,7 +80,24 @@ export class SkyScrapperClient {
       });
 
       const elapsed = Date.now() - t0;
+
+      // Guard against enormous responses
+      const contentLength = res.headers.get("content-length");
+      if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
+        throw new SkyScrapperHttpError(
+          res.status,
+          `Response too large: ${contentLength} bytes`
+        );
+      }
+
       const text = await res.text();
+
+      if (text.length > MAX_RESPONSE_SIZE) {
+        throw new SkyScrapperHttpError(
+          res.status,
+          `Response body too large: ${text.length} chars`
+        );
+      }
 
       if (!res.ok) {
         console.warn(
@@ -93,7 +119,6 @@ export class SkyScrapperClient {
     } catch (err: unknown) {
       const elapsed = Date.now() - t0;
 
-      // AbortController fires AbortError (DOMException in some runtimes, Error in others)
       if (
         (err instanceof DOMException && err.name === "AbortError") ||
         (err instanceof Error && err.name === "AbortError")
@@ -118,6 +143,13 @@ export class SkyScrapperClient {
       throw new Error(`SkyScrapper network error: ${msg}`);
     } finally {
       clearTimeout(timer);
+      if (externalSignal) {
+        try {
+          externalSignal.removeEventListener("abort", onAbort);
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 }
