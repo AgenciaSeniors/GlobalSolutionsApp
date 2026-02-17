@@ -276,12 +276,64 @@ async function resolvePlaceId(
   return promise;
 }
 
+/**
+ * Fallback city names for IATA codes that the SkyScrapper auto-complete
+ * fails to resolve when searched by code alone.
+ * This map is checked ONLY when the primary auto-complete returns no results.
+ */
+const IATA_CITY_FALLBACK: Record<string, string> = {
+  CUN: "Cancun",
+  GDL: "Guadalajara",
+  MTY: "Monterrey",
+  SJO: "San Jose Costa Rica",
+  PTY: "Panama City",
+  BOG: "Bogota",
+  MDE: "Medellin",
+  LIM: "Lima",
+  SCL: "Santiago Chile",
+  EZE: "Buenos Aires",
+  GRU: "Sao Paulo",
+  GIG: "Rio de Janeiro",
+  UIO: "Quito",
+  CCS: "Caracas",
+  SDQ: "Santo Domingo",
+  SJU: "San Juan Puerto Rico",
+  NAS: "Nassau",
+  MBJ: "Montego Bay",
+  PUJ: "Punta Cana",
+  HAV: "Havana",
+  TPA: "Tampa",
+  FLL: "Fort Lauderdale",
+  MCO: "Orlando",
+  ATL: "Atlanta",
+  DFW: "Dallas",
+  IAH: "Houston",
+  LAX: "Los Angeles",
+  SFO: "San Francisco",
+  JFK: "New York JFK",
+  EWR: "Newark",
+  ORD: "Chicago",
+  YYZ: "Toronto",
+  YUL: "Montreal",
+  MEX: "Mexico City",
+  TIJ: "Tijuana",
+  MAD: "Madrid",
+  BCN: "Barcelona",
+  CDG: "Paris",
+  LHR: "London Heathrow",
+  FCO: "Rome",
+  AMS: "Amsterdam",
+  FRA: "Frankfurt",
+  MUC: "Munich",
+  LIS: "Lisbon",
+};
+
 async function resolvePlaceIdInternal(
   client: SkyScrapperClient,
   upper: string,
   signal?: AbortSignal
 ): Promise<string> {
-  // Try /flights/auto-complete (primary endpoint)
+  // Try /flights/auto-complete with IATA code (primary)
   try {
     const entityId = await resolveViaAutoComplete(client, upper, signal);
     setCachedPlaceId(upper, entityId);
@@ -294,7 +346,25 @@ async function resolvePlaceIdInternal(
     console.warn(`[SkyScrapper] auto-complete failed for ${upper}: ${msg}`);
   }
 
-  // Fallback: try /api/v1/flights/searchAirport
+  // Fallback 1: retry auto-complete with city name instead of IATA code
+  const cityName = IATA_CITY_FALLBACK[upper];
+  if (cityName) {
+    try {
+      const entityId = await resolveViaAutoComplete(client, cityName, signal);
+      setCachedPlaceId(upper, entityId);
+      console.log(
+        `[SkyScrapper] Resolved ${upper} via city-name fallback "${cityName}": ${entityId}`
+      );
+      return entityId;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[SkyScrapper] city-name fallback "${cityName}" also failed for ${upper}: ${msg}`
+      );
+    }
+  }
+
+  // Fallback 2: try /api/v1/flights/searchAirport (may not exist on all API versions)
   try {
     const entityId = await resolveViaSearchAirport(client, upper, signal);
     setCachedPlaceId(upper, entityId);
@@ -508,8 +578,13 @@ function mapSegment(
     ? (getString(carrier, "alternateId") ?? "")
     : "";
 
-  const logoUrl =
+  const rawLogoUrl =
     logoMap.get(airlineName) ?? logoMap.get(airlineCode) ?? null;
+  // Upgrade favicon-sized logos to larger version
+  const logoUrl =
+    rawLogoUrl && rawLogoUrl.includes("/favicon/")
+      ? rawLogoUrl.replace("/images/airlines/favicon/", "/images/airlines/")
+      : rawLogoUrl;
 
   return {
     origin_iata: originIata,
@@ -588,7 +663,14 @@ function mapItineraryToFlight(
     if (isObject(first)) {
       airlineName = getString(first, "name") ?? "Aerolínea";
       airlineCode = getString(first, "alternateId") ?? "";
-      airlineLogoUrl = getString(first, "logoUrl") ?? null;
+      const rawLogo = getString(first, "logoUrl") ?? null;
+      // SkyScrapper returns favicon-sized logos (/favicon/XX.png = 16px).
+      // Upgrade to larger version by removing /favicon/ prefix, or use gstatic fallback.
+      if (rawLogo && rawLogo.includes("/favicon/")) {
+        airlineLogoUrl = rawLogo.replace("/images/airlines/favicon/", "/images/airlines/");
+      } else {
+        airlineLogoUrl = rawLogo;
+      }
     }
   }
 

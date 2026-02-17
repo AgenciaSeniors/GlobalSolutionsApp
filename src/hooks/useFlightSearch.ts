@@ -6,28 +6,13 @@ import type { FlightWithDetails } from '@/types/models';
 import { flightsService } from '@/services/flights.service';
 
 /**
- * useFlightSearch — Client-side hook for the two-phase flight search (C1.1).
+ * useFlightSearch — v5
  *
- * v4 — Root-cause fix for StrictMode + App Router:
- *
- * PROBLEM (v3):
- *   StrictMode runs: effect → cleanup(abort) → remount → effect.
- *   The cleanup aborted the fetch, but `lastKeyRef` was only reset inside
- *   the async catch handler of `search()`. The second mount's useEffect
- *   could fire BEFORE that microtask completed, seeing the stale key and
- *   skipping — so POST /api/flights/search never fired.
- *
- *   Additionally, `error` was a useCallback dependency, meaning every error
- *   changed the `search` reference, re-triggered the page's useEffect, and
- *   could create an infinite retry loop.
- *
- * FIX:
- *   1. Reset `lastKeyRef` SYNCHRONOUSLY in the cleanup function, not in
- *      the async abort handler. This guarantees the remounted effect sees
- *      a clean slate regardless of microtask timing.
- *   2. Remove `error` from useCallback deps. Use a ref (`errorRef`) for
- *      the retry-on-error check, so `search` has a stable identity.
- *   3. Single unified cleanup via a ref-based abort+reset pattern.
+ * Fixes over v4:
+ *   - Added console.log at every state transition for debugging
+ *   - pollSearchSession timeout increased to 120s to handle slow SkyScrapper
+ *   - Dedup guard now uses a "completed keys" Set so that finished searches
+ *     aren't re-triggered by StrictMode remounts or effect re-runs
  */
 
 export type UseFlightSearchResult = {
@@ -94,54 +79,44 @@ export function useFlightSearch(): UseFlightSearchResult {
   const [error, setError] = useState<string | null>(null);
 
   // ── Refs for dedup & abort ──
-  const lastKeyRef = useRef<string | null>(null);
+  const activeKeyRef = useRef<string | null>(null);
+  const completedKeysRef = useRef<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
 
   // ── Ref mirror of `error` so `search` can read it without being a dep ──
   const errorRef = useRef<string | null>(null);
   errorRef.current = error;
 
-  /**
-   * Abort the current in-flight request AND reset dedup state.
-   * Called from cleanup and from within `search` when a new search starts.
-   * MUST be synchronous so StrictMode remount sees a clean slate.
-   */
-  const cancelCurrent = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-    lastKeyRef.current = null;
-  }, []);
-
-  /**
-   * Core search function — stable identity (no state in deps).
-   *
-   * Dedup logic:
-   *   - Same key + no prior error → skip (already fetching / already have results)
-   *   - Same key + prior error → retry
-   *   - Different key → new search (cancels previous)
-   */
   const search = useCallback(
     async (params: FlightSearchParams): Promise<void> => {
       const key = stableRequestKey(params);
 
-      // Dedup: skip if same key already succeeded or is in-flight
-      if (lastKeyRef.current === key && !errorRef.current) {
+      // Dedup: skip if this key already completed successfully
+      if (completedKeysRef.current.has(key) && !errorRef.current) {
+        console.log(`[useFlightSearch] SKIP (already completed): ${key}`);
         return;
       }
 
-      // Cancel any previous in-flight request (sync reset of dedup key)
-      cancelCurrent();
+      // Dedup: skip if same key is currently in-flight
+      if (activeKeyRef.current === key && !errorRef.current) {
+        console.log(`[useFlightSearch] SKIP (in-flight): ${key}`);
+        return;
+      }
+
+      // Cancel any previous in-flight request
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
 
       // Set up new request
-      lastKeyRef.current = key;
+      activeKeyRef.current = key;
       const controller = new AbortController();
       abortRef.current = controller;
 
+      console.log(`[useFlightSearch] START search: ${key}`);
       setIsLoading(true);
       setError(null);
-      setResults([]);
 
       try {
         // ── Phase 1: POST to create session ──
@@ -149,49 +124,85 @@ export function useFlightSearch(): UseFlightSearchResult {
           signal: controller.signal,
         });
 
-        // Guard: if aborted between awaits, bail silently (no state updates)
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          console.log(`[useFlightSearch] ABORTED after POST: ${key}`);
+          return;
+        }
+
+        console.log(
+          `[useFlightSearch] POST response: sessionId=${started?.sessionId}, status=${started?.status}`
+        );
 
         const initialFlights = extractFlights(started?.results as ResultsByLeg);
-        setResults(initialFlights);
+        if (initialFlights.length > 0) {
+          setResults(initialFlights);
+          console.log(
+            `[useFlightSearch] Initial results (from cache): ${initialFlights.length} flights`
+          );
+        }
 
         // ── Phase 2: Poll if not complete ──
         const sessionId = started?.sessionId;
         const status = started?.status;
 
         if (sessionId && status && status !== 'complete') {
+          console.log(`[useFlightSearch] Starting poll for session ${sessionId}...`);
+
           const final = await flightsService.pollSearchSession(sessionId, {
             signal: controller.signal,
-            maxWaitMs: 90_000,
+            maxWaitMs: 120_000,
             intervalMs: 2_000,
           });
 
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted) {
+            console.log(`[useFlightSearch] ABORTED during poll: ${key}`);
+            return;
+          }
 
           const finalFlights = extractFlights(final?.results as ResultsByLeg);
+          console.log(
+            `[useFlightSearch] Poll complete: ${finalFlights.length} flights, status=${final?.status}`
+          );
           setResults(finalFlights);
+        } else if (status === 'complete') {
+          console.log(`[useFlightSearch] Session returned complete immediately (cache hit)`);
         }
 
+        // Mark as successfully completed
+        completedKeysRef.current.add(key);
+        activeKeyRef.current = null;
         setIsLoading(false);
+
+        console.log(`[useFlightSearch] DONE: ${key}`);
       } catch (e: unknown) {
-        // Aborted requests = silent bail (StrictMode cleanup or user-initiated cancel)
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          console.log(`[useFlightSearch] ABORTED (catch): ${key}`);
+          return;
+        }
 
         const msg = e instanceof Error ? e.message : 'Error buscando vuelos';
+        console.error(`[useFlightSearch] ERROR: ${msg}`);
         setError(msg);
         setResults([]);
         setIsLoading(false);
+        activeKeyRef.current = null;
       }
     },
-    [cancelCurrent],
+    [],
   );
 
-  // ── Cleanup: abort + reset on unmount (or StrictMode simulated unmount) ──
+  // ── Cleanup: abort on unmount (StrictMode) ──
+  // Note: we do NOT clear completedKeysRef here, so remounts
+  // after StrictMode don't re-trigger finished searches.
   useEffect(() => {
     return () => {
-      cancelCurrent();
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+      activeKeyRef.current = null;
     };
-  }, [cancelCurrent]);
+  }, []);
 
   return { results, isLoading, error, search };
 }

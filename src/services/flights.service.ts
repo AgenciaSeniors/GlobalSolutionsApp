@@ -115,11 +115,6 @@ function buildSearchBody(params: FlightSearchParams): {
 /* ---- ERROR HELPERS ------------------------------- */
 /* -------------------------------------------------- */
 
-function isAbortError(e: unknown): boolean {
-  if (e instanceof DOMException && e.name === 'AbortError') return true;
-  if (e instanceof Error && e.name === 'AbortError') return true;
-  return false;
-}
 
 function extractErrorMessage(json: unknown): string {
   if (typeof json === 'object' && json !== null && 'error' in json) {
@@ -142,20 +137,47 @@ export const flightsService = {
     opts?: { signal?: AbortSignal }
   ): Promise<SearchSessionResponse> {
     const body = buildSearchBody(params);
+    const maxAttempts = 2;
 
-    const res = await fetch('/api/flights/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: opts?.signal,
-    });
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (opts?.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
 
-    const json = (await res.json()) as SearchSessionResponse;
-    if (!res.ok) {
-      throw new Error(extractErrorMessage(json));
+      const res = await fetch('/api/flights/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: opts?.signal,
+      });
+
+      // Retry on 405/503 (dev server compiling) — only once
+      if ((res.status === 405 || res.status === 503) && attempt < maxAttempts) {
+        console.warn(
+          `[flights.service] POST /api/flights/search returned ${res.status}, retrying in 1s...`
+        );
+        await sleep(1000, opts?.signal);
+        continue;
+      }
+
+      let json: SearchSessionResponse;
+      try {
+        json = (await res.json()) as SearchSessionResponse;
+      } catch {
+        throw new Error(
+          `Error del servidor (${res.status}). Intente de nuevo.`
+        );
+      }
+
+      if (!res.ok) {
+        throw new Error(extractErrorMessage(json));
+      }
+
+      return json;
     }
 
-    return json;
+    // Should never reach here, but just in case
+    throw new Error('Error inesperado al iniciar búsqueda.');
   },
 
   /**
@@ -173,7 +195,15 @@ export const flightsService = {
       }
     );
 
-    const json = (await res.json()) as SearchSessionResponse;
+    let json: SearchSessionResponse;
+    try {
+      json = (await res.json()) as SearchSessionResponse;
+    } catch {
+      throw new Error(
+        `Error del servidor (${res.status}). Intente de nuevo.`
+      );
+    }
+
     if (!res.ok) {
       throw new Error(extractErrorMessage(json));
     }

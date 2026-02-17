@@ -15,9 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { flightsOrchestrator } from "@/lib/flights/orchestrator/flightsOrchestrator";
 
 interface Airport {
   iata_code: string;
@@ -33,10 +31,6 @@ interface FlightRow {
   airline: { name: string; logo_url: string } | null;
   origin_airport: Airport | null;
   destination_airport: Airport | null;
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
 }
 
 export async function GET(request: NextRequest) {
