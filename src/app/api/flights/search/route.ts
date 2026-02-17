@@ -106,7 +106,7 @@ function normalizeToRequest(params: FlightSearchParams): {
   return { legs, passengers, filters };
 }
 
-function makeCacheKey(body: { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters }): string {
+export function makeCacheKey(body: { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters }): string {
   const legsKey = body.legs
     .map((l) => `${l.origin.toUpperCase()}-${l.destination.toUpperCase()}-${l.departure_date}`)
     .join('|');
