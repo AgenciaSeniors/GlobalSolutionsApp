@@ -3,6 +3,9 @@ const nextConfig = {
     reactStrictMode: true,
     poweredByHeader: false, // Oculta que usamos Next.js (seguridad por oscuridad básica)
 
+    // AÑADE ESTA LÍNEA PARA SOLUCIONAR EL ERROR DE PINO Y LOS WORKERS
+    serverExternalPackages: ['pino', 'pino-pretty'],
+
     // Headers de seguridad HTTP estrictos
     async headers() {
         return [{
