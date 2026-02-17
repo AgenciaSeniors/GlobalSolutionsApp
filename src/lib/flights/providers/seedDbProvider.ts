@@ -80,7 +80,7 @@ function bestEffortStops(f: FlightRow): number | null {
 export const seedDbProvider: FlightsProvider = {
   id: 'seed-db',
 
-  async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
+  async search(req: ProviderSearchRequest, _opts?: { signal?: AbortSignal }): Promise<ProviderSearchResponse> {
     const supabase = createAdminClient();
 
     const legs = (req.legs ?? []).map((l) => ({

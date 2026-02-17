@@ -71,7 +71,7 @@ async function resolveAirlineIdsByIata(
 export const agencyInventoryProvider: FlightsProvider = {
   id: 'agency-inventory',
 
-  async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
+  async search(req: ProviderSearchRequest, _opts?: { signal?: AbortSignal }): Promise<ProviderSearchResponse> {
     const supabase = createAdminClient();
 
     const legs = (req.legs ?? []).map((l) => ({

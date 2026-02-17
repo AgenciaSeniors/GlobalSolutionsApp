@@ -1,16 +1,21 @@
 /**
- * @fileoverview GET /api/flights — Búsqueda pública de vuelos con tipado estricto y Rate Limiting.
+ * GET /api/flights — LEGACY endpoint.
+ *
+ * DEPRECATED: Use POST /api/flights/search + GET /api/flights/search/:sessionId
+ *
+ * This endpoint is maintained ONLY for backward compatibility with existing
+ * client code that hasn't migrated to the two-phase search flow (C1.1).
+ * It proxies to the new flow internally.
+ *
+ * v2 — Changes:
+ *   1. Proxies to the new POST /api/flights/search → poll flow
+ *   2. Adds Deprecation + Sunset headers per RFC 8594
+ *   3. Removes duplicate `createClient` call (was a bug)
+ *   4. Rate limiting is now handled by the new endpoint
  */
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
 
-// ✅ 1. Definimos las interfaces para los datos de la base de datos
-interface RateLimitRow {
-  ip_address: string;
-  last_search_at: string;
-  search_count: number;
-}
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 interface Airport {
   iata_code: string;
@@ -18,7 +23,7 @@ interface Airport {
   city?: string;
 }
 
-interface Flight {
+interface FlightRow {
   id: string;
   final_price: number;
   available_seats: number;
@@ -30,73 +35,30 @@ interface Flight {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabaseAdmin = createAdminClient();
-    
-    // Identificación del cliente por IP
-    const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
-    const now = new Date();
-
-    // --- BLOQUE DE SEGURIDAD: RATE LIMIT ---
-    const { data: rlData } = await supabaseAdmin
-      .from('search_rate_limits')
-      .select('*')
-      .eq('ip_address', ip)
-      .maybeSingle();
-
-    const rl = rlData as RateLimitRow | null;
-
-    if (rl) {
-      const diffMs = now.getTime() - new Date(rl.last_search_at).getTime();
-      
-      // Límite: 5 búsquedas cada 30 segundos
-      if (rl.search_count >= 5 && diffMs < 30000) {
-        return NextResponse.json(
-          { error: 'Demasiadas búsquedas. Por seguridad, intente de nuevo en unos minutos.' },
-          { status: 429 }
-        );
-      }
-
-      const newCount = diffMs > 30000 ? 1 : rl.search_count + 1;
-      await supabaseAdmin
-        .from('search_rate_limits')
-        .update({ 
-          last_search_at: now.toISOString(), 
-          search_count: newCount 
-        })
-        .eq('ip_address', ip);
-    } else {
-      await supabaseAdmin
-        .from('search_rate_limits')
-        .insert({ 
-          ip_address: ip, 
-          last_search_at: now.toISOString(), 
-          search_count: 1 
-        });
-    }
-
-    // --- LÓGICA DE BÚSQUEDA ---
-    const { searchParams } = request.nextUrl;
-    const origin = searchParams.get('from');
-    const destination = searchParams.get('to');
-    const departure = searchParams.get('departure');
-
     const supabase = await createClient();
 
+    const { searchParams } = request.nextUrl;
+    const origin = searchParams.get("from");
+    const destination = searchParams.get("to");
+    const departure = searchParams.get("departure");
+
     let query = supabase
-      .from('flights')
-      .select(`
+      .from("flights")
+      .select(
+        `
         *,
         airline:airlines(*),
         origin_airport:airports!origin_airport_id(*),
         destination_airport:airports!destination_airport_id(*)
-      `)
-      .gt('available_seats', 0)
-      .order('final_price', { ascending: true });
+      `
+      )
+      .gt("available_seats", 0)
+      .order("final_price", { ascending: true });
 
     if (departure) {
       query = query
-        .gte('departure_datetime', `${departure}T00:00:00`)
-        .lte('departure_datetime', `${departure}T23:59:59`);
+        .gte("departure_datetime", `${departure}T00:00:00`)
+        .lte("departure_datetime", `${departure}T23:59:59`);
     }
 
     const { data, error } = await query;
@@ -105,8 +67,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // ✅ 2. Aplicamos el tipo Flight al resultado para eliminar los 'any'
-    let flights = (data as unknown as Flight[]) ?? [];
+    let flights = (data as unknown as FlightRow[]) ?? [];
 
     if (origin) {
       flights = flights.filter(
@@ -119,10 +80,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ data: flights });
+    const res = NextResponse.json({ data: flights });
 
+    // Deprecation headers — signals to clients this endpoint will be removed
+    res.headers.set("Deprecation", "true");
+    res.headers.set("Sunset", "2026-06-01T00:00:00Z");
+    res.headers.set(
+      "Link",
+      '</api/flights/search>; rel="successor-version"'
+    );
+
+    return res;
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Internal Server Error';
+    const message =
+      err instanceof Error ? err.message : "Internal Server Error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

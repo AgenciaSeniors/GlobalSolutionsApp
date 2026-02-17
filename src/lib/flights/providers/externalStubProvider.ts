@@ -189,7 +189,7 @@ function applyMaxStops(flights: Flight[], maxStops: number): Flight[] {
 export const externalStubProvider: FlightsProvider = {
   id: 'external-stub',
 
-  async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
+  async search(req: ProviderSearchRequest, _opts?: { signal?: AbortSignal }): Promise<ProviderSearchResponse> {
     const legs = req.legs ?? [];
     const filters = req.filters;
 
