@@ -61,6 +61,7 @@ export interface Flight {
   aircraft_type: string | null;
   is_exclusive_offer: boolean;
   offer_expires_at: string | null;
+  stops?: Array<{ airport: string; duration_minutes: number }> | null; // info de escalas
   created_at: string;
   updated_at: string;
 }
@@ -381,4 +382,10 @@ export interface FlightOffer {
   segments: FlightSegment[];
   totalDuration: string;
   type: 'oneway' | 'roundtrip' | 'multicity';
+  // Filter-friendly fields (populated by mapper)
+  airline_code?: string;
+  stops_count?: number;
+  stops?: Array<{ airport: string; duration_minutes: number }>;
+  is_exclusive_offer?: boolean;
+  provider?: string;
 }

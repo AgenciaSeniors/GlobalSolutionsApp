@@ -11,7 +11,7 @@ function requiredEnv(name: string): string {
 }
 
 const stripe = new Stripe(requiredEnv('STRIPE_SECRET_KEY'), {
-  // Usa una versión estable de stripe-node. Si ya fijaste otra, puedes cambiarla,
+  // Usa una versiÃ³n estable de stripe-node. Si ya fijaste otra, puedes cambiarla,
   // pero esta es segura para PaymentIntents.
   apiVersion: '2024-06-20',
 });
@@ -47,7 +47,7 @@ function getMetadataString(
 
 /**
  * Inserta el evento una sola vez (idempotencia real) usando RPC.
- * Devuelve true si se insertó por primera vez; false si ya existía (duplicado).
+ * Devuelve true si se insertÃ³ por primera vez; false si ya existÃ­a (duplicado).
  */
 async function logStripeEventOnce(params: {
   event: Stripe.Event;
@@ -68,9 +68,9 @@ async function logStripeEventOnce(params: {
 
   if (error) {
     // Si esto falla, prefiero NO romper el webhook (Stripe reintenta y puedes duplicar updates).
-    // Pero como ya tienes la tabla y la función, esto no debería fallar.
+    // Pero como ya tienes la tabla y la funciÃ³n, esto no deberÃ­a fallar.
     console.error('[Stripe Webhook] RPC log_stripe_event_once failed:', error.message);
-    // Si quieres ser más estricto: return false + 500. En dev es mejor ver el error.
+    // Si quieres ser mÃ¡s estricto: return false + 500. En dev es mejor ver el error.
     throw new Error(`RPC failed: ${error.message}`);
   }
 
@@ -95,6 +95,7 @@ async function updateBookingPaymentStatus(params: {
     payment_status: params.status,
     payment_intent_id: params.paymentIntentId,
     payment_method: 'stripe',
+    payment_gateway: 'stripe',
   };
 
   if (params.status === 'paid') {
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Event logging failed';
     console.error('[Stripe Webhook] Event logging failed:', message);
-    // Aquí sí devolvemos 500 para que Stripe reintente, porque sin log no garantizamos idempotencia.
+    // AquÃ­ sÃ­ devolvemos 500 para que Stripe reintente, porque sin log no garantizamos idempotencia.
     return NextResponse.json({ error: 'Event logging failed' }, { status: 500 });
   }
 
@@ -198,7 +199,7 @@ export async function POST(request: NextRequest) {
       }
 
       default: {
-        // No hacemos nada más (pero ya quedó auditado en payment_events por RPC)
+        // No hacemos nada mÃ¡s (pero ya quedÃ³ auditado en payment_events por RPC)
         console.log(`[Stripe Webhook] Unhandled event: ${event.type}`);
         break;
       }

@@ -1,7 +1,10 @@
+// src/lib/supabase/server.ts
 /**
  * @fileoverview Supabase client for Server Components, Route Handlers
- *               and Server Actions.  Reads cookies via next/headers.
- * @module lib/supabase/server
+ *               and Server Actions. Reads cookies via next/headers.
+ *
+ * ✅ Este archivo está correcto. Se usa en Server Components y Route Handlers.
+ * Para middleware, las cookies se manejan directamente en middleware.ts.
  */
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';

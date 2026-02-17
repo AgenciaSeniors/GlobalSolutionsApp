@@ -1,77 +1,227 @@
 /**
- * @fileoverview Checkout page — Payment with transparent pricing.
- * Refactored to fix TypeScript null checks and Input label props.
+ * @fileoverview Checkout page — creates booking + passengers, then redirects to /pay for real payment (Stripe/PayPal).
+ * Keeps existing UI and UX while making the flow production-correct:
+ * - NEVER mark bookings as paid from the frontend.
+ * - Stripe/PayPal payment confirmation must happen via backend (intent/order + webhook).
  */
+
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import Card from '@/components/ui/Card';
-import Input from '@/components/ui/Input'; // Assuming this component does NOT accept a 'label' prop
+import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import PriceBreakdownCard from '@/components/features/checkout/PriceBreakdownCard';
 import type { FlightWithDetails, PriceBreakdown } from '@/types/models';
-import { CreditCard, Building, Banknote, Shield, Lock, CheckCircle, Plane, AlertTriangle } from 'lucide-react';
+import {
+  CreditCard,
+  Building,
+  Banknote,
+  Shield,
+  Lock,
+  CheckCircle,
+  Plane,
+  AlertTriangle,
+} from 'lucide-react';
 
-// Helper component to render label + input to fix the "Property 'label' does not exist" error
-const FormField = ({ label, ...props }: React.ComponentProps<typeof Input> & { label: string }) => (
+// Helper component to render label + input (your Input doesn't accept label prop)
+const FormField = ({
+  label,
+  ...props
+}: React.ComponentProps<typeof Input> & { label: string }) => (
   <div className="space-y-1.5">
     <label className="text-sm font-medium text-neutral-700">{label}</label>
     <Input {...props} />
   </div>
 );
 
+type Gateway = 'stripe' | 'paypal' | 'zelle';
+
+/**
+ * Helper: converts any raw flight object (from DB or from external stub)
+ * into the FlightWithDetails shape that the checkout UI expects.
+ */
+function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: string): FlightWithDetails {
+  const airline = (parsed.airline ?? {}) as Record<string, unknown>;
+  const originAirport = (parsed.origin_airport ?? {}) as Record<string, unknown>;
+  const destAirport = (parsed.destination_airport ?? {}) as Record<string, unknown>;
+
+  return {
+    id: String(parsed.id ?? fallbackId),
+    airline_id: String(parsed.airline_id ?? airline.id ?? ''),
+    flight_number: String(parsed.flight_number ?? ''),
+    origin_airport_id: String(parsed.origin_airport_id ?? ''),
+    destination_airport_id: String(parsed.destination_airport_id ?? ''),
+    departure_datetime: String(parsed.departure_datetime ?? ''),
+    arrival_datetime: String(parsed.arrival_datetime ?? ''),
+    base_price: Number(parsed.base_price ?? parsed.price ?? parsed.final_price ?? 0),
+    markup_percentage: Number(parsed.markup_percentage ?? 0),
+    final_price: Number(parsed.final_price ?? parsed.price ?? 0),
+    total_seats: Number(parsed.total_seats ?? 100),
+    available_seats: Number(parsed.available_seats ?? 50),
+    aircraft_type: (parsed.aircraft_type as string) ?? null,
+    is_exclusive_offer: Boolean(parsed.is_exclusive_offer),
+    offer_expires_at: (parsed.offer_expires_at as string) ?? null,
+    stops: (parsed.stops as FlightWithDetails['stops']) ?? null,
+    created_at: String(parsed.created_at ?? new Date().toISOString()),
+    updated_at: String(parsed.updated_at ?? new Date().toISOString()),
+    airline: {
+      id: String(airline.id ?? ''),
+      iata_code: String(airline.iata_code ?? ''),
+      name: String(airline.name ?? 'Aerolínea'),
+      logo_url: (airline.logo_url as string) ?? null,
+      is_active: airline.is_active !== false,
+    },
+    origin_airport: {
+      id: String(originAirport.id ?? ''),
+      iata_code: String(originAirport.iata_code ?? ''),
+      name: String(originAirport.name ?? ''),
+      city: String(originAirport.city ?? 'Origen'),
+      country: String(originAirport.country ?? ''),
+      timezone: (originAirport.timezone as string) ?? null,
+    },
+    destination_airport: {
+      id: String(destAirport.id ?? ''),
+      iata_code: String(destAirport.iata_code ?? ''),
+      name: String(destAirport.name ?? ''),
+      city: String(destAirport.city ?? 'Destino'),
+      country: String(destAirport.country ?? ''),
+      timezone: (destAirport.timezone as string) ?? null,
+    },
+  } as FlightWithDetails;
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
-  const { user, profile } = useAuthContext();
+  const { user } = useAuthContext();
   const { settings, loading: settingsLoading, calculateGatewayFee } = useAppSettings();
 
   const flightId = searchParams.get('flight');
-  const passengerCount = parseInt(searchParams.get('passengers') || '1');
+  const passengerCount = parseInt(searchParams.get('passengers') || '1', 10);
 
   const [flight, setFlight] = useState<FlightWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
-  const [gateway, setGateway] = useState<'stripe' | 'paypal' | 'zelle'>('stripe');
-  const [passengers, setPassengers] = useState<Array<{
-    first_name: string; last_name: string; dob: string;
-    nationality: string; passport_number: string; passport_expiry: string;
-  }>>([]);
+
+  const [gateway, setGateway] = useState<Gateway>('stripe');
+  const [passengers, setPassengers] = useState<
+    Array<{
+      first_name: string;
+      last_name: string;
+      dob: string;
+      nationality: string;
+      passport_number: string;
+      passport_expiry: string;
+    }>
+  >([]);
+
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Success screen is ONLY for Zelle (manual payment). Stripe/PayPal redirect to /pay.
   const [success, setSuccess] = useState(false);
   const [bookingCode, setBookingCode] = useState('');
 
+  // ✅ Guard against React Strict Mode double-execution of useEffect
+  const hasLoadedRef = useRef(false);
+
   useEffect(() => {
     if (!user) {
-      const currentUrl = `/checkout?flight=${flightId}&passengers=${passengerCount}`;
+      const currentUrl = `/checkout?flight=${flightId ?? ''}&passengers=${passengerCount}`;
       router.push(`/login?redirect=${encodeURIComponent(currentUrl)}`);
       return;
     }
-    if (!flightId) { router.push('/flights'); return; }
+
+    if (!flightId) {
+      router.push('/flights');
+      return;
+    }
+
+    // ✅ Prevent double execution (React Strict Mode in dev calls useEffect twice)
+    if (hasLoadedRef.current) return;
+    hasLoadedRef.current = true;
 
     async function load() {
-      const { data } = await supabase
-        .from('flights')
-        .select('*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)')
-        .eq('id', flightId)
-        .single();
+      let flightData: FlightWithDetails | null = null;
 
-      if (!data) { router.push('/flights'); return; }
-      setFlight(data as unknown as FlightWithDetails);
+      // ✅ 1) Try to load from sessionStorage first (works for ALL flight sources)
+      try {
+        const cached = sessionStorage.getItem('selectedFlightData');
+        if (cached) {
+          const parsed = JSON.parse(cached) as Record<string, unknown>;
+          const parsedId = String(parsed?.id ?? '');
 
-      setPassengers(Array.from({ length: passengerCount }, () => ({
-        first_name: '', last_name: '', dob: '', nationality: '',
-        passport_number: '', passport_expiry: '',
-      })));
+          // Verify it matches the flight ID in the URL
+          if (parsedId === flightId) {
+            flightData = rawToFlightWithDetails(parsed, flightId);
+            console.log('[Checkout] ✅ Loaded flight from sessionStorage:', flightData.airline.name, flightData.flight_number);
+          }
+
+          // Clear after reading
+          sessionStorage.removeItem('selectedFlightData');
+        }
+      } catch (e) {
+        console.warn('[Checkout] sessionStorage error:', e);
+      }
+
+      // ✅ 2) If sessionStorage didn't have it, try DB (only works for real DB UUIDs)
+      if (!flightData) {
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(flightId!);
+
+        if (isUUID) {
+          try {
+            const { data, error: dbError } = await supabase
+              .from('flights')
+              .select(
+                '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)'
+              )
+              .eq('id', flightId)
+              .single();
+
+            if (dbError) {
+              console.warn('[Checkout] DB lookup failed:', dbError.message);
+            }
+
+            if (data) {
+              flightData = data as unknown as FlightWithDetails;
+              console.log('[Checkout] ✅ Loaded flight from DB');
+            }
+          } catch (err) {
+            console.warn('[Checkout] DB query error:', err);
+          }
+        }
+      }
+
+      // ✅ 3) If still no data, redirect back
+      if (!flightData) {
+        console.warn('[Checkout] ❌ Flight not found for id:', flightId);
+        router.push('/flights');
+        return;
+      }
+
+      setFlight(flightData);
+
+      setPassengers(
+        Array.from({ length: passengerCount }, () => ({
+          first_name: '',
+          last_name: '',
+          dob: '',
+          nationality: '',
+          passport_number: '',
+          passport_expiry: '',
+        }))
+      );
+
       setLoading(false);
     }
+
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flightId, user]);
@@ -87,7 +237,7 @@ export default function CheckoutPage() {
     );
   }
 
-  // Safe to assume flight is not null here for rendering, but TS needs help inside callbacks
+  // Display-only pricing (real pricing must be computed in backend at payment time)
   const subtotal = flight.final_price * passengerCount;
   const gatewayFee = calculateGatewayFee(subtotal, gateway);
   const total = Math.round((subtotal + gatewayFee) * 100) / 100;
@@ -104,12 +254,13 @@ export default function CheckoutPage() {
   };
 
   function updatePassenger(index: number, field: string, value: string) {
-    setPassengers(prev => prev.map((p, i) => i === index ? { ...p, [field]: value } : p));
+    setPassengers((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: value } : p)));
   }
 
   function validatePassengers(): boolean {
     for (let i = 0; i < passengers.length; i++) {
       const p = passengers[i];
+
       if (!p.first_name.trim() || !p.last_name.trim()) {
         setError(`Pasajero ${i + 1}: Nombre y apellido son obligatorios.`);
         return false;
@@ -140,35 +291,39 @@ export default function CheckoutPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    // Strict null check for TypeScript
-    if (!user || !flight) return; 
-    
+    if (!user || !flight) return;
+
     setError(null);
 
     if (!validatePassengers()) return;
+
     setProcessing(true);
 
     try {
-      const bookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+      const newBookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
+      // Create booking (always pending until payment is confirmed by backend)
       const { data: booking, error: bookingErr } = await supabase
         .from('bookings')
         .insert({
-          booking_code: bookingCode,
+          booking_code: newBookingCode,
           user_id: user.id,
-          flight_id: flight.id, // TS now knows flight is not null
+          flight_id: flight.id,
           subtotal: breakdown.subtotal,
           payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
           total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
           payment_method: gateway,
           payment_status: 'pending',
           booking_status: 'pending_emission',
+          currency: 'USD',
+          pricing_breakdown: breakdown,
         })
         .select('id')
         .single();
 
       if (bookingErr) throw bookingErr;
 
+      // Insert passengers
       for (const p of passengers) {
         const { error: pErr } = await supabase.from('booking_passengers').insert({
           booking_id: booking.id,
@@ -182,26 +337,19 @@ export default function CheckoutPage() {
         if (pErr) throw pErr;
       }
 
-      await supabase.from('flights').update({
-        available_seats: flight.available_seats - passengerCount, // TS safe
-      }).eq('id', flight.id);
+      // Update available seats
+      await supabase
+        .from('flights')
+        .update({ available_seats: flight.available_seats - passengerCount })
+        .eq('id', flight.id);
 
-      if (gateway === 'stripe' || gateway === 'paypal') {
-        await supabase.from('bookings').update({
-          payment_status: 'paid',
-          paid_at: new Date().toISOString(),
-        }).eq('id', booking.id);
+      if (gateway === 'zelle') {
+        setBookingCode(newBookingCode);
+        setSuccess(true);
+        return;
       }
 
-      const pointsEarned = Math.floor(breakdown.subtotal * settings.loyalty_points_per_dollar);
-      if (pointsEarned > 0 && profile) {
-        await supabase.from('profiles').update({
-          loyalty_points: (profile.loyalty_points || 0) + pointsEarned,
-        }).eq('id', user.id);
-      }
-
-      setBookingCode(bookingCode);
-      setSuccess(true);
+      router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : 'Error al procesar la reserva.');
@@ -217,21 +365,14 @@ export default function CheckoutPage() {
         <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-brand-50 to-white pt-20">
           <Card className="max-w-lg text-center">
             <CheckCircle className="mx-auto mb-4 h-16 w-16 text-emerald-500" />
-            <h1 className="text-2xl font-bold">¡Reserva Confirmada!</h1>
+            <h1 className="text-2xl font-bold">¡Reserva Creada!</h1>
             <p className="mt-2 font-mono text-lg font-bold text-brand-600">{bookingCode}</p>
             <p className="mt-3 text-neutral-600">
-              {gateway === 'zelle'
-                ? 'Realiza la transferencia por Zelle y un agente confirmará tu pago en 2-4 horas.'
-                : 'Tu pago fue recibido. Recibirás tus boletos en un plazo máximo de 24 horas.'
-              }
+              Realiza la transferencia por Zelle y un agente confirmará tu pago en 2–4 horas.
             </p>
-            <p className="mt-4 text-sm text-neutral-400">
-              Estado: {gateway === 'zelle' ? 'Pendiente de Pago' : 'Pendiente de Emisión'}
-            </p>
-            <div className="mt-6 flex gap-3 justify-center">
-              <Button onClick={() => router.push('/user/dashboard/bookings')}>
-                Ver Mis Reservas
-              </Button>
+            <p className="mt-4 text-sm text-neutral-400">Estado: Pendiente de Pago</p>
+            <div className="mt-6 flex justify-center gap-3">
+              <Button onClick={() => router.push('/user/dashboard/bookings')}>Ver Mis Reservas</Button>
               <Button variant="outline" onClick={() => router.push('/')}>
                 Volver al Inicio
               </Button>
@@ -263,12 +404,20 @@ export default function CheckoutPage() {
                   <div className="flex items-center gap-4">
                     <Plane className="h-8 w-8 text-brand-600" />
                     <div className="flex-1">
-                      <p className="font-bold">{flight.airline.name} {flight.flight_number}</p>
+                      <p className="font-bold">
+                        {flight.airline.name} {flight.flight_number}
+                      </p>
                       <p className="text-sm text-neutral-500">
-                        {flight.origin_airport.city} ({flight.origin_airport.iata_code}) → {flight.destination_airport.city} ({flight.destination_airport.iata_code})
+                        {flight.origin_airport.city} ({flight.origin_airport.iata_code}) →{' '}
+                        {flight.destination_airport.city} ({flight.destination_airport.iata_code})
                       </p>
                       <p className="text-xs text-neutral-400">
-                        {new Date(flight.departure_datetime).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                        {new Date(flight.departure_datetime).toLocaleDateString('es', {
+                          weekday: 'long',
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })}
                       </p>
                     </div>
                     <div className="text-right">
@@ -276,6 +425,7 @@ export default function CheckoutPage() {
                       <p className="text-xs text-neutral-400">por persona</p>
                     </div>
                   </div>
+
                   {flight.available_seats < 10 && (
                     <p className="mt-3 text-xs font-semibold text-red-500">
                       ⚠️ Solo quedan {flight.available_seats} asientos disponibles
@@ -285,19 +435,22 @@ export default function CheckoutPage() {
 
                 {passengers.map((p, i) => (
                   <Card key={i} variant="bordered">
-                    <h3 className="mb-4 font-bold">Pasajero {i + 1} de {passengerCount}</h3>
+                    <h3 className="mb-4 font-bold">
+                      Pasajero {i + 1} de {passengerCount}
+                    </h3>
+
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <FormField
                         label="Nombre (como en pasaporte)"
                         value={p.first_name}
-                        onChange={e => updatePassenger(i, 'first_name', e.target.value)}
+                        onChange={(e) => updatePassenger(i, 'first_name', e.target.value)}
                         placeholder="María"
                         required
                       />
                       <FormField
                         label="Apellido (como en pasaporte)"
                         value={p.last_name}
-                        onChange={e => updatePassenger(i, 'last_name', e.target.value)}
+                        onChange={(e) => updatePassenger(i, 'last_name', e.target.value)}
                         placeholder="García"
                         required
                       />
@@ -305,13 +458,13 @@ export default function CheckoutPage() {
                         label="Fecha de Nacimiento"
                         type="date"
                         value={p.dob}
-                        onChange={e => updatePassenger(i, 'dob', e.target.value)}
+                        onChange={(e) => updatePassenger(i, 'dob', e.target.value)}
                         required
                       />
                       <FormField
                         label="Nacionalidad"
                         value={p.nationality}
-                        onChange={e => updatePassenger(i, 'nationality', e.target.value)}
+                        onChange={(e) => updatePassenger(i, 'nationality', e.target.value)}
                         placeholder="CUB"
                         maxLength={3}
                         required
@@ -319,7 +472,7 @@ export default function CheckoutPage() {
                       <FormField
                         label="Número de Pasaporte"
                         value={p.passport_number}
-                        onChange={e => updatePassenger(i, 'passport_number', e.target.value)}
+                        onChange={(e) => updatePassenger(i, 'passport_number', e.target.value)}
                         placeholder="A12345678"
                         required
                       />
@@ -327,10 +480,11 @@ export default function CheckoutPage() {
                         label="Vencimiento Pasaporte"
                         type="date"
                         value={p.passport_expiry}
-                        onChange={e => updatePassenger(i, 'passport_expiry', e.target.value)}
+                        onChange={(e) => updatePassenger(i, 'passport_expiry', e.target.value)}
                         required
                       />
                     </div>
+
                     <p className="mt-3 flex items-center gap-1.5 text-xs text-neutral-400">
                       <Lock className="h-3 w-3" />
                       Los datos del pasaporte se almacenan encriptados con AES-256
@@ -340,6 +494,7 @@ export default function CheckoutPage() {
 
                 <Card variant="bordered">
                   <h3 className="mb-4 font-bold">Método de Pago</h3>
+
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     {([
                       {
@@ -360,7 +515,7 @@ export default function CheckoutPage() {
                         label: 'Zelle',
                         sub: 'Sin comisión',
                       },
-                    ]).map(m => (
+                    ] as const).map((m) => (
                       <button
                         key={m.id}
                         type="button"
@@ -371,17 +526,22 @@ export default function CheckoutPage() {
                             : 'border-neutral-200 hover:border-neutral-300'
                         }`}
                       >
-                        <m.icon className={`mb-2 h-6 w-6 ${gateway === m.id ? 'text-brand-600' : 'text-neutral-400'}`} />
-                        <p className="font-semibold text-sm">{m.label}</p>
+                        <m.icon
+                          className={`mb-2 h-6 w-6 ${
+                            gateway === m.id ? 'text-brand-600' : 'text-neutral-400'
+                          }`}
+                        />
+                        <p className="text-sm font-semibold">{m.label}</p>
                         <p className="text-xs text-neutral-500">{m.sub}</p>
                       </button>
                     ))}
                   </div>
+
                   {gateway === 'zelle' && (
                     <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
                       <strong>Zelle:</strong> Realiza la transferencia a{' '}
-                      <span className="font-mono font-bold">{settings.business_email}</span>{' '}
-                      y un agente confirmará tu pago en 2–4 horas.
+                      <span className="font-mono font-bold">{settings.business_email}</span> y un agente confirmará tu
+                      pago en 2–4 horas.
                     </div>
                   )}
                 </Card>
@@ -392,10 +552,7 @@ export default function CheckoutPage() {
 
                 <Button type="submit" isLoading={processing} className="w-full gap-2">
                   <Lock className="h-4 w-4" />
-                  {gateway === 'zelle'
-                    ? `Reservar $${breakdown.subtotal.toFixed(2)}`
-                    : `Pagar $${breakdown.total.toFixed(2)}`
-                  }
+                  {gateway === 'zelle' ? `Reservar $${breakdown.subtotal.toFixed(2)}` : `Continuar a pagar`}
                 </Button>
 
                 <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">
@@ -404,7 +561,9 @@ export default function CheckoutPage() {
 
                 {settings.loyalty_points_per_dollar > 0 && (
                   <div className="rounded-xl bg-amber-50 px-4 py-3 text-center text-xs text-amber-700">
-                    ⭐ Ganarás <strong>{Math.floor(breakdown.subtotal * settings.loyalty_points_per_dollar)} puntos</strong> de fidelidad con esta compra
+                    ⭐ Ganarás{' '}
+                    <strong>{Math.floor(breakdown.subtotal * settings.loyalty_points_per_dollar)} puntos</strong> de
+                    fidelidad con esta compra
                   </div>
                 )}
               </div>

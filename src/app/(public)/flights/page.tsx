@@ -5,7 +5,7 @@
  * @module app/(public)/flights/page
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -18,6 +18,7 @@ import FlightResultsList from '@/components/features/flights/FlightResultsList';
 
 import { useFlightSearch } from '@/hooks/useFlightSearch';
 import type { FlightOffer } from '@/types/models';
+import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
 
 type FilterState = {
   stops: string[];
@@ -32,16 +33,6 @@ type SearchPayload = {
   passengers: string;
   return?: string;
 };
-
-function formatDuration(ms: number): string {
-  const totalMinutes = Math.max(0, Math.round(ms / 60_000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours <= 0) return `${minutes}m`;
-  if (minutes === 0) return `${hours}h`;
-  return `${hours}h ${minutes}m`;
-}
 
 export default function FlightsPage() {
   const router = useRouter();
@@ -59,6 +50,9 @@ export default function FlightsPage() {
     priceRange: { min: 0, max: 2000 },
     airlines: [],
   });
+
+  // ✅ Map to keep raw results indexed by their mapped ID for sessionStorage
+  const rawResultsMapRef = useRef<Map<string, unknown>>(new Map());
 
   // Construye legs a partir de la última búsqueda
   const legs = useMemo(() => {
@@ -107,43 +101,26 @@ export default function FlightsPage() {
     }
   }, [activeLeg, lastSearch, search]);
 
-  // Map results -> FlightOffer para la UI
+  // ✅ Map results -> FlightOffer para la UI usando el mapper (segmentos reales si hay escalas)
+  // Also build a raw results map indexed by the mapped ID
   const flights: FlightOffer[] = useMemo(() => {
-    return results.map((f) => {
-      const departureMs = new Date(f.departure_datetime).getTime();
-      const arrivalMs = new Date(f.arrival_datetime).getTime();
-      const durationMs = arrivalMs - departureMs;
+    const rawArr = results ?? [];
+    const mapped = rawArr.map(mapApiFlightToOffer);
 
-      const duration = formatDuration(durationMs);
+    // Build a map: mappedId -> raw result data
+    const newMap = new Map<string, unknown>();
+    for (let i = 0; i < mapped.length; i++) {
+      const raw = rawArr[i];
+      if (raw) {
+        newMap.set(mapped[i].id, raw);
+      }
+    }
+    rawResultsMapRef.current = newMap;
 
-      return {
-        id: f.id,
-        price: f.final_price,
-        currency: 'USD',
-        type: 'oneway',
-        totalDuration: duration,
-        segments: [
-          {
-            id: `${f.id}-seg-1`,
-            origin: f.origin_airport?.iata_code ?? '',
-            destination: f.destination_airport?.iata_code ?? '',
-            departureTime: f.departure_datetime,
-            arrivalTime: f.arrival_datetime,
-            flightNumber: f.flight_number,
-            duration,
-            airline: {
-              id: f.airline?.id ?? f.airline_id,
-              name: f.airline?.name ?? 'Aerolínea',
-              code: f.airline?.iata_code ?? '',
-              logoUrl: f.airline?.logo_url ?? undefined,
-            },
-          },
-        ],
-      };
-    });
+    return mapped;
   }, [results]);
 
-  // Aplicar filtros (UI local)
+  // ✅ Aplicar filtros (UI local) — ahora sí funciona porque segments.length refleja escalas reales
   const filteredFlights = useMemo(() => {
     return flights.filter((flight) => {
       // Precio
@@ -157,7 +134,7 @@ export default function FlightsPage() {
         if (!filters.airlines.includes(airlineName)) return false;
       }
 
-      // Escalas (si mañana hay múltiples segmentos, esto funciona)
+      // Escalas
       if (filters.stops.length > 0) {
         const segmentsCount = flight.segments?.length ?? 1;
         const stopsCount = Math.max(0, segmentsCount - 1);
@@ -237,6 +214,21 @@ export default function FlightsPage() {
                   error={error}
                   onSelectFlight={(flightId) => {
                     const passengersCount = Number(lastSearch?.passengers) || 1;
+
+                    // ✅ Save selected flight raw data in sessionStorage
+                    // so checkout can use it even if the ID is not a real DB UUID
+                    try {
+                      const rawFlight = rawResultsMapRef.current.get(flightId);
+                      if (rawFlight) {
+                        sessionStorage.setItem(
+                          'selectedFlightData',
+                          JSON.stringify(rawFlight)
+                        );
+                      }
+                    } catch (e) {
+                      console.warn('[Flights] Could not save to sessionStorage:', e);
+                    }
+
                     router.push(`/checkout?flight=${flightId}&passengers=${passengersCount}`);
                   }}
                 />

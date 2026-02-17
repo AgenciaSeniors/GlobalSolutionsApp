@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -13,22 +13,26 @@ import FlightResultsList from '@/components/features/flights/FlightResultsList';
 
 import { useFlightSearch } from '@/hooks/useFlightSearch';
 import type { FlightOffer } from '@/types/models';
+import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
 
-// Copiamos el tipo local que usa FlightFilters
 type FilterState = {
   stops: string[];
   priceRange: { min: number; max: number };
   airlines: string[];
 };
 
-function formatDuration(ms: number): string {
-  const totalMinutes = Math.max(0, Math.round(ms / 60_000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
+function toStopsCountFilter(stops: string[]): number | null {
+  if (!stops.length) return null;
 
-  if (hours <= 0) return `${minutes}m`;
-  if (minutes === 0) return `${hours}h`;
-  return `${hours}h ${minutes}m`;
+  const hasDirect = stops.includes('direct');
+  const has1 = stops.includes('1stop') || stops.includes('1');
+  const has2 = stops.includes('2stops') || stops.includes('2') || stops.includes('2plus');
+
+  if (has2) return 2;
+  if (has1) return 1;
+  if (hasDirect) return 0;
+
+  return null;
 }
 
 export default function FlightSearchResultsPage() {
@@ -39,10 +43,8 @@ export default function FlightSearchResultsPage() {
 
   const passengerCount = Number(searchParams.get('passengers')) || 1;
 
-  // Tabs (ida / regreso)
-  const [activeLeg, setActiveLeg] = useState(0);
+  const [activeLeg, setActiveLeg] = useState<number>(0);
 
-  // Filtros (sidebar)
   const [filters, setFilters] = useState<FilterState>({
     stops: [],
     priceRange: { min: 0, max: 2000 },
@@ -54,109 +56,78 @@ export default function FlightSearchResultsPage() {
   const departure = searchParams.get('departure') || '';
   const returnDate = searchParams.get('return') || '';
 
-  // Legs para tabs
+  // Pre-fill the search form with URL params
+  const formInitialValues = useMemo(
+    () => ({
+      origin: from,
+      destination: to,
+      departure,
+      returnDate,
+      passengers: String(passengerCount),
+    }),
+    [from, to, departure, returnDate, passengerCount]
+  );
+
   const legs = useMemo(() => {
     const base = [{ origin: from, destination: to, date: departure }];
     if (returnDate) base.push({ origin: to, destination: from, date: returnDate });
     return base.filter((l) => l.origin && l.destination && l.date);
   }, [from, to, departure, returnDate]);
 
-  // Dispara búsqueda según tab activa
+  // Single-fire guard: build a stable request key and only fire when it changes
+  const lastFiredKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    // Si no hay params mínimos, no buscamos
     if (!from || !to || !departure) return;
 
-    // Ida
-    if (activeLeg === 0) {
-      search({
-        origin: from,
-        destination: to,
-        departure_date: departure,
-        passengers: passengerCount,
-      });
-      return;
-    }
+    const origin = activeLeg === 0 ? from : to;
+    const destination = activeLeg === 0 ? to : from;
+    const date = activeLeg === 0 ? departure : returnDate;
 
-    // Regreso (solo si existe returnDate)
-    if (activeLeg === 1 && returnDate) {
-      search({
-        origin: to,
-        destination: from,
-        departure_date: returnDate,
-        passengers: passengerCount,
-      });
-    }
+    // If on return tab but no return date, don't search
+    if (!date) return;
+
+    const requestKey = `${origin.toUpperCase()}-${destination.toUpperCase()}-${date}-p${passengerCount}`;
+
+    // Strict dedup: only fire if key actually changed
+    if (lastFiredKeyRef.current === requestKey) return;
+    lastFiredKeyRef.current = requestKey;
+
+    void search({
+      origin,
+      destination,
+      departure_date: date,
+      passengers: passengerCount,
+    });
   }, [activeLeg, from, to, departure, returnDate, passengerCount, search]);
 
-  // Map a FlightOffer para UI cards (defensivo para evitar null/undefined)
   const flights: FlightOffer[] = useMemo(() => {
-    return results.map((f) => {
-      const departureMs = new Date(f.departure_datetime).getTime();
-      const arrivalMs = new Date(f.arrival_datetime).getTime();
-      const durationMs = arrivalMs - departureMs;
-
-      const duration = formatDuration(durationMs);
-
-      return {
-        id: f.id,
-        price: f.final_price,
-        currency: 'USD',
-        type: 'oneway',
-        totalDuration: duration,
-        segments: [
-          {
-            id: `${f.id}-seg-1`,
-            origin: f.origin_airport?.iata_code ?? '',
-            destination: f.destination_airport?.iata_code ?? '',
-            departureTime: f.departure_datetime,
-            arrivalTime: f.arrival_datetime,
-            flightNumber: f.flight_number,
-            duration,
-            airline: {
-              id: f.airline?.id ?? f.airline_id,
-              name: f.airline?.name ?? 'Aerolínea',
-              code: f.airline?.iata_code ?? '',
-              logoUrl: f.airline?.logo_url ?? undefined,
-            },
-          },
-        ],
-      };
-    });
+    return Array.isArray(results) ? results.map(mapApiFlightToOffer) : [];
   }, [results]);
 
-  // Aplicar filtros locales (UI)
-  const filteredFlights = useMemo(() => {
-    return flights.filter((flight) => {
-      // Precio
-      const minOk = flight.price >= (filters.priceRange.min ?? 0);
-      const maxOk = flight.price <= (filters.priceRange.max ?? 999999);
-      if (!minOk || !maxOk) return false;
+  // Apply client-side filters
+  const filteredFlights: FlightOffer[] = useMemo(() => {
+    const min = Number(filters.priceRange.min ?? 0);
+    const max = Number(filters.priceRange.max ?? Number.MAX_SAFE_INTEGER);
+    const allowedAirlines = new Set(filters.airlines.map((a) => a.toUpperCase()));
+    const maxStops = toStopsCountFilter(filters.stops);
 
-      // Aerolíneas (si seleccionó alguna)
-      if (filters.airlines.length > 0) {
-        const airlineName = flight.segments?.[0]?.airline?.name ?? '';
-        if (!filters.airlines.includes(airlineName)) return false;
-      }
+    return flights.filter((f) => {
+      const priceOk = typeof f.price === 'number' ? f.price >= min && f.price <= max : true;
 
-      // Escalas (con FlightOffer actual normalmente es 1 segmento = directo)
-      // Si mañana agregan más segmentos, esto seguirá funcionando.
-      if (filters.stops.length > 0) {
-        const segmentsCount = flight.segments?.length ?? 1;
-        const stopsCount = Math.max(0, segmentsCount - 1);
+      const airlineCode = (f.airline_code ?? '').toUpperCase();
+      const airlineOk = allowedAirlines.size ? allowedAirlines.has(airlineCode) : true;
 
-        const isDirect = stopsCount === 0;
-        const is1Stop = stopsCount === 1;
-        const is2Plus = stopsCount >= 2;
+      const stopsCount =
+        typeof f.stops_count === 'number'
+          ? f.stops_count
+          : Array.isArray(f.stops)
+            ? f.stops.length
+            : 0;
 
-        const ok =
-          (filters.stops.includes('direct') && isDirect) ||
-          (filters.stops.includes('1stop') && is1Stop) ||
-          (filters.stops.includes('2stops') && is2Plus);
+      const stopsOk = maxStops == null ? true : stopsCount <= maxStops;
 
-        if (!ok) return false;
-      }
-
-      return true;
+      return priceOk && airlineOk && stopsOk;
     });
   }, [flights, filters]);
 
@@ -164,26 +135,20 @@ export default function FlightSearchResultsPage() {
     <>
       <Navbar />
       <main className="pt-[72px]">
-        {/* Form arriba (se queda como está) */}
         <section className="bg-white py-12">
           <div className="mx-auto max-w-6xl px-6">
-            <FlightSearchForm />
+            <FlightSearchForm initialValues={formInitialValues} />
           </div>
         </section>
 
-        {/* Resultados */}
         <section className="bg-neutral-50 py-12">
           <div className="mx-auto max-w-6xl px-6">
-            <h2 className="mb-6 text-3xl font-extrabold text-[#0F2545]">
-              Resultados de Búsqueda
-            </h2>
+            <h2 className="mb-6 text-3xl font-extrabold text-[#0F2545]">Resultados de Búsqueda</h2>
 
-            {/* Tabs Ida/Regreso */}
             {legs.length > 0 && (
               <FlightLegTabs legs={legs} activeLeg={activeLeg} onLegChange={setActiveLeg} />
             )}
 
-            {/* Layout: filtros izquierda + lista derecha */}
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
               <div className="lg:col-span-4">
                 <FlightFilters onFilterChange={setFilters} />
@@ -195,7 +160,7 @@ export default function FlightSearchResultsPage() {
                   isLoading={isLoading}
                   error={error}
                   onSelectFlight={(flightId) =>
-                    router.push(`/checkout?flight=${flightId}&passengers=${passengerCount}`)
+                    router.push(`/flights/${flightId}?passengers=${passengerCount}`)
                   }
                 />
               </div>

@@ -1,97 +1,199 @@
-/**
- * @fileoverview Auth service for server-side authentication operations.
- * @module services/auth.service
- */
-import { createClient } from '@/lib/supabase/client';
-import type { Profile } from '@/types/models';
+// src/services/auth.service.ts
+import { createClient } from "@/lib/supabase/client";
+import type { Profile } from "@/types/models";
+
+// 🔧 FIX: Prefix incluye email hash para que trusted sea por usuario+dispositivo
+const TRUSTED_DEVICE_PREFIX = "gst_trusted_v2_";
 
 /**
- * PASO 1: Iniciar sesión con credenciales.
- * Valida la contraseña y dispara el envío del OTP.
+ * Genera una clave de localStorage única por email (dispositivo + usuario).
+ * Usa un hash simple para no guardar el email en claro.
+ */
+function trustedKey(email: string): string {
+  // Simple hash para localStorage (no necesita ser criptográfico)
+  let hash = 0;
+  const normalized = email.trim().toLowerCase();
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return `${TRUSTED_DEVICE_PREFIX}${Math.abs(hash).toString(36)}`;
+}
+
+function isTrustedDevice(email: string): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(trustedKey(email)) === "1";
+}
+
+function markTrustedDevice(email: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(trustedKey(email), "1");
+}
+
+/**
+ * LOGIN - PASO 1:
+ * 
+ * 🔧 FIX PRINCIPAL: Ya NO hacemos signInWithPassword en el cliente para dispositivos nuevos.
+ * En su lugar, validamos credenciales server-side via /api/auth/validate-credentials.
+ * Esto evita crear/destruir sesiones que disparan onAuthStateChange.
+ * 
+ * Flujo:
+ * - Si ya hay sesión activa → retorna inmediatamente
+ * - Si dispositivo confiable → login directo con password (sesión se crea y queda)
+ * - Si dispositivo nuevo → valida password server-side → envía OTP por Resend → NO crea sesión
  */
 async function signInStepOne(email: string, pass: string) {
   const supabase = createClient();
-  
-  // 1. Validamos email y contraseña
-  const { data, error } = await supabase.auth.signInWithPassword({
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // ✅ Si ya hay sesión, NO pedir login/OTP
+  const {
+    data: { user: existingUser },
+  } = await supabase.auth.getUser();
+  if (existingUser) {
+    return { success: true, message: "ALREADY_AUTHENTICATED" };
+  }
+
+  // 🔧 FIX: Si este dispositivo ya se confió para ESTE email, login directo
+  if (isTrustedDevice(normalizedEmail)) {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: pass,
+    });
+    if (error) throw new Error(error.message);
+    return { success: true, message: "SIGNED_IN_TRUSTED_DEVICE" };
+  }
+
+  // 🔧 FIX: Dispositivo NUEVO — validar credenciales SERVER-SIDE sin crear sesión en el browser
+  const validateRes = await fetch("/api/auth/validate-credentials", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: normalizedEmail, password: pass }),
+  });
+
+  const validateData = await validateRes.json().catch(() => ({}));
+  if (!validateRes.ok) {
+    throw new Error(validateData?.error ?? "Credenciales inválidas.");
+  }
+
+  // 🔧 FIX: Ahora pedimos OTP — NO hay sesión activa en el browser, no hay signOut() que rompa nada
+  const otpRes = await fetch("/api/auth/request-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: normalizedEmail }),
+  });
+
+  const otpData = await otpRes.json().catch(() => ({}));
+  if (!otpRes.ok) throw new Error(otpData?.error ?? "No se pudo enviar el código.");
+
+  return { success: true, message: "OTP_SENT" };
+}
+
+/**
+ * LOGIN - PASO 2 (solo para dispositivo nuevo):
+ * Verifica OTP → recibe sessionLink → navega a él para establecer sesión.
+ * 
+ * 🔧 FIX: Ahora retorna el sessionLink para que el componente navegue a él.
+ * El componente DEBE hacer window.location.href = sessionLink (no '/')
+ */
+async function verifyLoginOtp(email: string, code: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const res = await fetch("/api/auth/verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: normalizedEmail, code }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error ?? "No se pudo verificar el código.");
+
+  if (!data.sessionLink) {
+    throw new Error("No se pudo generar el enlace de sesión. Intenta de nuevo.");
+  }
+
+  // ✅ Marcar dispositivo como confiable para ESTE email
+  markTrustedDevice(normalizedEmail);
+
+  return data as { ok: true; verified: true; sessionLink: string };
+}
+
+async function signUpStepOne(email: string, password: string, fullName: string) {
+  const supabase = createClient();
+
+  const { error } = await supabase.auth.signUp({
     email,
-    password: pass,
+    password,
+    options: {
+      data: { full_name: fullName, role: "client" },
+    },
+  });
+
+  if (error) throw error;
+  return { ok: true, message: "OTP_SENT" };
+}
+
+async function verifySignupOtp(email: string, code: string) {
+  const supabase = createClient();
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token: code,
+    type: "signup",
   });
 
   if (error) throw error;
 
-  // 2. Si las credenciales son válidas, disparamos el envío del OTP 
-  // Llamamos al endpoint que ya tiene la lógica de Resend
-  const response = await fetch('/api/auth/request-otp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  });
+  markTrustedDevice(email.trim().toLowerCase());
 
-  if (!response.ok) {
-    throw new Error('Error al enviar el código de seguridad');
-  }
-
-  // Por seguridad, cerramos la sesión temporal. 
-  // El acceso definitivo se dará solo tras validar el código.
-  await supabase.auth.signOut();
-
-  return { success: true, message: 'OTP_SENT' };
+  return { ok: true, session: data.session };
 }
 
-/**
- * PASO 2: Verificar el código de 6 dígitos.
- */
-async function verifyLoginOtp(email: string, code: string) {
-  const response = await fetch('/api/auth/verify-otp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, code }),
-  });
-
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Código inválido');
-
-  return result;
-}
-
-/**
- * Obtener el perfil del usuario actual.
- */
 async function getCurrentProfile(): Promise<Profile | null> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return null;
 
   const { data } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
-
-  return data as Profile | null;
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+  return (data as Profile) ?? null;
 }
 
-/**
- * Actualizar datos del perfil.
- */
-async function updateProfile(updates: Partial<Pick<Profile, 'full_name' | 'phone' | 'avatar_url'>>) {
+async function updateProfile(
+  updates: Partial<Pick<Profile, "full_name" | "phone" | "avatar_url">>
+) {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('No autenticado');
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("No autenticado");
 
   const { error } = await supabase
-    .from('profiles')
+    .from("profiles")
     .update(updates)
-    .eq('id', user.id);
-
+    .eq("id", user.id);
   if (error) throw error;
 }
 
-// Exportamos todas las funciones juntas
-export const authService = { 
-  signInStepOne, 
-  verifyLoginOtp, 
-  getCurrentProfile, 
-  updateProfile 
+// 🔧 FIX: signOut NO borra el trusted device flag — es intencional
+async function signOut() {
+  const supabase = createClient();
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
+
+export const authService = {
+  signInStepOne,
+  verifyLoginOtp,
+  signUpStepOne,
+  verifySignupOtp,
+  getCurrentProfile,
+  updateProfile,
+  signOut,
 };

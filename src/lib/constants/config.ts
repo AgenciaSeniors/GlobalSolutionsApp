@@ -21,4 +21,9 @@ export const AIRPORTS = [
   { code: 'PTY', city: 'Panamá', country: 'Panamá' },
   { code: 'BOG', city: 'Bogotá', country: 'Colombia' },
   { code: 'MEX', city: 'Ciudad de México', country: 'México' },
+  // src/lib/constants/config.ts
+  { code: 'JFK', city: 'Nueva York', country: 'EE.UU.' },
+
+  // Mantén los otros que ya tienes...
 ] as const;
+

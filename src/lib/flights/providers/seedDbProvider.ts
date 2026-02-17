@@ -128,12 +128,13 @@ export const seedDbProvider: FlightsProvider = {
       let q = supabase
         .from('flights')
         .select(
-          `
-          *,
-          airline:airlines(*),
-          origin_airport:airports!origin_airport_id(*),
-          destination_airport:airports!destination_airport_id(*)
-        `,
+  `
+  *,
+  stops,  
+  airline:airlines(*),
+  origin_airport:airports!origin_airport_id(*),
+  destination_airport:airports!destination_airport_id(*)
+`,
         )
         .gt('available_seats', 0)
         .eq('origin_airport_id', originId)
