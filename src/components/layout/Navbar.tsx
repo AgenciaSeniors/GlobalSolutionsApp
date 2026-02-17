@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Plane, Car, Sparkles } from 'lucide-react';
+import { Menu, X, Plane, Car, Sparkles, Home } from 'lucide-react';
 
 import { cn } from '@/lib/utils/cn';
 import { ROUTES } from '@/lib/constants/routes';
@@ -17,6 +17,7 @@ import { useAuthContext } from '@/components/providers/AuthProvider';
 import type { UserRole } from '@/types/models';
 
 const NAV_LINKS = [
+  { href: ROUTES.HOME, label: 'Inicio', icon: Home },
   { href: ROUTES.FLIGHTS, label: 'Vuelos', icon: Plane },
   { href: ROUTES.CARS, label: 'Autos', icon: Car },
   { href: ROUTES.OFFERS, label: 'Ofertas', icon: Sparkles },
@@ -38,7 +39,7 @@ export default function Navbar() {
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', onScroll, { passive: true });
-    onScroll(); // set inicial
+    onScroll();
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
@@ -75,7 +76,10 @@ export default function Navbar() {
         {/* ── Desktop Links ── */}
         <ul className="hidden items-center gap-1 md:flex">
           {NAV_LINKS.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(`${href}/`);
+            const active =
+              href === ROUTES.HOME
+                ? pathname === '/'
+                : pathname === href || pathname.startsWith(`${href}/`);
             return (
               <li key={href}>
                 <Link
@@ -139,22 +143,28 @@ export default function Navbar() {
       {mobileOpen && (
         <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-6 shadow-xl md:hidden animate-fade-in">
           <ul className="flex flex-col gap-2">
-            {NAV_LINKS.map(({ href, label, icon: Icon }) => (
-              <li key={href}>
-                <Link
-                  href={href}
-                  className={cn(
-                    'flex items-center gap-3 rounded-xl px-4 py-3 text-base font-semibold transition-colors',
-                    pathname === href || pathname.startsWith(`${href}/`)
-                      ? 'bg-brand-50 text-brand-900'
-                      : 'text-brand-800 hover:bg-brand-50'
-                  )}
-                >
-                  {Icon && <Icon className="h-5 w-5" />}
-                  {label}
-                </Link>
-              </li>
-            ))}
+            {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+              const active =
+                href === ROUTES.HOME
+                  ? pathname === '/'
+                  : pathname === href || pathname.startsWith(`${href}/`);
+              return (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    className={cn(
+                      'flex items-center gap-3 rounded-xl px-4 py-3 text-base font-semibold transition-colors',
+                      active
+                        ? 'bg-brand-50 text-brand-900'
+                        : 'text-brand-800 hover:bg-brand-50'
+                    )}
+                  >
+                    {Icon && <Icon className="h-5 w-5" />}
+                    {label}
+                  </Link>
+                </li>
+              );
+            })}
 
             <li className="mt-4">
               {user ? (

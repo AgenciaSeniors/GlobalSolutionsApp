@@ -1,12 +1,10 @@
 /**
  * @fileoverview Landing page — assembles Hero, TrustBanner, FlightSearch,
  *               Exclusive Offers and Reviews sections.
- * If user is authenticated, redirects to /panel.
+ *               Visible for ALL users (authenticated or not).
+ *               Authenticated users see "Mi Panel" in the navbar.
  * @module app/page
  */
-import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
-
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import HeroSection from '@/components/features/home/HeroSection';
@@ -15,11 +13,11 @@ import FlightSearchForm from '@/components/forms/FlightSearchForm';
 import ExclusiveOfferCard from '@/components/features/flights/ExclusiveOfferCard';
 import ReviewCard from '@/components/features/reviews/ReviewCard';
 
-/* ── Static data (replaced by Supabase queries in production) ── */
+/* -- Static data (replaced by Supabase queries in production) -- */
 const OFFERS = [
   {
-    destination: 'Estambul, Turquía',
-    route: 'HAV → IST',
+    destination: 'Estambul, Turqu\u00eda',
+    route: 'HAV \u2192 IST',
     airline: 'Turkish Airlines',
     duration: '14h 30m',
     originalPrice: 1250,
@@ -28,8 +26,8 @@ const OFFERS = [
     gradient: 'bg-gradient-to-br from-blue-600 via-indigo-700 to-purple-800',
   },
   {
-    destination: 'Madrid, España',
-    route: 'HAV → MAD',
+    destination: 'Madrid, Espa\u00f1a',
+    route: 'HAV \u2192 MAD',
     airline: 'Iberia',
     duration: '9h 15m',
     originalPrice: 980,
@@ -38,8 +36,8 @@ const OFFERS = [
     gradient: 'bg-gradient-to-br from-orange-500 via-red-600 to-rose-700',
   },
   {
-    destination: 'Cancún, México',
-    route: 'HAV → CUN',
+    destination: 'Canc\u00fan, M\u00e9xico',
+    route: 'HAV \u2192 CUN',
     airline: 'Viva Aerobus',
     duration: '2h 45m',
     originalPrice: 450,
@@ -48,8 +46,8 @@ const OFFERS = [
     gradient: 'bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-700',
   },
   {
-    destination: 'Panamá City',
-    route: 'HAV → PTY',
+    destination: 'Panam\u00e1 City',
+    route: 'HAV \u2192 PTY',
     airline: 'Copa Airlines',
     duration: '3h 30m',
     originalPrice: 620,
@@ -61,59 +59,48 @@ const OFFERS = [
 
 const REVIEWS = [
   {
-    authorName: 'María García',
+    authorName: 'Mar\u00eda Garc\u00eda',
     authorInitials: 'MG',
     destination: 'Estambul',
     date: 'Ene 2026',
     rating: 5,
     comment:
-      'Increíble experiencia. El equipo de Global Solutions fue excepcional en todo momento. Vuelos puntuales y precios inmejorables.',
+      'Incre\u00edble experiencia. El equipo de Global Solutions fue excepcional en todo momento. Vuelos puntuales y precios inmejorables.',
   },
   {
-    authorName: 'Carlos Rodríguez',
+    authorName: 'Carlos Rodr\u00edguez',
     authorInitials: 'CR',
     destination: 'Madrid',
     date: 'Dic 2025',
     rating: 5,
     comment:
-      'Tercer viaje con ellos y siempre impecable. La atención personalizada marca la diferencia. 100% recomendado.',
+      'Tercer viaje con ellos y siempre impecable. La atenci\u00f3n personalizada marca la diferencia. 100% recomendado.',
   },
   {
-    authorName: 'Ana Martínez',
+    authorName: 'Ana Mart\u00ednez',
     authorInitials: 'AM',
-    destination: 'Cancún',
+    destination: 'Canc\u00fan',
     date: 'Nov 2025',
     rating: 4,
     comment:
-      'Muy buena experiencia. Precios competitivos y el proceso de reserva fue muy sencillo. Volveré a usar sus servicios.',
+      'Muy buena experiencia. Precios competitivos y el proceso de reserva fue muy sencillo. Volver\u00e9 a usar sus servicios.',
   },
 ];
 
-export default async function HomePage() {
-  // ✅ Si ya hay sesión, entramos directo al “home real” (panel)
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user) {
-    redirect('/panel');
-  }
-
-  // ✅ Si no hay sesión, mostramos el landing público
+export default function HomePage() {
   return (
     <>
       <Navbar />
 
-      {/* ── Hero ── */}
+      {/* -- Hero -- */}
       <HeroSection />
 
-      {/* ── Flight Search ── */}
+      {/* -- Flight Search -- */}
       <section className="bg-white py-20">
         <div className="mx-auto max-w-5xl px-6">
           <div className="mb-12 text-center">
             <span className="text-sm font-bold uppercase tracking-widest text-brand-500">
-              Búsqueda de Vuelos
+              B\u00fasqueda de Vuelos
             </span>
             <h2 className="mt-2 font-display text-4xl font-bold text-brand-950">
               Encuentra tu vuelo ideal
@@ -123,18 +110,18 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ── Exclusive Offers ── */}
+      {/* -- Exclusive Offers -- */}
       <section className="bg-neutral-50 py-20">
         <div className="mx-auto max-w-7xl px-6">
           <div className="mb-12">
             <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-widest text-amber-700">
-              🔥 Ofertas Exclusivas
+              {'\uD83D\uDD25'} Ofertas Exclusivas
             </span>
             <h2 className="mt-3 font-display text-4xl font-bold text-brand-950">
               Destinos imperdibles
             </h2>
             <p className="mt-2 text-neutral-600">
-              Precios especiales por tiempo limitado. ¡No te los pierdas!
+              Precios especiales por tiempo limitado. {'\u00a1'}No te los pierdas!
             </p>
           </div>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -145,15 +132,15 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ── Trust ── */}
+      {/* -- Trust -- */}
       <TrustBanner />
 
-      {/* ── Reviews ── */}
+      {/* -- Reviews -- */}
       <section className="bg-gradient-to-b from-neutral-50 to-brand-50 py-20">
         <div className="mx-auto max-w-7xl px-6">
           <div className="mb-12 text-center">
             <span className="text-sm font-bold uppercase tracking-widest text-emerald-600">
-              Reseñas Verificadas
+              Rese\u00f1as Verificadas
             </span>
             <h2 className="mt-2 font-display text-4xl font-bold text-brand-950">
               Lo que dicen nuestros viajeros

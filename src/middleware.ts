@@ -74,30 +74,10 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const dashboardMap: Record<Role, string> = {
-    admin: "/admin/dashboard",
-    agent: "/agent/dashboard",
-    client: "/user/dashboard",
-  };
-
-  // 🔧 FIX: Una sola query de profile, reutilizada en todas las secciones
-  let role: Role = "client";
-  if (user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle<{ role: Role }>();
-
-    // 🔧 FIX: Tolerante a profile = null (RLS o fila faltante)
-    role = profile?.role ?? "client";
-  }
-
   /* ─────────── 1) SI YA HAY SESIÓN, NO ENTRAR A /login ─────────── */
+  // Redirige al home público — el usuario puede ir a su panel desde "Mi Panel" en el navbar
   if (isAuthRoute && user) {
-    return NextResponse.redirect(
-      new URL(dashboardMap[role] || "/user/dashboard", request.url)
-    );
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   /* ─────────── 2) PROTEGER RUTAS (no autenticado) ─────────── */
@@ -111,7 +91,15 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ─────────── 3) CONTROL DE ROLES ─────────── */
-  if (user) {
+  if (user && (pathname.startsWith("/admin") || pathname.startsWith("/agent"))) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle<{ role: Role }>();
+
+    const role: Role = profile?.role ?? "client";
+
     if (pathname.startsWith("/admin") && role !== "admin") {
       return NextResponse.redirect(new URL("/user/dashboard", request.url));
     }

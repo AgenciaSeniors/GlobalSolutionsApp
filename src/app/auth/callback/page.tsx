@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client';
 
 /**
  * Parsea tokens del hash fragment (#access_token=...&refresh_token=...)
- * Supabase puede enviar tokens en el hash cuando usa implicit flow.
  */
 function parseHashParams() {
   const hash = typeof window !== 'undefined' ? window.location.hash : '';
@@ -17,8 +16,6 @@ function parseHashParams() {
   return {
     access_token: params.get('access_token'),
     refresh_token: params.get('refresh_token'),
-    token_type: params.get('token_type') ?? 'bearer',
-    expires_in: params.get('expires_in'),
   };
 }
 
@@ -32,11 +29,28 @@ export default function AuthCallbackPage() {
 
     (async () => {
       const supabase = createClient();
-
-      // 🔧 FIX: Default redirect a /user/dashboard (consistente con middleware)
       const next = searchParams.get('next') ?? '/user/dashboard';
 
       try {
+        // ─────────────────────────────────────────────────────
+        // 🔧 FIX PRINCIPAL: Verificar si la sesión YA existe.
+        //
+        // Cuando detectSessionInUrl: true (en client.ts), el
+        // BrowserClient de Supabase intercepta el magic link y
+        // hace setSession AUTOMÁTICAMENTE antes de que este
+        // useEffect corra. Los tokens ya fueron consumidos y
+        // limpiados de la URL.
+        //
+        // Si ya hay sesión → simplemente redirigir.
+        // ─────────────────────────────────────────────────────
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
+
+        if (existingSession) {
+          console.log('[callback] Session already active, redirecting to:', next);
+          if (!cancelled) router.replace(next);
+          return;
+        }
+
         // Intento 1: tokens en el hash fragment (implicit flow)
         const { access_token, refresh_token } = parseHashParams();
 
@@ -52,7 +66,7 @@ export default function AuthCallbackPage() {
             return;
           }
 
-          // Limpiar el hash del URL por seguridad
+          // Limpiar hash por seguridad
           if (typeof window !== 'undefined') {
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
           }
@@ -76,9 +90,23 @@ export default function AuthCallbackPage() {
           return;
         }
 
-        // Sin tokens ni code — algo salió mal
-        console.error('[callback] No tokens or code found in URL');
-        if (!cancelled) setError('Parámetros de autenticación faltantes.');
+        // ─────────────────────────────────────────────────────
+        // 🔧 FIX: Último intento — esperar y re-verificar.
+        // detectSessionInUrl puede estar procesando asincrónicamente.
+        // ─────────────────────────────────────────────────────
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const { data: { session: retrySession } } = await supabase.auth.getSession();
+        if (retrySession) {
+          console.log('[callback] Session found on retry, redirecting to:', next);
+          if (!cancelled) router.replace(next);
+          return;
+        }
+
+        // Realmente no hay nada
+        console.error('[callback] No session, no tokens, no code found');
+        if (!cancelled) setError('No se pudo establecer la sesión. Intenta de nuevo.');
+
       } catch (err) {
         console.error('[callback] Unexpected error:', err);
         if (!cancelled) setError('Error inesperado en la autenticación.');
@@ -95,13 +123,13 @@ export default function AuthCallbackPage() {
       <div className="flex min-h-[200px] flex-col items-center justify-center gap-4 p-8">
         <div className="rounded-xl bg-red-50 px-6 py-4 text-sm text-red-700 border border-red-100 max-w-md text-center">
           <p className="font-medium">{error}</p>
-          <p className="mt-2 text-red-500">Serás redirigido al login...</p>
+          <a
+            href="/login"
+            className="mt-3 inline-block text-sm font-semibold text-brand-600 underline"
+          >
+            Volver al login
+          </a>
         </div>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `setTimeout(() => window.location.href = '/login?error=auth', 3000)`,
-          }}
-        />
       </div>
     );
   }

@@ -36,14 +36,12 @@ export default function LoginForm() {
 
         const result = await authService.signInStepOne(form.email, form.password);
 
-        // 🔧 FIX: Si ya estaba autenticado o dispositivo confiable, ir al dashboard
+        // 🔧 Si ya estaba autenticado o dispositivo confiable, ir al home público
         if (
           result.message === 'ALREADY_AUTHENTICATED' ||
           result.message === 'SIGNED_IN_TRUSTED_DEVICE'
         ) {
-          // La sesión ya está activa — navegar al dashboard
-          // Usamos window.location para que el middleware detecte la sesión y redirija al rol correcto
-          window.location.href = '/user/dashboard';
+          window.location.href = '/';
           return;
         }
 
