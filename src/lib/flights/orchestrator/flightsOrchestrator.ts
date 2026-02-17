@@ -1,11 +1,10 @@
 /**
  * flightsOrchestrator — Agency-first orchestrator con protección de latencia.
  *
- * FIXES aplicados (v2):
- *  1. skyScrapperProvider.search() ahora tiene timeouts internos,
- *     pero el orchestrator agrega un guard total de 20s como safety net
- *  2. Si SkyScrapper falla, degrada a stub SIN bloquear
- *  3. Logging mejorado con timing por fase
+ * v3 — Cambios:
+ *  1. External timeout subido a 30s (legs ahora tienen 25s de budget)
+ *  2. Logging mejorado con timing por fase
+ *  3. Si SkyScrapper devuelve 0 flights, degrada a stub
  */
 
 import type {
@@ -20,8 +19,8 @@ import { skyScrapperProvider } from "@/lib/flights/providers/skyScrapperProvider
 
 const TARGET_RESULTS_PER_LEG = 20;
 
-/** Safety net: máximo tiempo total que el orchestrator puede gastar en external */
-const EXTERNAL_TIMEOUT_MS = 20_000;
+/** Safety net: máximo tiempo total que el orchestrator espera por external */
+const EXTERNAL_TIMEOUT_MS = 30_000;
 
 /* ===========================
    Helpers seguros (sin any)
@@ -277,6 +276,10 @@ function mapByLegIndex(res: ProviderSearchResponse): Map<number, Flight[]> {
   return map;
 }
 
+function totalFlights(res: ProviderSearchResponse): number {
+  return res.reduce((sum, r) => sum + r.flights.length, 0);
+}
+
 /* ===========================
    Orchestrator
 =========================== */
@@ -301,7 +304,9 @@ export const flightsOrchestrator = {
     });
 
     if (!needsExternal) {
-      console.log("[Orchestrator] Agency has enough results, skipping external");
+      console.log(
+        "[Orchestrator] Agency has enough results, skipping external"
+      );
       return req.legs.map((_, idx) => {
         const ranked = (agencyByLeg.get(idx) ?? [])
           .slice()
@@ -333,17 +338,27 @@ export const flightsOrchestrator = {
       ]);
 
       const extMs = Date.now() - t0 - agencyMs;
+      const extFlights = totalFlights(externalRes);
       console.log(
-        `[Orchestrator] SkyScrapper completed in ${extMs}ms (${externalRes.reduce(
-          (sum, r) => sum + r.flights.length,
-          0
-        )} flights)`
+        `[Orchestrator] SkyScrapper completed in ${extMs}ms (${extFlights} flights)`
       );
+
+      // Si SkyScrapper devolvió 0 vuelos, complementar con stub
+      if (extFlights === 0) {
+        console.log(
+          "[Orchestrator] SkyScrapper returned 0 flights, supplementing with stub"
+        );
+        try {
+          const stubRes = await externalStubProvider.search(req);
+          externalRes = stubRes;
+        } catch {
+          // stub failed too, proceed with empty
+        }
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[Orchestrator] SkyScrapper failed: ${msg}`);
 
-      // ── Fallback a stub (instantáneo, determinista) ──
       try {
         externalRes = await externalStubProvider.search(req);
         console.log("[Orchestrator] Fell back to stub provider");

@@ -1,11 +1,12 @@
 /**
  * SkyScrapperClient — HTTP client for RapidAPI flights-sky provider.
  *
- * FIXES applied (v2):
- *  1. AbortController con timeout configurable (default 12s)
- *  2. Sin retries implícitos — fail-fast para no acumular latencia
+ * v3 — Fixes:
+ *  1. AbortController con timeout configurable (default 10s)
+ *  2. Soporte para override de timeout por llamada (polling usa menos)
  *  3. Logging estructurado con duración
  *  4. Cleanup garantizado del timer (sin memory leaks)
+ *  5. Error classes tipadas para catch selectivo
  */
 
 type JsonValue =
@@ -20,7 +21,7 @@ export class SkyScrapperClient {
   private readonly baseUrl: string;
   private readonly key: string;
   private readonly host: string;
-  private readonly timeoutMs: number;
+  private readonly defaultTimeoutMs: number;
 
   constructor(opts?: { timeoutMs?: number }) {
     const key = process.env.RAPIDAPI_KEY;
@@ -34,8 +35,7 @@ export class SkyScrapperClient {
     this.key = key;
     this.host = host;
     this.baseUrl = `https://${host}`;
-    // Default 12s — agresivo pero razonable para un proxy de vuelos
-    this.timeoutMs = opts?.timeoutMs ?? 12_000;
+    this.defaultTimeoutMs = opts?.timeoutMs ?? 10_000;
   }
 
   private headers(): Record<string, string> {
@@ -47,15 +47,19 @@ export class SkyScrapperClient {
 
   /**
    * GET con timeout vía AbortController.
-   * Lanza SkyScrapperTimeoutError si se excede el timeout.
-   * Lanza SkyScrapperHttpError si la respuesta no es 2xx.
+   * @param pathAndQuery  — ruta + querystring
+   * @param overrideTimeoutMs — timeout específico para esta llamada (opcional)
    */
-  async get(pathAndQuery: string): Promise<JsonValue> {
+  async get(
+    pathAndQuery: string,
+    overrideTimeoutMs?: number
+  ): Promise<JsonValue> {
     const url = `${this.baseUrl}${pathAndQuery}`;
     const endpoint = url.split("?")[0];
+    const timeoutMs = overrideTimeoutMs ?? this.defaultTimeoutMs;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     const t0 = Date.now();
 
@@ -89,15 +93,17 @@ export class SkyScrapperClient {
     } catch (err: unknown) {
       const elapsed = Date.now() - t0;
 
-      // AbortController fires an AbortError
-      if (err instanceof DOMException && err.name === "AbortError") {
+      // AbortController fires AbortError (DOMException in some runtimes, Error in others)
+      if (
+        (err instanceof DOMException && err.name === "AbortError") ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
         console.warn(
-          `[SkyScrapper] TIMEOUT ${endpoint} after ${elapsed}ms (limit: ${this.timeoutMs}ms)`
+          `[SkyScrapper] TIMEOUT ${endpoint} after ${elapsed}ms (limit: ${timeoutMs}ms)`
         );
-        throw new SkyScrapperTimeoutError(this.timeoutMs, endpoint);
+        throw new SkyScrapperTimeoutError(timeoutMs, endpoint);
       }
 
-      // Re-throw known errors
       if (
         err instanceof SkyScrapperHttpError ||
         err instanceof SkyScrapperTimeoutError
@@ -105,7 +111,6 @@ export class SkyScrapperClient {
         throw err;
       }
 
-      // Network / DNS / etc.
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(
         `[SkyScrapper] NETWORK ERROR ${endpoint} (${elapsed}ms): ${msg}`
@@ -118,7 +123,7 @@ export class SkyScrapperClient {
 }
 
 /* -------------------------------------------------- */
-/*  Custom error classes for typed catch handling      */
+/*  Custom error classes                              */
 /* -------------------------------------------------- */
 
 export class SkyScrapperTimeoutError extends Error {

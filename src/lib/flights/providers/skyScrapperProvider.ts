@@ -1,15 +1,16 @@
 /**
  * skyScrapperProvider — Provider de vuelos vía RapidAPI SkyScrapper.
  *
- * FIXES aplicados (v2):
- *  1. completeSearch ahora es best-effort con timeout total de 8s
- *     — Si search-incomplete falla o timeout, retorna lo que ya tenga
- *  2. Cada leg tiene un timeout global de 15s (Promise.race)
- *     — Nunca bloquea más de 15s por tramo
- *  3. Para round-trip (2 legs), las búsquedas corren en paralelo
- *     — Reduce latencia total de 2×15s a ~15s
- *  4. Place resolution tiene cache in-memory para la misma request
- *  5. Errores tipados para diagnóstico limpio
+ * v3 — FIX PRINCIPAL: los itinerarios de search-one-way se extraen ANTES
+ * del polling. Si el polling falla/timeout, se devuelven los resultados
+ * parciales en vez de descartar todo.
+ *
+ * Resumen de timeouts:
+ *   - client.get() default: 10s (auto-complete, search-one-way)
+ *   - client.get() polling:  5s (search-incomplete, agresivo)
+ *   - Polling budget total:  6s (máx 1 intento de search-incomplete)
+ *   - Leg total:            25s (auto-complete‖ + search-one-way + polling)
+ *   - Legs ejecutan en paralelo
  */
 
 import type {
@@ -27,14 +28,17 @@ import {
 /* ------------- TIMEOUT CONSTANTS ------------------- */
 /* -------------------------------------------------- */
 
-/** Timeout total por leg (search-one-way + polling) */
-const LEG_TIMEOUT_MS = 15_000;
+/** Timeout total por leg (todo incluido) */
+const LEG_TIMEOUT_MS = 25_000;
 
-/** Máximo tiempo gastado en polling search-incomplete */
-const POLLING_BUDGET_MS = 8_000;
+/** Máximo tiempo gastado en la fase de polling */
+const POLLING_BUDGET_MS = 6_000;
+
+/** Timeout por llamada individual de search-incomplete */
+const POLL_CALL_TIMEOUT_MS = 5_000;
 
 /** Máximo intentos de polling */
-const MAX_POLL_ATTEMPTS = 2;
+const MAX_POLL_ATTEMPTS = 1;
 
 /* -------------------------------------------------- */
 /* ----------------- JSON HELPERS ------------------- */
@@ -86,10 +90,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Crea un timeout que rechaza con un error descriptivo.
- * Retorna la promise Y la función de cleanup para evitar memory leaks.
- */
 function createTimeoutRace<T>(
   ms: number,
   label: string
@@ -107,97 +107,118 @@ function createTimeoutRace<T>(
   return { promise, cleanup };
 }
 
+/**
+ * Extrae itinerarios de cualquier JSON de respuesta de SkyScrapper.
+ * Funciona tanto para search-one-way como search-incomplete.
+ */
+function extractItineraries(json: JsonValue): JsonValue[] {
+  const data = getObject(json, "data");
+  if (!data) return [];
+  const itineraries = getArray(data, "itineraries");
+  return itineraries ?? [];
+}
+
+/**
+ * Extrae el sessionId y status de la respuesta.
+ */
+function extractContext(json: JsonValue): {
+  sessionId: string | null;
+  status: string | null;
+} {
+  const data = getObject(json, "data");
+  const context = data ? getObject(data, "context") : null;
+  return {
+    sessionId: context ? getString(context, "sessionId") : null,
+    status: context ? getString(context, "status") : null,
+  };
+}
+
 /* -------------------------------------------------- */
 /* ------------- POLLING (BEST-EFFORT) -------------- */
 /* -------------------------------------------------- */
 
 /**
- * Polling controlado hasta que status === "complete".
- *
- * CAMBIOS CLAVE vs v1:
- * - Budget total de 8s (no depende del número de intentos)
- * - Si ya hay itinerarios después del 1er poll, retorna inmediatamente
- * - Si search-incomplete falla (400, timeout, etc), retorna lo que hay
- * - NO bloquea la request principal
+ * Intenta mejorar los resultados vía search-incomplete.
+ * 
+ * REGLA CLAVE: Si el polling falla, devuelve el JSON ORIGINAL
+ * (initialJson), no un JSON vacío. Así nunca perdemos datos.
  */
-async function completeSearch(
+async function tryImproveResults(
   client: SkyScrapperClient,
   initialJson: JsonValue
 ): Promise<JsonValue> {
-  let json = initialJson;
+  const { sessionId, status } = extractContext(initialJson);
+
+  // Si ya está completo, no hay nada que mejorar
+  if (status === "complete") {
+    console.log("[SkyScrapper] Search already complete, skipping polling");
+    return initialJson;
+  }
+
+  // Sin sessionId no podemos hacer polling
+  if (!sessionId) {
+    console.log("[SkyScrapper] No sessionId, skipping polling");
+    return initialJson;
+  }
+
   const pollingStart = Date.now();
+  let bestJson = initialJson;
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-    // ── Check budget ──
     const elapsed = Date.now() - pollingStart;
     if (elapsed >= POLLING_BUDGET_MS) {
       console.log(
-        `[SkyScrapper] Polling budget exhausted (${elapsed}ms), returning partial results`
+        `[SkyScrapper] Polling budget exhausted (${elapsed}ms)`
       );
-      return json;
+      break;
     }
 
-    // ── Check status ──
-    const data = getObject(json, "data");
-    const context = data ? getObject(data, "context") : null;
-    const status = context ? getString(context, "status") : null;
-
-    if (status === "complete") {
-      console.log("[SkyScrapper] Search status: complete");
-      return json;
-    }
-
-    // ── If we have itineraries after first poll, return early ──
-    const itineraries = data ? getArray(data, "itineraries") : null;
-    if (itineraries && itineraries.length > 0 && attempt >= 1) {
-      console.log(
-        `[SkyScrapper] Returning ${itineraries.length} partial itineraries (attempt ${attempt})`
-      );
-      return json;
-    }
-
-    // ── Need sessionId to continue ──
-    const sessionId = context ? getString(context, "sessionId") : null;
-    if (!sessionId) {
-      console.log("[SkyScrapper] No sessionId for polling, returning as-is");
-      return json;
-    }
-
-    // ── Backoff: 1.5s, 2.5s ──
-    const waitMs = Math.min(
-      1500 + attempt * 1000,
-      POLLING_BUDGET_MS - (Date.now() - pollingStart)
-    );
-    if (waitMs <= 0) return json;
-
+    // Breve pausa antes de poll
+    const waitMs = Math.min(1500, POLLING_BUDGET_MS - elapsed);
+    if (waitMs <= 0) break;
     await sleep(waitMs);
 
-    // ── Poll (fail = return what we have) ──
     try {
-      json = await client.get(
-        `/flights/search-incomplete?sessionId=${encodeURIComponent(sessionId)}`
+      // Usar timeout agresivo de 5s para polling
+      const pollJson = await client.get(
+        `/flights/search-incomplete?sessionId=${encodeURIComponent(sessionId)}`,
+        POLL_CALL_TIMEOUT_MS
       );
+
+      // ¿Mejoró? Solo actualizar si tiene más o igual itinerarios
+      const newItineraries = extractItineraries(pollJson);
+      const oldItineraries = extractItineraries(bestJson);
+
+      if (newItineraries.length >= oldItineraries.length) {
+        bestJson = pollJson;
+        console.log(
+          `[SkyScrapper] Poll improved results: ${oldItineraries.length} → ${newItineraries.length} itineraries`
+        );
+      }
+
+      // Si ya completó, salir
+      const { status: newStatus } = extractContext(pollJson);
+      if (newStatus === "complete") {
+        console.log("[SkyScrapper] Search completed via polling");
+        break;
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(
         `[SkyScrapper] search-incomplete poll failed (attempt ${attempt}): ${msg}`
       );
-      // Graceful degradation: return what we already have
-      return json;
+      // NO actualizamos bestJson — mantenemos los datos anteriores
+      break;
     }
   }
 
-  return json;
+  return bestJson;
 }
 
 /* -------------------------------------------------- */
 /* -------------- PLACE RESOLUTION ------------------ */
 /* -------------------------------------------------- */
 
-/**
- * Resolve IATA code → base64 entity ID for search-one-way API.
- * Priority: exact airport > fuzzy airport > city > first result
- */
 async function resolvePlaceId(
   client: SkyScrapperClient,
   query: string
@@ -407,8 +428,15 @@ function mapItineraryToFlight(
 /* -------------------------------------------------- */
 
 /**
- * Busca una sola pierna con timeout total de LEG_TIMEOUT_MS.
- * Si el timeout expira, retorna array vacío (sin bloquear).
+ * Busca una sola pierna. Tiene timeout total de LEG_TIMEOUT_MS.
+ * 
+ * FLUJO:
+ * 1. Resolver places en paralelo (auto-complete × 2)
+ * 2. search-one-way → obtener datos iniciales
+ * 3. Mapear itinerarios del paso 2 (YA TENEMOS RESULTADOS AQUÍ)
+ * 4. OPCIONAL: intentar mejorar vía search-incomplete
+ *    - Si mejora → usar datos mejorados
+ *    - Si falla/timeout → devolver datos del paso 3
  */
 async function searchOneLeg(
   client: SkyScrapperClient,
@@ -445,13 +473,13 @@ async function searchOneLegInternal(
   const date = String(leg.departure_date ?? "").trim();
   if (!date) return [];
 
-  // 1. Resolve places (autocomplete) — en paralelo
+  // ── 1. Resolve places en paralelo ──
   const [fromEntityId, toEntityId] = await Promise.all([
     resolvePlaceId(client, leg.origin),
     resolvePlaceId(client, leg.destination),
   ]);
 
-  // 2. Initial search
+  // ── 2. search-one-way (búsqueda inicial) ──
   const qs = new URLSearchParams({
     fromEntityId,
     toEntityId,
@@ -466,20 +494,47 @@ async function searchOneLegInternal(
     `/flights/search-one-way?${qs.toString()}`
   );
 
-  // 3. Best-effort polling (no bloquea más de POLLING_BUDGET_MS)
-  const finalJson = await completeSearch(client, initialJson);
+  // ── 3. Extraer itinerarios AHORA (antes del polling) ──
+  const initialItineraries = extractItineraries(initialJson);
 
-  // 4. Map itineraries
-  const data = getObject(finalJson, "data");
-  const itineraries = data ? getArray(data, "itineraries") : null;
+  console.log(
+    `[SkyScrapper] Leg ${legIndex}: search-one-way returned ${initialItineraries.length} itineraries`
+  );
 
-  const flights: Flight[] = [];
-  if (itineraries) {
-    for (const it of itineraries) {
-      const mapped = mapItineraryToFlight(it, legIndex);
-      if (mapped) flights.push(mapped);
-    }
+  // Si search-one-way no trajo nada, el polling no va a ayudar
+  if (initialItineraries.length === 0) {
+    const { status } = extractContext(initialJson);
+    console.log(
+      `[SkyScrapper] Leg ${legIndex}: 0 itineraries, status="${status ?? "unknown"}". Nothing to improve.`
+    );
+    return [];
   }
+
+  // ── 4. OPCIONAL: intentar mejorar vía polling ──
+  let finalJson = initialJson;
+  try {
+    finalJson = await tryImproveResults(client, initialJson);
+  } catch (err: unknown) {
+    // Si el polling explota, usamos los datos iniciales
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[SkyScrapper] Leg ${legIndex}: polling failed, using initial data: ${msg}`
+    );
+    finalJson = initialJson;
+  }
+
+  // ── 5. Mapear itinerarios finales ──
+  const finalItineraries = extractItineraries(finalJson);
+  const flights: Flight[] = [];
+
+  for (const it of finalItineraries) {
+    const mapped = mapItineraryToFlight(it, legIndex);
+    if (mapped) flights.push(mapped);
+  }
+
+  console.log(
+    `[SkyScrapper] Leg ${legIndex}: mapped ${flights.length} flights total`
+  );
 
   return flights;
 }
@@ -492,11 +547,9 @@ export const skyScrapperProvider: FlightsProvider = {
   id: "sky-scrapper",
 
   async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
-    // Un solo client compartido (reutiliza config, no estado)
     const client = new SkyScrapperClient();
 
-    // ── Ejecutar TODOS los legs en PARALELO ──
-    // Para round-trip (2 legs), esto reduce latencia de ~30s a ~15s
+    // Ejecutar legs en PARALELO
     const legPromises = req.legs.map((leg, legIndex) =>
       searchOneLeg(client, leg, legIndex, req.passengers ?? 1)
     );
