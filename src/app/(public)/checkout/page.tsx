@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
@@ -43,6 +43,60 @@ const FormField = ({
 
 type Gateway = 'stripe' | 'paypal' | 'zelle';
 
+/**
+ * Helper: converts any raw flight object (from DB or from external stub)
+ * into the FlightWithDetails shape that the checkout UI expects.
+ */
+function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: string): FlightWithDetails {
+  const airline = (parsed.airline ?? {}) as Record<string, unknown>;
+  const originAirport = (parsed.origin_airport ?? {}) as Record<string, unknown>;
+  const destAirport = (parsed.destination_airport ?? {}) as Record<string, unknown>;
+
+  return {
+    id: String(parsed.id ?? fallbackId),
+    airline_id: String(parsed.airline_id ?? airline.id ?? ''),
+    flight_number: String(parsed.flight_number ?? ''),
+    origin_airport_id: String(parsed.origin_airport_id ?? ''),
+    destination_airport_id: String(parsed.destination_airport_id ?? ''),
+    departure_datetime: String(parsed.departure_datetime ?? ''),
+    arrival_datetime: String(parsed.arrival_datetime ?? ''),
+    base_price: Number(parsed.base_price ?? parsed.price ?? parsed.final_price ?? 0),
+    markup_percentage: Number(parsed.markup_percentage ?? 0),
+    final_price: Number(parsed.final_price ?? parsed.price ?? 0),
+    total_seats: Number(parsed.total_seats ?? 100),
+    available_seats: Number(parsed.available_seats ?? 50),
+    aircraft_type: (parsed.aircraft_type as string) ?? null,
+    is_exclusive_offer: Boolean(parsed.is_exclusive_offer),
+    offer_expires_at: (parsed.offer_expires_at as string) ?? null,
+    stops: (parsed.stops as FlightWithDetails['stops']) ?? null,
+    created_at: String(parsed.created_at ?? new Date().toISOString()),
+    updated_at: String(parsed.updated_at ?? new Date().toISOString()),
+    airline: {
+      id: String(airline.id ?? ''),
+      iata_code: String(airline.iata_code ?? ''),
+      name: String(airline.name ?? 'Aerolínea'),
+      logo_url: (airline.logo_url as string) ?? null,
+      is_active: airline.is_active !== false,
+    },
+    origin_airport: {
+      id: String(originAirport.id ?? ''),
+      iata_code: String(originAirport.iata_code ?? ''),
+      name: String(originAirport.name ?? ''),
+      city: String(originAirport.city ?? 'Origen'),
+      country: String(originAirport.country ?? ''),
+      timezone: (originAirport.timezone as string) ?? null,
+    },
+    destination_airport: {
+      id: String(destAirport.id ?? ''),
+      iata_code: String(destAirport.iata_code ?? ''),
+      name: String(destAirport.name ?? ''),
+      city: String(destAirport.city ?? 'Destino'),
+      country: String(destAirport.country ?? ''),
+      timezone: (destAirport.timezone as string) ?? null,
+    },
+  } as FlightWithDetails;
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -75,6 +129,9 @@ export default function CheckoutPage() {
   const [success, setSuccess] = useState(false);
   const [bookingCode, setBookingCode] = useState('');
 
+  // ✅ Guard against React Strict Mode double-execution of useEffect
+  const hasLoadedRef = useRef(false);
+
   useEffect(() => {
     if (!user) {
       const currentUrl = `/checkout?flight=${flightId ?? ''}&passengers=${passengerCount}`;
@@ -87,24 +144,69 @@ export default function CheckoutPage() {
       return;
     }
 
-    async function load() {
-      const { data } = await supabase
-        .from('flights')
-        .select(
-          '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airports_id(*)'
-        )
-        .eq('id', flightId)
-        .single();
+    // ✅ Prevent double execution (React Strict Mode in dev calls useEffect twice)
+    if (hasLoadedRef.current) return;
+    hasLoadedRef.current = true;
 
-      // The relationship name `destination_airports_id` above might differ in your DB.
-      // If your original version worked, keep that select string as you had it.
-      // If it errors, revert this select to your known-working select.
-      if (!data) {
+    async function load() {
+      let flightData: FlightWithDetails | null = null;
+
+      // ✅ 1) Try to load from sessionStorage first (works for ALL flight sources)
+      try {
+        const cached = sessionStorage.getItem('selectedFlightData');
+        if (cached) {
+          const parsed = JSON.parse(cached) as Record<string, unknown>;
+          const parsedId = String(parsed?.id ?? '');
+
+          // Verify it matches the flight ID in the URL
+          if (parsedId === flightId) {
+            flightData = rawToFlightWithDetails(parsed, flightId);
+            console.log('[Checkout] ✅ Loaded flight from sessionStorage:', flightData.airline.name, flightData.flight_number);
+          }
+
+          // Clear after reading
+          sessionStorage.removeItem('selectedFlightData');
+        }
+      } catch (e) {
+        console.warn('[Checkout] sessionStorage error:', e);
+      }
+
+      // ✅ 2) If sessionStorage didn't have it, try DB (only works for real DB UUIDs)
+      if (!flightData) {
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(flightId!);
+
+        if (isUUID) {
+          try {
+            const { data, error: dbError } = await supabase
+              .from('flights')
+              .select(
+                '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)'
+              )
+              .eq('id', flightId)
+              .single();
+
+            if (dbError) {
+              console.warn('[Checkout] DB lookup failed:', dbError.message);
+            }
+
+            if (data) {
+              flightData = data as unknown as FlightWithDetails;
+              console.log('[Checkout] ✅ Loaded flight from DB');
+            }
+          } catch (err) {
+            console.warn('[Checkout] DB query error:', err);
+          }
+        }
+      }
+
+      // ✅ 3) If still no data, redirect back
+      if (!flightData) {
+        console.warn('[Checkout] ❌ Flight not found for id:', flightId);
         router.push('/flights');
         return;
       }
 
-      setFlight(data as unknown as FlightWithDetails);
+      setFlight(flightData);
 
       setPassengers(
         Array.from({ length: passengerCount }, () => ({
@@ -214,14 +316,14 @@ export default function CheckoutPage() {
           payment_status: 'pending',
           booking_status: 'pending_emission',
           currency: 'USD',
-          pricing_breakdown: breakdown, // optional: keep for UI reference (backend will overwrite later)
+          pricing_breakdown: breakdown,
         })
         .select('id')
         .single();
 
       if (bookingErr) throw bookingErr;
 
-      // Insert passengers (keep your existing table name)
+      // Insert passengers
       for (const p of passengers) {
         const { error: pErr } = await supabase.from('booking_passengers').insert({
           booking_id: booking.id,
@@ -235,22 +337,18 @@ export default function CheckoutPage() {
         if (pErr) throw pErr;
       }
 
-      // Update available seats (you may want to move this to backend later to avoid race conditions)
+      // Update available seats
       await supabase
         .from('flights')
         .update({ available_seats: flight.available_seats - passengerCount })
         .eq('id', flight.id);
 
-      // ✅ Professional flow:
-      // - Zelle: show manual payment instructions
-      // - Stripe/PayPal: redirect to /pay which will handle real payment creation/confirmation
       if (gateway === 'zelle') {
         setBookingCode(newBookingCode);
         setSuccess(true);
         return;
       }
 
-      // Stripe/PayPal payment happens in /pay (Module 2)
       router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
     } catch (err) {
       console.error(err);

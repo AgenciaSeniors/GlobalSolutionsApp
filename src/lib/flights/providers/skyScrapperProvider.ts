@@ -1,8 +1,11 @@
 /**
  * skyScrapperProvider — Provider de vuelos vía RapidAPI SkyScrapper.
  *
- * v5 — Fully typed (zero `any`). Extracts complete segment data from API
- * with real per-segment times, carriers, logos, and calculated layovers.
+ * v6 — Fixes:
+ *  1. In-memory cache for resolved place IDs (avoids repeated auto-complete calls)
+ *  2. Fallback from /flights/auto-complete to /api/v1/flights/searchAirport
+ *  3. Increased auto-complete timeout to 15s
+ *  4. Fully typed (zero any)
  */
 
 import type {
@@ -22,6 +25,7 @@ const LEG_TIMEOUT_MS = 25_000;
 const POLLING_BUDGET_MS = 6_000;
 const POLL_CALL_TIMEOUT_MS = 5_000;
 const MAX_POLL_ATTEMPTS = 1;
+const AUTOCOMPLETE_TIMEOUT_MS = 15_000;
 
 /* -------------------------------------------------- */
 /* ----------------- JSON HELPERS ------------------- */
@@ -170,15 +174,84 @@ async function tryImproveResults(
 }
 
 /* -------------------------------------------------- */
+/* ---- IN-MEMORY CACHE FOR RESOLVED PLACE IDS ------ */
+/* -------------------------------------------------- */
+
+/**
+ * Cache of IATA code → entityId. Persists across requests within the
+ * same server process, avoiding repeated auto-complete calls.
+ * TTL: entries expire after 1 hour.
+ */
+const placeIdCache = new Map<string, { entityId: string; timestamp: number }>();
+const PLACE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function getCachedPlaceId(iata: string): string | null {
+  const entry = placeIdCache.get(iata.toUpperCase());
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > PLACE_CACHE_TTL_MS) {
+    placeIdCache.delete(iata.toUpperCase());
+    return null;
+  }
+  return entry.entityId;
+}
+
+function setCachedPlaceId(iata: string, entityId: string): void {
+  placeIdCache.set(iata.toUpperCase(), { entityId, timestamp: Date.now() });
+}
+
+/* -------------------------------------------------- */
 /* -------------- PLACE RESOLUTION ------------------ */
 /* -------------------------------------------------- */
 
+/**
+ * Resolve IATA code to SkyScrapper entityId.
+ * Strategy: cache → /flights/auto-complete → /api/v1/flights/searchAirport → error
+ */
 async function resolvePlaceId(
   client: SkyScrapperClient,
   query: string
 ): Promise<string> {
+  const upper = query.toUpperCase().trim();
+
+  // 1. Check in-memory cache first
+  const cached = getCachedPlaceId(upper);
+  if (cached) {
+    console.log(`[SkyScrapper] Place cache HIT for ${upper}: ${cached}`);
+    return cached;
+  }
+
+  // 2. Try /flights/auto-complete (primary endpoint)
+  try {
+    const entityId = await resolveViaAutoComplete(client, upper);
+    setCachedPlaceId(upper, entityId);
+    console.log(`[SkyScrapper] Resolved ${upper} via auto-complete: ${entityId}`);
+    return entityId;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[SkyScrapper] auto-complete failed for ${upper}: ${msg}`);
+  }
+
+  // 3. Fallback: try /api/v1/flights/searchAirport
+  try {
+    const entityId = await resolveViaSearchAirport(client, upper);
+    setCachedPlaceId(upper, entityId);
+    console.log(`[SkyScrapper] Resolved ${upper} via searchAirport: ${entityId}`);
+    return entityId;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[SkyScrapper] searchAirport also failed for ${upper}: ${msg}`);
+  }
+
+  throw new Error(`Could not resolve place ID for ${upper}`);
+}
+
+async function resolveViaAutoComplete(
+  client: SkyScrapperClient,
+  query: string
+): Promise<string> {
   const json = await client.get(
-    `/flights/auto-complete?query=${encodeURIComponent(query)}`
+    `/flights/auto-complete?query=${encodeURIComponent(query)}`,
+    AUTOCOMPLETE_TIMEOUT_MS
   );
 
   const dataArr = getArray(json, "data");
@@ -236,6 +309,45 @@ async function resolvePlaceId(
   throw new Error(`Invalid place data for ${query}`);
 }
 
+async function resolveViaSearchAirport(
+  client: SkyScrapperClient,
+  query: string
+): Promise<string> {
+  const json = await client.get(
+    `/api/v1/flights/searchAirport?query=${encodeURIComponent(query)}`,
+    AUTOCOMPLETE_TIMEOUT_MS
+  );
+
+  const dataArr = getArray(json, "data");
+  if (!dataArr || dataArr.length === 0) {
+    throw new Error(`No airport found for ${query} via searchAirport`);
+  }
+
+  const upper = query.toUpperCase();
+
+  for (const item of dataArr) {
+    if (!isObject(item)) continue;
+
+    const skyId = getString(item, "skyId");
+    const entityId = getString(item, "entityId");
+    if (!entityId) continue;
+
+    // Prefer exact IATA match
+    if (skyId && skyId.toUpperCase() === upper) {
+      return entityId;
+    }
+  }
+
+  // Fallback: first valid entry
+  for (const item of dataArr) {
+    if (!isObject(item)) continue;
+    const entityId = getString(item, "entityId");
+    if (entityId) return entityId;
+  }
+
+  throw new Error(`Invalid airport data for ${query}`);
+}
+
 /* -------------------------------------------------- */
 /* ---------- TYPED SEGMENT STRUCTURES -------------- */
 /* -------------------------------------------------- */
@@ -282,7 +394,6 @@ function buildCarrierLogoMap(legJson: JsonObject): Map<string, string> {
       const name = getString(c, "name");
       const logoUrl = getString(c, "logoUrl");
       if (name && logoUrl) map.set(name, logoUrl);
-      // Also index by alternateId (e.g. "BF", "NK")
       const altId = getString(c, "alternateId");
       if (altId && logoUrl) map.set(altId, logoUrl);
     }
@@ -316,7 +427,6 @@ function mapSegment(
   const durationMin = getNumber(segJson, "durationInMinutes") ?? 0;
   const flightNumber = getString(segJson, "flightNumber") ?? "";
 
-  // Carrier: prefer marketing, fallback to operating
   const marketingCarrier = getObject(segJson, "marketingCarrier");
   const operatingCarrier = getObject(segJson, "operatingCarrier");
   const carrier = marketingCarrier ?? operatingCarrier;
@@ -324,7 +434,6 @@ function mapSegment(
   const airlineName = carrier ? (getString(carrier, "name") ?? "Aerolínea") : "Aerolínea";
   const airlineCode = carrier ? (getString(carrier, "alternateId") ?? "") : "";
 
-  // Resolve logoUrl: try by name first, then by code
   const logoUrl =
     logoMap.get(airlineName) ?? logoMap.get(airlineCode) ?? null;
 
@@ -372,7 +481,6 @@ function mapItineraryToFlight(
   const departure = getString(leg, "departure") ?? "";
   const arrival = getString(leg, "arrival") ?? "";
 
-  // Leg-level origin/destination
   const legOrigin = getObject(leg, "origin");
   const legDest = getObject(leg, "destination");
   const originIata = legOrigin
@@ -384,10 +492,8 @@ function mapItineraryToFlight(
   const originName = legOrigin ? (getString(legOrigin, "name") ?? "") : "";
   const destName = legDest ? (getString(legDest, "name") ?? "") : "";
 
-  // Build logo map from leg-level carriers
   const logoMap = buildCarrierLogoMap(leg);
 
-  // First marketing carrier (for top-level display)
   const carriers = getObject(leg, "carriers");
   const marketingArr = carriers ? getArray(carriers, "marketing") : null;
 
@@ -404,7 +510,6 @@ function mapItineraryToFlight(
     }
   }
 
-  // ── Extract FULL segments ──
   const rawSegments = getArray(leg, "segments");
   const mappedSegments: SkySegmentData[] = [];
 
@@ -415,7 +520,6 @@ function mapItineraryToFlight(
     }
   }
 
-  // ── Calculate REAL layovers between segments ──
   const stops: StopData[] = [];
 
   for (let i = 0; i < mappedSegments.length - 1; i++) {
@@ -441,7 +545,6 @@ function mapItineraryToFlight(
     });
   }
 
-  // Flight number from first segment
   let flightNumber = "";
   if (mappedSegments.length > 0) {
     flightNumber = mappedSegments[0].flight_number;
@@ -475,7 +578,6 @@ function mapItineraryToFlight(
     final_price: price,
     is_exclusive_offer: false,
     available_seats: 9,
-    // Pass typed segments for the mapper
     sky_segments: mappedSegments,
   };
 }
@@ -523,6 +625,8 @@ async function searchOneLegInternal(
     resolvePlaceId(client, leg.origin),
     resolvePlaceId(client, leg.destination),
   ]);
+
+  console.log(`[SkyScrapper] Leg ${legIndex}: resolved ${leg.origin}→${fromEntityId}, ${leg.destination}→${toEntityId}`);
 
   const qs = new URLSearchParams({
     fromEntityId,
