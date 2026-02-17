@@ -11,7 +11,7 @@ import type {
   ProviderSearchRequest,
   ProviderSearchResponse,
 } from "@/lib/flights/providers/types";
-
+import { logger } from "@/lib/observability/logger";
 import { agencyInventoryProvider } from "@/lib/flights/providers/agencyInventoryProvider";
 import { skyScrapperProvider } from "@/lib/flights/providers/skyScrapperProvider";
 
@@ -150,19 +150,25 @@ function totalFlights(res: ProviderSearchResponse): number {
 export const flightsOrchestrator = {
   id: "agency-first-orchestrator",
 
-  async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
+ async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
     const t0 = Date.now();
 
     // 1. Agency (DB, fast)
     const agencyRes = await agencyInventoryProvider.search(req);
     const agencyByLeg = mapByLegIndex(agencyRes);
-    console.log(`[Orchestrator] Agency query completed in ${Date.now() - t0}ms`);
+    
+    // 🚀 NUEVO LOG ESTRUCTURADO: Métrica de Agency DB
+    logger.info({ 
+      metric: 'provider_response_time', 
+      provider: 'agency-inventory', 
+      durationMs: Date.now() - t0 
+    }, 'Agency query completed');
 
     // 2. Need external?
     const needsExternal = req.legs.some((_, idx) => (agencyByLeg.get(idx) ?? []).length < TARGET_RESULTS_PER_LEG);
 
     if (!needsExternal) {
-      console.log("[Orchestrator] Agency has enough results, skipping external");
+      logger.info({ metric: 'cache_hit_rate', status: 'agency_sufficient' }, 'Agency has enough results, skipping external');
       return req.legs.map((_, idx) => ({
         legIndex: idx,
         flights: (agencyByLeg.get(idx) ?? []).sort(sortFlightsAgencyFirst).slice(0, TARGET_RESULTS_PER_LEG),
@@ -171,6 +177,7 @@ export const flightsOrchestrator = {
 
     // 3. SkyScrapper (real flights only — no stub fallback)
     let externalRes: ProviderSearchResponse = [];
+    const tSkyScrapper = Date.now(); // 🚀 Tiempo específico de SkyScrapper
     try {
       externalRes = await Promise.race([
         skyScrapperProvider.search(req),
@@ -178,13 +185,30 @@ export const flightsOrchestrator = {
           setTimeout(() => reject(new Error(`External timeout after ${EXTERNAL_TIMEOUT_MS}ms`)), EXTERNAL_TIMEOUT_MS)
         ),
       ]);
-      console.log(`[Orchestrator] SkyScrapper completed in ${Date.now() - t0}ms (${totalFlights(externalRes)} flights)`);
+      
+      // 🚀 NUEVO LOG ESTRUCTURADO: Métrica de SkyScrapper
+      logger.info({ 
+        metric: 'provider_response_time', 
+        provider: 'sky-scrapper', 
+        durationMs: Date.now() - tSkyScrapper,
+        flightsFound: totalFlights(externalRes)
+      }, 'SkyScrapper query completed');
+      
     } catch (err: unknown) {
-      console.warn(`[Orchestrator] SkyScrapper failed: ${err instanceof Error ? err.message : String(err)}`);
+      // 🚀 NUEVO LOG DE ERROR ESTRUCTURADO
+      logger.error({ 
+        provider: 'sky-scrapper', 
+        error: err instanceof Error ? err.message : String(err) 
+      }, 'SkyScrapper failed');
     }
 
     const externalByLeg = mapByLegIndex(externalRes);
-    console.log(`[Orchestrator] Total search time: ${Date.now() - t0}ms`);
+    
+    // 🚀 NUEVO LOG ESTRUCTURADO: Tiempo total de orquestación
+    logger.info({ 
+      metric: 'orchestrator_total_time', 
+      durationMs: Date.now() - t0 
+    }, 'Total search time completed');
 
     // 4. Merge + Rank
     return req.legs.map((_, idx) => ({

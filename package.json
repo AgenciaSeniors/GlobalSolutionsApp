@@ -16,13 +16,17 @@
         "test:ui": "vitest --ui",
         "test:coverage": "vitest run --coverage",
         "test:e2e": "playwright test"
-
     },
     "dependencies": {
         "@capacitor/android": "^8.0.2",
         "@capacitor/cli": "^8.0.2",
         "@capacitor/core": "^8.0.2",
         "@capacitor/ios": "^8.0.2",
+        "@opentelemetry/api": "^1.9.0",
+        "@opentelemetry/exporter-trace-otlp-http": "^0.212.0",
+        "@opentelemetry/resources": "^2.5.1",
+        "@opentelemetry/sdk-node": "^0.212.0",
+        "@opentelemetry/semantic-conventions": "^1.39.0",
         "@paypal/checkout-server-sdk": "^1.0.3",
         "@paypal/react-paypal-js": "^8.9.2",
         "@sentry/nextjs": "^10.39.0",
