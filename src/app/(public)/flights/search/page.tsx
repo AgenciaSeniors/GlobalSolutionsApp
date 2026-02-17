@@ -75,14 +75,11 @@ export default function FlightSearchResultsPage() {
   }, [from, to, departure, returnDate]);
 
   /**
-   * v3 FIX: Removed the redundant `lastFiredKeyRef` dedup guard.
+   * Trigger search when URL params change or active leg changes.
    *
-   * The hook (useFlightSearch) already has its own dedup via `lastKeyRef`.
-   * Having TWO dedup layers caused a deadlock in React StrictMode:
-   *   1. Mount#1: both refs set → fetch starts → StrictMode unmounts → abort
-   *   2. Mount#2: page ref sees "already fired" → skips → no search ever runs
-   *
-   * Now only the hook handles dedup, which correctly resets on abort.
+   * `search` has a STABLE identity (no state deps in useCallback),
+   * so this effect only re-fires when the actual search parameters change —
+   * not on every error/loading state transition.
    */
   useEffect(() => {
     if (!from || !to || !departure) return;
