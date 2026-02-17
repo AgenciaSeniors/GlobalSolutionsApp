@@ -2,15 +2,22 @@
  * GET /api/flights/search/:sessionId
  *
  * C1.1: Two-phase search polling endpoint.
- * - Returns session status/results.
- * - If session is pending/refreshing, this endpoint performs the search work
- *   (with a lightweight DB lock) and persists results to session + cache.
  *
- * v2 — Fixes:
- *   1. CRITICAL: Added missing `makeRouteKeys` function (cache invalidation was broken)
- *   2. Improved cache write with error logging (silent failures were hiding issues)
- *   3. Added `Cache-Control: no-store` consistently for non-complete states
- *   4. Defensive session expiry check uses Date comparison (not string compare)
+ * v3 — CRITICAL FIX: Background worker pattern.
+ *
+ * PROBLEM (v2):
+ *   The first poll that acquired the "lock" blocked its HTTP response for
+ *   ~30-40s while the orchestrator called the SkyScrapper API. Meanwhile,
+ *   all subsequent polls returned {status: "running", results: null} because
+ *   they couldn't acquire the lock. The client hook timed out (45s) before
+ *   the first poll's response ever arrived, resulting in infinite polling.
+ *
+ * FIX:
+ *   When a poll acquires the lock, it starts the orchestrator in background
+ *   (fire-and-forget) and responds IMMEDIATELY with {status: "running"}.
+ *   The background worker updates the DB to "complete" or "failed" when done.
+ *   Subsequent polls simply read the current session state from the DB.
+ *   Eventually one poll sees status="complete" and returns the results.
  */
 
 import { NextResponse } from "next/server";
@@ -57,12 +64,6 @@ function extractProvidersUsed(results: ResultsByLeg): string[] {
   return Array.from(set).sort();
 }
 
-/**
- * Builds route keys like ["MAD-BCN-2025-06-15", "BCN-MAD-2025-06-20"]
- * from the session's stored request payload.
- * Used by the DB trigger `trg_invalidate_flight_search_cache_on_seats_update`
- * to delete cache entries when `available_seats` changes on a matching route.
- */
 function makeRouteKeys(request: unknown): string[] {
   if (!isRecord(request)) return [];
   const legs = request.legs;
@@ -76,7 +77,7 @@ function makeRouteKeys(request: unknown): string[] {
       const dt = String(l.departure_date ?? "").trim();
       return `${o}-${d}-${dt}`;
     })
-    .filter((k) => k.length > 6); // minimum "XX-XX-" = 6 chars
+    .filter((k) => k.length > 6);
 }
 
 /* -------------------------------------------------- */
@@ -161,6 +162,112 @@ function buildPayload(
 }
 
 /* -------------------------------------------------- */
+/* ---- BACKGROUND WORKER --------------------------- */
+/* -------------------------------------------------- */
+
+/**
+ * Executes the flight search in background and updates the session in DB.
+ * This function is called fire-and-forget — it never blocks an HTTP response.
+ */
+async function executeSearchWorker(
+  sessionId: string,
+  session: SessionRow
+): Promise<void> {
+  const supabase = createAdminClient();
+
+  const reqBody = normalizeRequest(session.request);
+  if (!reqBody) {
+    await supabase
+      .from("flight_search_sessions")
+      .update({
+        status: "failed" as SessionStatus,
+        error: "Sesión inválida: request malformado.",
+        updated_at: new Date().toISOString(),
+        worker_heartbeat: new Date().toISOString(),
+      })
+      .eq("session_id", sessionId);
+    return;
+  }
+
+  try {
+    console.log(`[WORKER:${sessionId.slice(0, 8)}] Starting orchestrator search...`);
+    const providerRes = await flightsOrchestrator.search(reqBody);
+    const results: ResultsByLeg = providerRes.map((r) => ({
+      legIndex: r.legIndex,
+      flights: (r.flights as unknown[]).filter(isRecord) as FlightRecord[],
+    }));
+
+    const providersUsed = extractProvidersUsed(results);
+    const routeKeys = makeRouteKeys(session.request);
+    const completedAt = new Date().toISOString();
+    const totalFlights = results.reduce((s, r) => s + r.flights.length, 0);
+
+    console.log(
+      `[WORKER:${sessionId.slice(0, 8)}] Search complete: ${totalFlights} flights from [${providersUsed.join(", ")}]`
+    );
+
+    // ── Cache write ──
+    if (session.cache_key) {
+      const cacheExpires = new Date(
+        Date.now() + CACHE_TTL_MINUTES * 60 * 1000
+      ).toISOString();
+      const freshUntil = new Date(Date.now() + FRESH_WINDOW_MS).toISOString();
+
+      const { error: cacheErr } = await supabase
+        .from("flight_search_cache")
+        .upsert(
+          {
+            cache_key: session.cache_key,
+            response: results,
+            created_at: completedAt,
+            fresh_until: freshUntil,
+            expires_at: cacheExpires,
+            route_keys: routeKeys,
+          },
+          { onConflict: "cache_key" }
+        );
+
+      if (cacheErr) {
+        console.warn(
+          `[WORKER:${sessionId.slice(0, 8)}] Cache write failed: ${cacheErr.message}`
+        );
+      }
+    }
+
+    // ── Session update → complete ──
+    await supabase
+      .from("flight_search_sessions")
+      .update({
+        status: "complete" as SessionStatus,
+        source: "live",
+        providers_used: providersUsed,
+        results,
+        error: null,
+        updated_at: completedAt,
+        worker_heartbeat: completedAt,
+      })
+      .eq("session_id", sessionId);
+
+    console.log(`[WORKER:${sessionId.slice(0, 8)}] Session marked complete.`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e ?? "Error buscando vuelos");
+    const failedAt = new Date().toISOString();
+
+    console.error(`[WORKER:${sessionId.slice(0, 8)}] Search failed: ${msg}`);
+
+    await supabase
+      .from("flight_search_sessions")
+      .update({
+        status: "failed" as SessionStatus,
+        error: msg,
+        updated_at: failedAt,
+        worker_heartbeat: failedAt,
+      })
+      .eq("session_id", sessionId);
+  }
+}
+
+/* -------------------------------------------------- */
 /* ---- HANDLER ------------------------------------- */
 /* -------------------------------------------------- */
 
@@ -201,7 +308,7 @@ export async function GET(
 
     const session = sessionData as unknown as SessionRow;
 
-    // ── Expiry check (Date comparison, not string) ─────
+    // ── Expiry check ─────────────────────────────────
     const expiresAt = safeParseDateIso(session.expires_at);
     if (expiresAt && expiresAt.getTime() <= now.getTime()) {
       return NextResponse.json(
@@ -218,143 +325,39 @@ export async function GET(
       return NextResponse.json(payload, { headers: { "Cache-Control": cc } });
     }
 
-    // ── Attempt lightweight lock ───────────────────────
+    // ── Attempt lightweight lock via RPC ────────────────
+    // Using an RPC instead of .in().or() chain because PostgREST
+    // silently fails to combine these filters correctly.
     const heartbeatStaleIso = new Date(now.getTime() - WORKER_STALE_MS).toISOString();
 
-    const { data: lock } = await supabase
-      .from("flight_search_sessions")
-      .update({
-        status: "running" as SessionStatus,
-        worker_started_at: session.worker_started_at ?? nowIso,
-        worker_heartbeat: nowIso,
-        updated_at: nowIso,
-      })
-      .eq("session_id", sessionId)
-      .in("status", ["pending", "refreshing"])
-      .or(`worker_started_at.is.null,worker_heartbeat.lt.${heartbeatStaleIso}`)
-      .select("session_id")
-      .maybeSingle();
+    const { data: lockAcquired } = await supabase.rpc("try_lock_search_session", {
+      p_session_id: sessionId,
+      p_now: nowIso,
+      p_stale_threshold: heartbeatStaleIso,
+    });
 
-    if (!lock) {
-      // Another worker is running — return current snapshot
-      const results = normalizeResults(session.results);
-      const payload = buildPayload(session, results);
-      return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
-    }
+    if (lockAcquired === true) {
+      // ── We own the lock — start worker in BACKGROUND ──
+      // Fire-and-forget: do NOT await. The worker updates the DB when done.
+      // Subsequent polls will see status="complete" once the worker finishes.
+      void executeSearchWorker(sessionId, session);
 
-    // ── We own the lock — execute search ───────────────
-    const reqBody = normalizeRequest(session.request);
-    if (!reqBody) {
-      await supabase
-        .from("flight_search_sessions")
-        .update({
-          status: "failed" as SessionStatus,
-          error: "Sesión inválida.",
-          updated_at: nowIso,
-          worker_heartbeat: nowIso,
-        })
-        .eq("session_id", sessionId);
-
-      return NextResponse.json(
-        { sessionId, status: "failed", error: "Sesión inválida." },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
+      console.log(
+        `[POLL:${sessionId.slice(0, 8)}] Lock acquired, worker started in background.`
       );
     }
 
-    try {
-      const providerRes = await flightsOrchestrator.search(reqBody);
-      const results: ResultsByLeg = providerRes.map((r) => ({
-        legIndex: r.legIndex,
-        flights: (r.flights as unknown[]).filter(isRecord) as FlightRecord[],
-      }));
-
-      const providersUsed = extractProvidersUsed(results);
-      const routeKeys = makeRouteKeys(session.request);
-      const completedAt = new Date().toISOString();
-
-      // ── Cache write ────────────────────────────────
-      if (session.cache_key) {
-        const cacheExpires = new Date(
-          Date.now() + CACHE_TTL_MINUTES * 60 * 1000
-        ).toISOString();
-        const freshUntil = new Date(
-          Date.now() + FRESH_WINDOW_MS
-        ).toISOString();
-
-        const { error: cacheErr } = await supabase
-          .from("flight_search_cache")
-          .upsert(
-            {
-              cache_key: session.cache_key,
-              response: results,
-              created_at: completedAt,
-              fresh_until: freshUntil,
-              expires_at: cacheExpires,
-              route_keys: routeKeys,
-            },
-            { onConflict: "cache_key" }
-          );
-
-        if (cacheErr) {
-          console.warn(
-            `[FLIGHT_SEARCH] Cache write failed for key=${session.cache_key}: ${cacheErr.message}`
-          );
-          // Non-fatal: search still returns results even if cache write fails
-        }
-      }
-
-      // ── Session update → complete ──────────────────
-      await supabase
-        .from("flight_search_sessions")
-        .update({
-          status: "complete" as SessionStatus,
-          source: "live",
-          providers_used: providersUsed,
-          results,
-          error: null,
-          updated_at: completedAt,
-          worker_heartbeat: completedAt,
-        })
-        .eq("session_id", sessionId);
-
-      return NextResponse.json(
-        {
-          sessionId,
-          status: "complete",
-          source: "live",
-          providersUsed,
-          results,
-        },
-        { headers: { "Cache-Control": CACHE_CONTROL_RESULTS } }
-      );
-    } catch (e: unknown) {
-      const msg =
-        e instanceof Error ? e.message : String(e ?? "Error buscando vuelos");
-      const failedAt = new Date().toISOString();
-
-      // Mark failed, but preserve any existing results (stale cache)
-      await supabase
-        .from("flight_search_sessions")
-        .update({
-          status: "failed" as SessionStatus,
-          error: msg,
-          updated_at: failedAt,
-          worker_heartbeat: failedAt,
-        })
-        .eq("session_id", sessionId);
-
-      return NextResponse.json(
-        {
-          sessionId,
-          status: "failed",
-          source: session.source ?? "live",
-          results: normalizeResults(session.results),
-          providersUsed: session.providers_used ?? [],
-          error: msg,
-        },
-        { headers: { "Cache-Control": "no-store" } }
-      );
-    }
+    // ── Always respond immediately with current state ──
+    // Whether we just started the worker or another worker is already running,
+    // we return the current session snapshot. Client polls again in 1.5s.
+    const results = normalizeResults(session.results);
+    const payload = buildPayload(
+      { ...session, status: "running" },
+      results
+    );
+    return NextResponse.json(payload, {
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (err: unknown) {
     console.error("[FLIGHT_SEARCH_SESSION_ERROR]", err);
     const msg =

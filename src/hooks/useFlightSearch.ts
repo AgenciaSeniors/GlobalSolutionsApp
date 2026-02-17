@@ -162,8 +162,8 @@ export function useFlightSearch(): UseFlightSearchResult {
         if (sessionId && status && status !== 'complete') {
           const final = await flightsService.pollSearchSession(sessionId, {
             signal: controller.signal,
-            maxWaitMs: 45_000,
-            intervalMs: 1_500,
+            maxWaitMs: 90_000,
+            intervalMs: 2_000,
           });
 
           if (controller.signal.aborted) return;
