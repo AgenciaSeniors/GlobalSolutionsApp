@@ -6,14 +6,12 @@ import { createClient } from '@/lib/supabase/server';
 import type { CreateBookingPayload } from '@/types/api.types';
 import type { Booking, BookingWithDetails } from '@/types/models';
 
-
 function generateBookingCode(): string {
   const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
   return `GST-${rand}`;
 }
 
 async function create(payload: CreateBookingPayload): Promise<Booking> {
-  // CORRECCIÓN: Añadido 'await' porque createClient en el servidor es una Promesa
   const supabase = await createClient();
   
   const { data: { user } } = await supabase.auth.getUser();
@@ -42,24 +40,23 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
     user_id: user.id,
     flight_id: payload.flight_id,
     subtotal,
-    payment_gateway_fee: 0,          // 👈 agrega
+    payment_gateway_fee: 0,
     total_amount: totalAmount,
-    payment_method: 'stripe',        // 👈 agrega
-    payment_status: 'pending',       // 👈 agrega
-    booking_status: 'pending_emission', // 👈 agrega
+    payment_method: 'stripe',
+    payment_status: 'pending',
+    booking_status: 'pending_emission',
   })
   .select()
   .single();
 
-
   if (bookingErr || !booking) throw new Error(bookingErr?.message ?? 'Error creando la reserva.');
 
-
-  // 3. Insertar Pasajeros con ENCRIPTACIÓN (Módulo 3.2)
-  const secretKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // 3. Insertar Pasajeros con ENCRIPTACIÓN (Módulo 3.2 - CORREGIDO)
+  // 🔐 CAMBIO CRÍTICO: Usamos la llave maestra dedicada, NO la del service role.
+  const secretKey = process.env.PASSPORT_ENCRYPTION_KEY;
 
   if (!secretKey) {
-    console.error('❌ CRITICAL ERROR: SUPABASE_SERVICE_ROLE_KEY faltante en .env.local');
+    console.error('❌ CRITICAL ERROR: PASSPORT_ENCRYPTION_KEY faltante en .env.local');
     // Borramos la reserva huérfana para no dejar basura en la DB
     await supabase.from('bookings').delete().eq('id', booking.id);
     throw new Error('Error interno de seguridad: Llave de encriptación no configurada.');
@@ -75,7 +72,7 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
       p_nationality: p.nationality,
       p_passport_number: p.passport_number, // El dato sensible
       p_passport_expiry_date: p.passport_expiry_date,
-      p_secret_key: secretKey
+      p_secret_key: secretKey // ✅ Enviamos la nueva llave segura
     });
 
     if (rpcError) {
@@ -88,7 +85,6 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
 }
 
 async function listForCurrentUser(): Promise<Booking[]> {
-  // CORRECCIÓN: Añadido 'await'
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -105,7 +101,6 @@ async function listForCurrentUser(): Promise<Booking[]> {
 }
 
 async function getById(id: string): Promise<Booking | null> {
-  // CORRECCIÓN: Añadido 'await'
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -117,6 +112,7 @@ async function getById(id: string): Promise<Booking | null> {
   if (error) throw error;
   return data as Booking;
 }
+
 async function listWithDetails(): Promise<BookingWithDetails[]> {
   const supabase = await createClient();
   const {
@@ -147,6 +143,4 @@ async function listWithDetails(): Promise<BookingWithDetails[]> {
   return (data ?? []) as BookingWithDetails[];
 }
 
-
 export const bookingsService = { create, listForCurrentUser, listWithDetails, getById };
-
