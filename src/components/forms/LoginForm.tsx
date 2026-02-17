@@ -1,3 +1,4 @@
+// src/components/forms/LoginForm.tsx
 'use client';
 
 import { useState, type FormEvent } from 'react';
@@ -33,22 +34,41 @@ export default function LoginForm() {
           return;
         }
 
-        // ✅ Envía OTP por email (Supabase)
-        await authService.signInStepOne(form.email, form.password);
+        const result = await authService.signInStepOne(form.email, form.password);
+
+        // 🔧 FIX: Si ya estaba autenticado o dispositivo confiable, ir al dashboard
+        if (
+          result.message === 'ALREADY_AUTHENTICATED' ||
+          result.message === 'SIGNED_IN_TRUSTED_DEVICE'
+        ) {
+          // La sesión ya está activa — navegar al dashboard
+          // Usamos window.location para que el middleware detecte la sesión y redirija al rol correcto
+          window.location.href = '/user/dashboard';
+          return;
+        }
+
+        // OTP fue enviado — mostrar paso 2
         setStep('otp');
         return;
       }
 
-      // ✅ Verifica OTP (Supabase) y queda logueado en este dispositivo
+      // ─── PASO 2: Verificar OTP ───
       if (otpCode.trim().length !== 6) {
         setServerError('Ingresa un código de 6 dígitos.');
         return;
       }
 
-      await authService.verifyLoginOtp(form.email, otpCode.trim());
+      const result = await authService.verifyLoginOtp(form.email, otpCode.trim());
 
-      // ✅ Ir a HOME ya logueado
-      window.location.href = '/';
+      // 🔧 FIX PRINCIPAL: Navegar al sessionLink para establecer la sesión Supabase
+      // El sessionLink es un magic link que pasa por /auth/callback
+      // donde se hace exchangeCodeForSession y se setean las cookies
+      if (result.sessionLink) {
+        window.location.href = result.sessionLink;
+      } else {
+        // Fallback (no debería pasar con el fix en verify-otp)
+        setServerError('Error estableciendo sesión. Intenta de nuevo.');
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error en la autenticación';
       setServerError(message);
@@ -109,7 +129,11 @@ export default function LoginForm() {
         <div className="space-y-4 animate-in slide-in-from-right-4">
           <button
             type="button"
-            onClick={() => setStep('credentials')}
+            onClick={() => {
+              setStep('credentials');
+              setOtpCode('');
+              setServerError(null);
+            }}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-brand-600"
           >
             <ArrowLeft className="h-3 w-3" />
@@ -127,10 +151,16 @@ export default function LoginForm() {
             <label className="text-sm font-medium text-neutral-700">Código de Verificación</label>
             <Input
               type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               placeholder="000000"
               maxLength={6}
               value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value)}
+              onChange={(e) => {
+                // Solo permitir dígitos
+                const value = e.target.value.replace(/\D/g, '');
+                setOtpCode(value);
+              }}
               required
               className="text-center text-2xl tracking-[0.4em] font-mono"
             />

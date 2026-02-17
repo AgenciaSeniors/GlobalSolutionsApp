@@ -1,7 +1,8 @@
+// src/middleware.ts
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
-// 🛡️ Rate Limiting (solo API auth)
+// 🛡️ Rate Limiting (best-effort, in-memory — complementa el rate limit en DB)
 const rateLimitMap = new Map<string, { count: number; lastReset: number }>();
 const RATE_LIMIT_THRESHOLD = 20;
 const RATE_LIMIT_WINDOW = 60_000;
@@ -14,9 +15,9 @@ type Role = "admin" | "agent" | "client";
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  /* ─────────── 0) RATE LIMITING ─────────── */
+  /* ─────────── 0) RATE LIMITING (solo API auth) ─────────── */
   if (pathname.startsWith("/api/auth")) {
-    const ip = request.ip || "127.0.0.1";
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.ip || "127.0.0.1";
     const now = Date.now();
     const rateData = rateLimitMap.get(ip) || { count: 0, lastReset: now };
 
@@ -39,10 +40,12 @@ export async function middleware(request: NextRequest) {
   const isAuthRoute = AUTH_PREFIXES.some((p) => pathname.startsWith(p));
   const isProtectedRoute = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
 
+  // 🔧 FIX: Rutas públicas o API de auth no protegidas — pasar directo
   if (!isAuthRoute && !isProtectedRoute) return NextResponse.next();
 
-  // ✅ const (fix prefer-const)
-  const response = NextResponse.next();
+  /* ─────────── CREAR CLIENTE SUPABASE SSR ─────────── */
+  // 🔧 FIX: Usar let para response porque setAll necesita reasignarlo
+  let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,14 +54,22 @@ export async function middleware(request: NextRequest) {
       cookies: {
         getAll: () => request.cookies.getAll(),
         setAll: (cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) => {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
+          // 🔧 FIX: Primero setear en request para que el siguiente handler las vea
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
+          // 🔧 FIX: Recrear response con las cookies actualizadas del request
+          response = NextResponse.next({ request });
+          // 🔧 FIX: Setear cookies con options en la response (para el browser)
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
         },
       },
     }
   );
 
+  // 🔧 FIX: getUser() refresca tokens automáticamente y setAll propaga las cookies
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -69,19 +80,27 @@ export async function middleware(request: NextRequest) {
     client: "/user/dashboard",
   };
 
-  /* ─────────── 1) SI YA HAY SESIÓN, NO ENTRAR A /login ─────────── */
-  if (isAuthRoute && user) {
+  // 🔧 FIX: Una sola query de profile, reutilizada en todas las secciones
+  let role: Role = "client";
+  if (user) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", user.id)
       .maybeSingle<{ role: Role }>();
 
-    const role: Role = profile?.role ?? "client";
-    return NextResponse.redirect(new URL(dashboardMap[role] || "/user/dashboard", request.url));
+    // 🔧 FIX: Tolerante a profile = null (RLS o fila faltante)
+    role = profile?.role ?? "client";
   }
 
-  /* ─────────── 2) PROTEGER RUTAS ─────────── */
+  /* ─────────── 1) SI YA HAY SESIÓN, NO ENTRAR A /login ─────────── */
+  if (isAuthRoute && user) {
+    return NextResponse.redirect(
+      new URL(dashboardMap[role] || "/user/dashboard", request.url)
+    );
+  }
+
+  /* ─────────── 2) PROTEGER RUTAS (no autenticado) ─────────── */
   if (!user && isProtectedRoute) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -93,14 +112,6 @@ export async function middleware(request: NextRequest) {
 
   /* ─────────── 3) CONTROL DE ROLES ─────────── */
   if (user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle<{ role: Role }>();
-
-    const role: Role = profile?.role ?? "client";
-
     if (pathname.startsWith("/admin") && role !== "admin") {
       return NextResponse.redirect(new URL("/user/dashboard", request.url));
     }
