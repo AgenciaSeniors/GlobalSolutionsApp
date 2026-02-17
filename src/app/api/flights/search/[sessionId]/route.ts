@@ -1,4 +1,3 @@
-//src\app\api\flights\search\[sessionId]\route.ts
 /**
  * GET /api/flights/search/:sessionId
  *
@@ -7,24 +6,28 @@
  * v3 — CRITICAL FIX: Background worker pattern.
  *
  * PROBLEM (v2):
- *   The first poll that acquired the "lock" blocked its HTTP response for
- *   ~30-40s while the orchestrator called the SkyScrapper API. Meanwhile,
- *   all subsequent polls returned {status: "running", results: null} because
- *   they couldn't acquire the lock. The client hook timed out (45s) before
- *   the first poll's response ever arrived, resulting in infinite polling.
+ * The first poll that acquired the "lock" blocked its HTTP response for
+ * ~30-40s while the orchestrator called the SkyScrapper API. Meanwhile,
+ * all subsequent polls returned {status: "running", results: null} because
+ * they couldn't acquire the lock. The client hook timed out (45s) before
+ * the first poll's response ever arrived, resulting in infinite polling.
  *
  * FIX:
- *   When a poll acquires the lock, it starts the orchestrator in background
- *   (fire-and-forget) and responds IMMEDIATELY with {status: "running"}.
- *   The background worker updates the DB to "complete" or "failed" when done.
- *   Subsequent polls simply read the current session state from the DB.
- *   Eventually one poll sees status="complete" and returns the results.
+ * When a poll acquires the lock, it starts the orchestrator in background
+ * (fire-and-forget) and responds IMMEDIATELY with {status: "running"}.
+ * The background worker updates the DB to "complete" or "failed" when done.
+ * Subsequent polls simply read the current session state from the DB.
+ * Eventually one poll sees status="complete" and returns the results.
  */
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flightsOrchestrator } from "@/lib/flights/orchestrator/flightsOrchestrator";
 import type { FlightLeg, FlightSearchFilters } from "@/types/api.types";
+
+// ── FORZAR A NEXT.JS A NO CACHEAR ESTE ENDPOINT ──
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 /* -------------------------------------------------- */
 /* ---- CONSTANTS ----------------------------------- */
@@ -349,13 +352,19 @@ export async function GET(
     }
 
     // ── Always respond immediately with current state ──
-    // Whether we just started the worker or another worker is already running,
-    // we return the current session snapshot. Client polls again in 1.5s.
     const results = normalizeResults(session.results);
+    
+    // Si la sesión original era pending y acabamos de adquirir el lock, decimos running.
+    // De lo contrario, devolvemos el estado que tenga en la DB.
+    const currentStatus = (session.status === "pending" && lockAcquired) 
+      ? "running" 
+      : session.status;
+
     const payload = buildPayload(
-      { ...session, status: "running" },
+      { ...session, status: currentStatus },
       results
     );
+
     return NextResponse.json(payload, {
       headers: { "Cache-Control": "no-store" },
     });
