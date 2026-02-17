@@ -8,9 +8,11 @@ export {
   emissionCompleteEmail, type EmissionCompleteData,
   paymentReceiptEmail, type PaymentReceiptData,
   bookingCancelledEmail, type BookingCancelledData,
+  refundEmail, type RefundEmailData,
   reviewRequestEmail, type ReviewRequestData,
   welcomeEmail, type WelcomeEmailData,
 } from './templates';
+
 export {
   notifyBookingConfirmation,
   notifyEmissionComplete,

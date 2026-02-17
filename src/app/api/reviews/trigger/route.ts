@@ -7,6 +7,8 @@
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { notifyReviewRequest } from '@/lib/email/notifications';
+
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,33 +44,77 @@ export async function POST() {
     const results = [];
 
     for (const booking of bookings || []) {
-      const profile = booking.profile as { full_name?: string; email?: string } | null;
-      const flight = booking.flight as { destination_airport?: { city?: string } } | null;
-      const destination = flight?.destination_airport?.city || 'tu destino';
+  // ✅ Normalizar relaciones: a veces vienen como arrays
+  const profileRow = Array.isArray((booking as any).profile)
+    ? (booking as any).profile[0]
+    : (booking as any).profile;
 
-      // Mark as review requested
-      await supabaseAdmin
-        .from('bookings')
-        .update({ review_requested: true })
-        .eq('id', booking.id);
+  const flightRow = Array.isArray((booking as any).flight)
+    ? (booking as any).flight[0]
+    : (booking as any).flight;
 
-      // In production: Send email via Resend/SendGrid
-      // Email content: "¿Qué tal tu viaje a [Destino]? Califícanos y gana puntos"
-      const emailPayload = {
-        to: profile?.email,
-        subject: `¿Cómo fue tu viaje a ${destination}? ⭐`,
-        body: `Hola ${profile?.full_name},\n\n¡Esperamos que hayas disfrutado tu viaje a ${destination}! Nos encantaría saber tu opinión.\n\nDeja tu reseña y gana 50 puntos de fidelidad (¡100 puntos si incluyes fotos!).\n\nEquipo Global Solutions Travel`,
-      };
+  const destinationAirportRow = flightRow
+    ? (Array.isArray(flightRow.destination_airport) ? flightRow.destination_airport[0] : flightRow.destination_airport)
+    : null;
 
+  const profile = (profileRow ?? null) as { full_name?: string | null; email?: string | null } | null;
+  const destination = destinationAirportRow?.city || 'tu destino';
+
+
+            // 1) Validaciones mínimas
+      if (!profile?.email) {
+        results.push({
+          booking_id: booking.id,
+          booking_code: booking.booking_code,
+          user_email: null,
+          destination,
+          email_sent: false,
+          email_error: 'Missing profile email',
+          review_marked: false,
+        });
+        continue;
+      }
+
+      const clientName = profile.full_name || 'Cliente';
+
+      // 2) Enviar email (si falla, NO marcamos review_requested)
+      const emailResult = await notifyReviewRequest(profile.email, {
+        clientName,
+        bookingCode: booking.booking_code,
+        destination,
+      });
+
+      // 3) Si el email salió bien, recién ahí marcamos review_requested=true
+      let reviewMarked = false;
+
+      if (emailResult.success) {
+        const { error: markError } = await supabaseAdmin
+          .from('bookings')
+          .update({ review_requested: true, review_requested_at: new Date().toISOString() })
+          .eq('id', booking.id);
+
+        if (markError) {
+          console.error('[Review Trigger] Could not mark review_requested:', markError);
+          reviewMarked = false;
+        } else {
+          reviewMarked = true;
+        }
+      } else {
+        console.error('[Review Trigger] Email failed:', emailResult.error);
+      }
+
+      // 4) Guardamos detalle en la respuesta
       results.push({
         booking_id: booking.id,
         booking_code: booking.booking_code,
-        user_email: profile?.email,
+        user_email: profile.email,
         destination,
-        email_sent: true, // In production: actual send status
+        email_sent: emailResult.success,
+        email_id: emailResult.id ?? null,
+        email_error: emailResult.error ?? null,
+        review_marked: reviewMarked,
       });
 
-      console.log('[Review Trigger] Email queued:', emailPayload.to, emailPayload.subject);
     }
 
     return NextResponse.json({
