@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import React from 'react';
 import { pdf } from '@react-pdf/renderer';
-
+import { Buffer } from 'buffer';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { BookingVoucherDocument, type VoucherBooking } from '@/lib/pdf/bookingVoucher';
 
 export const runtime = 'nodejs';
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,6 +19,11 @@ export async function GET(req: NextRequest) {
     if (!bookingId) {
       return NextResponse.json({ error: 'booking_id is required' }, { status: 400 });
     }
+
+    if (!isUuid(bookingId)) {
+  return NextResponse.json({ error: 'Invalid booking_id format' }, { status: 400 });
+}
+
 
     // 1) Require auth
     const supabase = await createClient();
@@ -38,45 +46,51 @@ export async function GET(req: NextRequest) {
     const requesterRole = requesterProfile?.role ?? 'client';
 
     // 3) Fetch booking + relations
-    const { data: booking, error: bookingError } = await supabaseAdmin
-      .from('bookings')
-      .select(
-        `
-          id,
-          user_id,
-          booking_code,
-          airline_pnr,
-          booking_status,
-          payment_status,
-          payment_method,
-          subtotal,
-          payment_gateway_fee,
-          total_amount,
-          profile:profiles!user_id(full_name, email),
-          flight:flights(
-            flight_number,
-            departure_datetime,
-            arrival_datetime,
-            aircraft_type,
-            airline:airlines(name, iata_code),
-            origin_airport:airports!flights_origin_airport_id_fkey(iata_code, name, city),
-            destination_airport:airports!flights_destination_airport_id_fkey(iata_code, name, city)
-          ),
-          passengers:booking_passengers(first_name, last_name, nationality, ticket_number)
-        `
-      )
-      .eq('id', bookingId)
-      .single();
+    const isPrivileged = requesterRole === 'admin' || requesterRole === 'agent';
+
+// 🔒 Query base
+let bookingQuery = supabaseAdmin
+  .from('bookings')
+  .select(
+    `
+      id,
+      user_id,
+      booking_code,
+      airline_pnr,
+      booking_status,
+      payment_status,
+      payment_method,
+      subtotal,
+      payment_gateway_fee,
+      total_amount,
+      profile:profiles!user_id(full_name, email),
+      flight:flights(
+        flight_number,
+        departure_datetime,
+        arrival_datetime,
+        aircraft_type,
+        airline:airlines(name, iata_code),
+        origin_airport:airports!flights_origin_airport_id_fkey(iata_code, name, city),
+        destination_airport:airports!flights_destination_airport_id_fkey(iata_code, name, city)
+      ),
+      passengers:booking_passengers(first_name, last_name, nationality, ticket_number)
+    `
+  )
+  .eq('id', bookingId);
+
+// 🔒 Si NO es admin/agent, solo permite reservas del mismo usuario
+if (!isPrivileged) {
+  bookingQuery = bookingQuery.eq('user_id', user.id);
+}
+
+const { data: booking, error: bookingError } = await bookingQuery.single();
+
+if (bookingError || !booking) {
+  return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+}
+
 
     if (bookingError || !booking) {
-      return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
-    }
-
-    const isPrivileged = requesterRole === 'admin' || requesterRole === 'agent';
-    const isOwner = booking.user_id === user.id;
-
-    if (!isPrivileged && !isOwner) {
-      // avoid ID enumeration
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
     }
 
