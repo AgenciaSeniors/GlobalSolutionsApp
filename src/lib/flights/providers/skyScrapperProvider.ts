@@ -1,16 +1,8 @@
 /**
  * skyScrapperProvider — Provider de vuelos vía RapidAPI SkyScrapper.
  *
- * v3 — FIX PRINCIPAL: los itinerarios de search-one-way se extraen ANTES
- * del polling. Si el polling falla/timeout, se devuelven los resultados
- * parciales en vez de descartar todo.
- *
- * Resumen de timeouts:
- *   - client.get() default: 10s (auto-complete, search-one-way)
- *   - client.get() polling:  5s (search-incomplete, agresivo)
- *   - Polling budget total:  6s (máx 1 intento de search-incomplete)
- *   - Leg total:            25s (auto-complete‖ + search-one-way + polling)
- *   - Legs ejecutan en paralelo
+ * v5 — Fully typed (zero `any`). Extracts complete segment data from API
+ * with real per-segment times, carriers, logos, and calculated layovers.
  */
 
 import type {
@@ -20,24 +12,15 @@ import type {
   ProviderSearchResponse,
 } from "./types";
 
-import {
-  SkyScrapperClient,
-} from "./skyScrapper.client";
+import { SkyScrapperClient } from "./skyScrapper.client";
 
 /* -------------------------------------------------- */
 /* ------------- TIMEOUT CONSTANTS ------------------- */
 /* -------------------------------------------------- */
 
-/** Timeout total por leg (todo incluido) */
 const LEG_TIMEOUT_MS = 25_000;
-
-/** Máximo tiempo gastado en la fase de polling */
 const POLLING_BUDGET_MS = 6_000;
-
-/** Timeout por llamada individual de search-incomplete */
 const POLL_CALL_TIMEOUT_MS = 5_000;
-
-/** Máximo intentos de polling */
 const MAX_POLL_ATTEMPTS = 1;
 
 /* -------------------------------------------------- */
@@ -95,32 +78,22 @@ function createTimeoutRace<T>(
   label: string
 ): { promise: Promise<T>; cleanup: () => void } {
   let timer: ReturnType<typeof setTimeout>;
-
   const promise = new Promise<T>((_, reject) => {
     timer = setTimeout(
       () => reject(new Error(`${label} exceeded ${ms}ms budget`)),
       ms
     );
   });
-
   const cleanup = () => clearTimeout(timer);
   return { promise, cleanup };
 }
 
-/**
- * Extrae itinerarios de cualquier JSON de respuesta de SkyScrapper.
- * Funciona tanto para search-one-way como search-incomplete.
- */
 function extractItineraries(json: JsonValue): JsonValue[] {
   const data = getObject(json, "data");
   if (!data) return [];
-  const itineraries = getArray(data, "itineraries");
-  return itineraries ?? [];
+  return getArray(data, "itineraries") ?? [];
 }
 
-/**
- * Extrae el sessionId y status de la respuesta.
- */
 function extractContext(json: JsonValue): {
   sessionId: string | null;
   status: string | null;
@@ -137,25 +110,16 @@ function extractContext(json: JsonValue): {
 /* ------------- POLLING (BEST-EFFORT) -------------- */
 /* -------------------------------------------------- */
 
-/**
- * Intenta mejorar los resultados vía search-incomplete.
- * 
- * REGLA CLAVE: Si el polling falla, devuelve el JSON ORIGINAL
- * (initialJson), no un JSON vacío. Así nunca perdemos datos.
- */
 async function tryImproveResults(
   client: SkyScrapperClient,
   initialJson: JsonValue
 ): Promise<JsonValue> {
   const { sessionId, status } = extractContext(initialJson);
 
-  // Si ya está completo, no hay nada que mejorar
   if (status === "complete") {
     console.log("[SkyScrapper] Search already complete, skipping polling");
     return initialJson;
   }
-
-  // Sin sessionId no podemos hacer polling
   if (!sessionId) {
     console.log("[SkyScrapper] No sessionId, skipping polling");
     return initialJson;
@@ -166,37 +130,28 @@ async function tryImproveResults(
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
     const elapsed = Date.now() - pollingStart;
-    if (elapsed >= POLLING_BUDGET_MS) {
-      console.log(
-        `[SkyScrapper] Polling budget exhausted (${elapsed}ms)`
-      );
-      break;
-    }
+    if (elapsed >= POLLING_BUDGET_MS) break;
 
-    // Breve pausa antes de poll
     const waitMs = Math.min(1500, POLLING_BUDGET_MS - elapsed);
     if (waitMs <= 0) break;
     await sleep(waitMs);
 
     try {
-      // Usar timeout agresivo de 5s para polling
       const pollJson = await client.get(
         `/flights/search-incomplete?sessionId=${encodeURIComponent(sessionId)}`,
         POLL_CALL_TIMEOUT_MS
       );
 
-      // ¿Mejoró? Solo actualizar si tiene más o igual itinerarios
-      const newItineraries = extractItineraries(pollJson);
-      const oldItineraries = extractItineraries(bestJson);
+      const newCount = extractItineraries(pollJson).length;
+      const oldCount = extractItineraries(bestJson).length;
 
-      if (newItineraries.length >= oldItineraries.length) {
+      if (newCount >= oldCount) {
         bestJson = pollJson;
         console.log(
-          `[SkyScrapper] Poll improved results: ${oldItineraries.length} → ${newItineraries.length} itineraries`
+          `[SkyScrapper] Poll improved results: ${oldCount} → ${newCount} itineraries`
         );
       }
 
-      // Si ya completó, salir
       const { status: newStatus } = extractContext(pollJson);
       if (newStatus === "complete") {
         console.log("[SkyScrapper] Search completed via polling");
@@ -207,7 +162,6 @@ async function tryImproveResults(
       console.warn(
         `[SkyScrapper] search-incomplete poll failed (attempt ${attempt}): ${msg}`
       );
-      // NO actualizamos bestJson — mantenemos los datos anteriores
       break;
     }
   }
@@ -233,7 +187,6 @@ async function resolvePlaceId(
   }
 
   const upper = query.toUpperCase();
-
   let airportExactMatch: string | null = null;
   let airportFuzzyMatch: string | null = null;
   let cityMatch: string | null = null;
@@ -247,16 +200,11 @@ async function resolvePlaceId(
 
     const skyId = getString(presentation, "skyId");
     const id = getString(presentation, "id");
-
     if (!id) continue;
-
     if (!firstFallback) firstFallback = id;
 
     const navigation = getObject(item, "navigation");
-    const entityType = navigation
-      ? getString(navigation, "entityType")
-      : null;
-
+    const entityType = navigation ? getString(navigation, "entityType") : null;
     const params = navigation
       ? getObject(navigation, "relevantFlightParams")
       : null;
@@ -285,12 +233,119 @@ async function resolvePlaceId(
   const result =
     airportExactMatch ?? airportFuzzyMatch ?? cityMatch ?? firstFallback;
   if (result) return result;
-
   throw new Error(`Invalid place data for ${query}`);
 }
 
 /* -------------------------------------------------- */
-/* ------------------- MAPPER ----------------------- */
+/* ---------- TYPED SEGMENT STRUCTURES -------------- */
+/* -------------------------------------------------- */
+
+/** Segment data extracted from SkyScrapper API, passed through to the mapper */
+interface SkySegmentData {
+  origin_iata: string;
+  origin_name: string;
+  destination_iata: string;
+  destination_name: string;
+  departure: string;
+  arrival: string;
+  duration_minutes: number;
+  flight_number: string;
+  airline_name: string;
+  airline_code: string;
+  airline_logo_url: string | null;
+}
+
+interface StopData {
+  airport: string;
+  airport_name: string;
+  duration_minutes: number;
+}
+
+/* -------------------------------------------------- */
+/* ----------- CARRIER LOGO RESOLUTION -------------- */
+/* -------------------------------------------------- */
+
+/**
+ * Builds a name→logoUrl map from leg.carriers.marketing + leg.carriers.operating.
+ * SkyScrapper puts logoUrl at the leg-level carrier, not inside each segment.
+ */
+function buildCarrierLogoMap(legJson: JsonObject): Map<string, string> {
+  const map = new Map<string, string>();
+  const carriers = getObject(legJson, "carriers");
+  if (!carriers) return map;
+
+  for (const arrayKey of ["marketing", "operating"]) {
+    const arr = getArray(carriers, arrayKey);
+    if (!arr) continue;
+    for (const c of arr) {
+      if (!isObject(c)) continue;
+      const name = getString(c, "name");
+      const logoUrl = getString(c, "logoUrl");
+      if (name && logoUrl) map.set(name, logoUrl);
+      // Also index by alternateId (e.g. "BF", "NK")
+      const altId = getString(c, "alternateId");
+      if (altId && logoUrl) map.set(altId, logoUrl);
+    }
+  }
+
+  return map;
+}
+
+/* -------------------------------------------------- */
+/* ------------- SEGMENT MAPPER --------------------- */
+/* -------------------------------------------------- */
+
+function mapSegment(
+  segJson: JsonValue,
+  logoMap: Map<string, string>
+): SkySegmentData | null {
+  if (!isObject(segJson)) return null;
+
+  const origin = getObject(segJson, "origin");
+  const destination = getObject(segJson, "destination");
+
+  const originIata = origin
+    ? (getString(origin, "displayCode") ?? getString(origin, "flightPlaceId") ?? "")
+    : "";
+  const destIata = destination
+    ? (getString(destination, "displayCode") ?? getString(destination, "flightPlaceId") ?? "")
+    : "";
+
+  const departure = getString(segJson, "departure") ?? "";
+  const arrival = getString(segJson, "arrival") ?? "";
+  const durationMin = getNumber(segJson, "durationInMinutes") ?? 0;
+  const flightNumber = getString(segJson, "flightNumber") ?? "";
+
+  // Carrier: prefer marketing, fallback to operating
+  const marketingCarrier = getObject(segJson, "marketingCarrier");
+  const operatingCarrier = getObject(segJson, "operatingCarrier");
+  const carrier = marketingCarrier ?? operatingCarrier;
+
+  const airlineName = carrier ? (getString(carrier, "name") ?? "Aerolínea") : "Aerolínea";
+  const airlineCode = carrier ? (getString(carrier, "alternateId") ?? "") : "";
+
+  // Resolve logoUrl: try by name first, then by code
+  const logoUrl =
+    logoMap.get(airlineName) ?? logoMap.get(airlineCode) ?? null;
+
+  return {
+    origin_iata: originIata,
+    origin_name: origin ? (getString(origin, "name") ?? "") : "",
+    destination_iata: destIata,
+    destination_name: destination ? (getString(destination, "name") ?? "") : "",
+    departure,
+    arrival,
+    duration_minutes: durationMin,
+    flight_number:
+      airlineCode && flightNumber ? `${airlineCode}${flightNumber}` : flightNumber,
+    airline_name: airlineName,
+    airline_code: airlineCode,
+    airline_logo_url: logoUrl,
+  };
+}
+
+/* -------------------------------------------------- */
+/* ------------- ITINERARY MAPPER ------------------- */
 /* -------------------------------------------------- */
 
 function mapItineraryToFlight(
@@ -304,7 +359,7 @@ function mapItineraryToFlight(
     `sky_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   const priceObj = getObject(it, "price");
-  const price = priceObj ? getNumber(priceObj, "raw") : 0;
+  const price = priceObj ? (getNumber(priceObj, "raw") ?? 0) : 0;
 
   const legs = getArray(it, "legs");
   if (!legs || legs.length === 0) return null;
@@ -317,81 +372,87 @@ function mapItineraryToFlight(
   const departure = getString(leg, "departure") ?? "";
   const arrival = getString(leg, "arrival") ?? "";
 
+  // Leg-level origin/destination
   const legOrigin = getObject(leg, "origin");
   const legDest = getObject(leg, "destination");
   const originIata = legOrigin
-    ? (getString(legOrigin, "displayCode") ?? getString(legOrigin, "id"))
-    : null;
+    ? (getString(legOrigin, "displayCode") ?? getString(legOrigin, "id") ?? "")
+    : "";
   const destIata = legDest
-    ? (getString(legDest, "displayCode") ?? getString(legDest, "id"))
-    : null;
-  const originName = legOrigin ? getString(legOrigin, "name") : null;
-  const destName = legDest ? getString(legDest, "name") : null;
+    ? (getString(legDest, "displayCode") ?? getString(legDest, "id") ?? "")
+    : "";
+  const originName = legOrigin ? (getString(legOrigin, "name") ?? "") : "";
+  const destName = legDest ? (getString(legDest, "name") ?? "") : "";
 
+  // Build logo map from leg-level carriers
+  const logoMap = buildCarrierLogoMap(leg);
+
+  // First marketing carrier (for top-level display)
   const carriers = getObject(leg, "carriers");
-  const marketing = carriers ? getArray(carriers, "marketing") : null;
+  const marketingArr = carriers ? getArray(carriers, "marketing") : null;
 
-  let airlineName: string | undefined;
-  let airlineCode: string | undefined;
-  let airlineLogoUrl: string | undefined;
+  let airlineName = "Aerolínea";
+  let airlineCode = "";
+  let airlineLogoUrl: string | null = null;
 
-  if (marketing && marketing.length > 0) {
-    const first = marketing[0];
+  if (marketingArr && marketingArr.length > 0) {
+    const first = marketingArr[0];
     if (isObject(first)) {
-      airlineName = getString(first, "name") ?? undefined;
-      airlineCode = getString(first, "alternateId") ?? undefined;
-      airlineLogoUrl = getString(first, "logoUrl") ?? undefined;
+      airlineName = getString(first, "name") ?? "Aerolínea";
+      airlineCode = getString(first, "alternateId") ?? "";
+      airlineLogoUrl = getString(first, "logoUrl") ?? null;
     }
   }
 
-  const segments = getArray(leg, "segments");
-  const stops: Array<{ airport: string; duration_minutes: number }> = [];
+  // ── Extract FULL segments ──
+  const rawSegments = getArray(leg, "segments");
+  const mappedSegments: SkySegmentData[] = [];
 
-  if (segments && segments.length > 1) {
-    for (let i = 0; i < segments.length - 1; i++) {
-      const seg = segments[i];
-      if (!isObject(seg)) continue;
-      const segDest = getObject(seg, "destination");
-      const stopCode = segDest
-        ? (getString(segDest, "displayCode") ?? getString(segDest, "id"))
-        : null;
-      stops.push({
-        airport: stopCode ?? `ST${i + 1}`,
-        duration_minutes: 60,
-      });
+  if (rawSegments) {
+    for (const seg of rawSegments) {
+      const mapped = mapSegment(seg, logoMap);
+      if (mapped) mappedSegments.push(mapped);
     }
   }
 
+  // ── Calculate REAL layovers between segments ──
+  const stops: StopData[] = [];
+
+  for (let i = 0; i < mappedSegments.length - 1; i++) {
+    const current = mappedSegments[i];
+    const next = mappedSegments[i + 1];
+
+    const arrTime = new Date(current.arrival).getTime();
+    const depTime = new Date(next.departure).getTime();
+
+    let layoverMinutes = 0;
+    if (
+      Number.isFinite(arrTime) &&
+      Number.isFinite(depTime) &&
+      depTime > arrTime
+    ) {
+      layoverMinutes = Math.round((depTime - arrTime) / 60000);
+    }
+
+    stops.push({
+      airport: current.destination_iata,
+      airport_name: current.destination_name,
+      duration_minutes: layoverMinutes,
+    });
+  }
+
+  // Flight number from first segment
   let flightNumber = "";
-  if (segments && segments.length > 0) {
-    const firstSeg = segments[0];
-    if (isObject(firstSeg)) {
-      const segCarrier = getObject(firstSeg, "marketingCarrier");
-      const fnRaw = segCarrier
-        ? getString(segCarrier, "flightNumber")
-        : null;
-      const codeRaw = segCarrier
-        ? getString(segCarrier, "alternateId")
-        : null;
-      if (codeRaw && fnRaw) {
-        flightNumber = `${codeRaw}${fnRaw}`;
-      } else if (airlineCode) {
-        const opCarrier = getObject(firstSeg, "operatingCarrier");
-        const opFn = opCarrier
-          ? getString(opCarrier, "flightNumber")
-          : null;
-        flightNumber = opFn ? `${airlineCode}${opFn}` : "";
-      }
-    }
+  if (mappedSegments.length > 0) {
+    flightNumber = mappedSegments[0].flight_number;
   }
-
   if (!flightNumber && airlineCode) {
     flightNumber = `${airlineCode}${100 + Math.floor(Math.random() * 900)}`;
   }
 
   return {
     id,
-    price: price ?? 0,
+    price,
     duration,
     provider: "sky-scrapper",
     offerSource: "external",
@@ -399,27 +460,23 @@ function mapItineraryToFlight(
     departure_datetime: departure,
     arrival_datetime: arrival,
     airline: {
-      iata_code: airlineCode ?? "",
-      name: airlineName ?? "Aerolínea",
-      logo_url: airlineLogoUrl ?? null,
+      iata_code: airlineCode,
+      name: airlineName,
+      logo_url: airlineLogoUrl,
     },
     airline_code: airlineCode,
-    origin_airport: {
-      iata_code: originIata ?? "",
-      name: originName ?? "",
-    },
-    destination_airport: {
-      iata_code: destIata ?? "",
-      name: destName ?? "",
-    },
-    origin_iata: originIata ?? "",
-    destination_iata: destIata ?? "",
+    origin_airport: { iata_code: originIata, name: originName },
+    destination_airport: { iata_code: destIata, name: destName },
+    origin_iata: originIata,
+    destination_iata: destIata,
     flight_number: flightNumber || "—",
     stops,
     stops_count: stopCount,
-    final_price: price ?? 0,
+    final_price: price,
     is_exclusive_offer: false,
     available_seats: 9,
+    // Pass typed segments for the mapper
+    sky_segments: mappedSegments,
   };
 }
 
@@ -427,17 +484,6 @@ function mapItineraryToFlight(
 /* -------- SINGLE LEG SEARCH (WITH TIMEOUT) -------- */
 /* -------------------------------------------------- */
 
-/**
- * Busca una sola pierna. Tiene timeout total de LEG_TIMEOUT_MS.
- * 
- * FLUJO:
- * 1. Resolver places en paralelo (auto-complete × 2)
- * 2. search-one-way → obtener datos iniciales
- * 3. Mapear itinerarios del paso 2 (YA TENEMOS RESULTADOS AQUÍ)
- * 4. OPCIONAL: intentar mejorar vía search-incomplete
- *    - Si mejora → usar datos mejorados
- *    - Si falla/timeout → devolver datos del paso 3
- */
 async function searchOneLeg(
   client: SkyScrapperClient,
   leg: { origin: string; destination: string; departure_date: string },
@@ -473,13 +519,11 @@ async function searchOneLegInternal(
   const date = String(leg.departure_date ?? "").trim();
   if (!date) return [];
 
-  // ── 1. Resolve places en paralelo ──
   const [fromEntityId, toEntityId] = await Promise.all([
     resolvePlaceId(client, leg.origin),
     resolvePlaceId(client, leg.destination),
   ]);
 
-  // ── 2. search-one-way (búsqueda inicial) ──
   const qs = new URLSearchParams({
     fromEntityId,
     toEntityId,
@@ -494,36 +538,20 @@ async function searchOneLegInternal(
     `/flights/search-one-way?${qs.toString()}`
   );
 
-  // ── 3. Extraer itinerarios AHORA (antes del polling) ──
   const initialItineraries = extractItineraries(initialJson);
-
   console.log(
     `[SkyScrapper] Leg ${legIndex}: search-one-way returned ${initialItineraries.length} itineraries`
   );
 
-  // Si search-one-way no trajo nada, el polling no va a ayudar
-  if (initialItineraries.length === 0) {
-    const { status } = extractContext(initialJson);
-    console.log(
-      `[SkyScrapper] Leg ${legIndex}: 0 itineraries, status="${status ?? "unknown"}". Nothing to improve.`
-    );
-    return [];
-  }
+  if (initialItineraries.length === 0) return [];
 
-  // ── 4. OPCIONAL: intentar mejorar vía polling ──
   let finalJson = initialJson;
   try {
     finalJson = await tryImproveResults(client, initialJson);
-  } catch (err: unknown) {
-    // Si el polling explota, usamos los datos iniciales
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[SkyScrapper] Leg ${legIndex}: polling failed, using initial data: ${msg}`
-    );
+  } catch {
     finalJson = initialJson;
   }
 
-  // ── 5. Mapear itinerarios finales ──
   const finalItineraries = extractItineraries(finalJson);
   const flights: Flight[] = [];
 
@@ -549,7 +577,6 @@ export const skyScrapperProvider: FlightsProvider = {
   async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
     const client = new SkyScrapperClient();
 
-    // Ejecutar legs en PARALELO
     const legPromises = req.legs.map((leg, legIndex) =>
       searchOneLeg(client, leg, legIndex, req.passengers ?? 1)
     );
