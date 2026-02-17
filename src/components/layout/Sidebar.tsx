@@ -10,7 +10,6 @@ import {
   Users, FileText, HelpCircle, DollarSign, Trophy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
-import { createClient } from '@/lib/supabase/client';
 
 interface SidebarLink {
   href: string;
@@ -42,12 +41,6 @@ export default function Sidebar({ links }: SidebarProps) {
       setIsLoggingOut(false);
     }
   };
-
-  async function handleLogout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    window.location.href = '/login';
-  }
 
   return (
     <aside

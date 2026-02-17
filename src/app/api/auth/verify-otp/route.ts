@@ -1,7 +1,7 @@
+// src/app/api/auth/verify-otp/route.ts
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
-// 1. Importamos el servicio
 import { auditService } from '@/services/audit.service';
 
 const supabaseAdmin = createClient(
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
     const now = new Date();
 
-    // 1) Buscar el código en la tabla
+    // 1) Buscar el código más reciente no usado
     const { data: otpRow, error: fetchErr } = await supabaseAdmin
       .from('auth_otps')
       .select('*')
@@ -53,8 +53,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) Validar fechas
+    // 2) Validar expiración
     if (new Date(otpRow.expires_at) < now) {
+      // 🔧 FIX: Marcar como usado para que no se pueda reintentar
+      await supabaseAdmin
+        .from('auth_otps')
+        .update({ used_at: now.toISOString() })
+        .eq('id', otpRow.id);
+
       return NextResponse.json({ error: 'Código expirado.' }, { status: 400 });
     }
 
@@ -66,49 +72,66 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) Marcar como verificado en DB
+    // 4) 🔧 FIX: Marcar como usado Y verificado (antes solo se marcaba verified_at)
     await supabaseAdmin
       .from('auth_otps')
-      .update({ used_at: now.toISOString(), verified_at: now.toISOString() })
+      .update({
+        verified_at: now.toISOString(),
+        used_at: now.toISOString(),
+      })
       .eq('id', otpRow.id);
 
-    // 5) Generar link de sesión con Supabase
+    // 5) Generar link de sesión con Supabase Admin
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const { data, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
       type: 'magiclink',
       email: normalizedEmail,
-      options: { redirectTo: '/dashboard' },
+      options: {
+        redirectTo: `${appUrl}/auth/callback?next=/`,
+      },
     });
 
     if (linkErr) throw linkErr;
 
-    // --- AUDITORÍA DE SEGURIDAD (Módulo 3) ---
-    // ✅ Aquí es el lugar correcto: Ya validamos todo, tenemos el usuario (data.user)
-    // y todavía no hemos devuelto la respuesta.
-    await auditService.log({
-      userId: data.user?.id, 
-      action: 'LOGIN',
-      entityType: 'auth',
-      details: {
-        method: 'OTP',
-        email: normalizedEmail,
-        ip: req.headers.get('x-forwarded-for') || 'unknown'
-      }
-    });
-    // ----------------------------------------
+    // --- AUDITORÍA DE SEGURIDAD ---
+    try {
+      await auditService.log({
+        userId: data.user?.id,
+        action: 'LOGIN',
+        entityType: 'auth',
+        details: {
+          method: 'OTP',
+          email: normalizedEmail,
+          ip: req.headers.get('x-forwarded-for') || 'unknown',
+        },
+      });
+    } catch (auditErr) {
+      // No bloquear el login si la auditoría falla
+      console.error('[verify-otp] Audit log failed:', auditErr);
+    }
 
+    // 🔧 FIX: Extraer session link de forma robusta
     const sessionLink =
       data?.properties?.action_link && typeof data.properties.action_link === 'string'
         ? data.properties.action_link
         : null;
+
+    if (!sessionLink) {
+      console.error('[verify-otp] No session link generated. data:', JSON.stringify(data));
+      return NextResponse.json(
+        { error: 'No se pudo generar el enlace de sesión.' },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json({
       ok: true,
       verified: true,
       sessionLink,
     });
-
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Error interno';
+    console.error('[verify-otp] Error:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

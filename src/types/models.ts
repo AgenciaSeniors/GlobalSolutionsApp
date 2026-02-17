@@ -381,4 +381,10 @@ export interface FlightOffer {
   segments: FlightSegment[];
   totalDuration: string;
   type: 'oneway' | 'roundtrip' | 'multicity';
+  // Filter-friendly fields (populated by mapper)
+  airline_code?: string;
+  stops_count?: number;
+  stops?: Array<{ airport: string; duration_minutes: number }>;
+  is_exclusive_offer?: boolean;
+  provider?: string;
 }

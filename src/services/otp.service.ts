@@ -7,7 +7,7 @@ export async function requestOtp(email: string) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error ?? 'No se pudo enviar el código.');
-  return data as { ok: true };
+  return data as { ok: true; verified?: boolean; sessionLink?: string | null };
 }
 
 export async function verifyOtp(email: string, code: string) {
@@ -19,7 +19,7 @@ export async function verifyOtp(email: string, code: string) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error ?? 'No se pudo verificar el código.');
-  return data as { ok: true };
+  return data as { ok: true; verified?: boolean; sessionLink?: string | null };
 }
 
 export async function completeRegister(email: string, fullName: string, password: string) {

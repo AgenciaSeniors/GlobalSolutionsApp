@@ -1,9 +1,9 @@
+// src/components/forms/LoginForm.tsx
 'use client';
 
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-// ✅ IMPORTACIÓN CORREGIDA: Incluimos ArrowLeft y Lock
 import { ArrowLeft, Lock, ShieldCheck } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -30,23 +30,44 @@ export default function LoginForm() {
       if (step === 'credentials') {
         const validation = loginSchema.safeParse(form);
         if (!validation.success) {
-          setServerError("Correo o contraseña inválidos");
-          setIsLoading(false);
+          setServerError('Correo o contraseña inválidos');
           return;
         }
-        await authService.signInStepOne(form.email, form.password);
-        setStep('otp'); 
-      } else {
-        const result = await authService.verifyLoginOtp(form.email, otpCode);
-        if (result.ok && result.sessionLink) {
-          // Redirección forzada para inyectar cookies
-          window.location.href = result.sessionLink;
-        } else {
-          setServerError('Error al verificar el código.');
+
+        const result = await authService.signInStepOne(form.email, form.password);
+
+        // 🔧 Si ya estaba autenticado o dispositivo confiable, ir al home público
+        if (
+          result.message === 'ALREADY_AUTHENTICATED' ||
+          result.message === 'SIGNED_IN_TRUSTED_DEVICE'
+        ) {
+          window.location.href = '/';
+          return;
         }
+
+        // OTP fue enviado — mostrar paso 2
+        setStep('otp');
+        return;
+      }
+
+      // ─── PASO 2: Verificar OTP ───
+      if (otpCode.trim().length !== 6) {
+        setServerError('Ingresa un código de 6 dígitos.');
+        return;
+      }
+
+      const result = await authService.verifyLoginOtp(form.email, otpCode.trim());
+
+      // 🔧 FIX PRINCIPAL: Navegar al sessionLink para establecer la sesión Supabase
+      // El sessionLink es un magic link que pasa por /auth/callback
+      // donde se hace exchangeCodeForSession y se setean las cookies
+      if (result.sessionLink) {
+        window.location.href = result.sessionLink;
+      } else {
+        // Fallback (no debería pasar con el fix en verify-otp)
+        setServerError('Error estableciendo sesión. Intenta de nuevo.');
       }
     } catch (err: unknown) {
-      // ✅ MANEJO DE ERROR SIN 'ANY'
       const message = err instanceof Error ? err.message : 'Error en la autenticación';
       setServerError(message);
     } finally {
@@ -76,7 +97,7 @@ export default function LoginForm() {
               type="email"
               placeholder="correo@ejemplo.com"
               value={form.email}
-              onChange={(e) => setForm({...form, email: e.target.value})}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
               required
             />
           </div>
@@ -87,7 +108,7 @@ export default function LoginForm() {
               type="password"
               placeholder="••••••••"
               value={form.password}
-              onChange={(e) => setForm({...form, password: e.target.value})}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
               required
             />
           </div>
@@ -104,28 +125,40 @@ export default function LoginForm() {
         </>
       ) : (
         <div className="space-y-4 animate-in slide-in-from-right-4">
-          <button 
-            type="button" 
-            onClick={() => setStep('credentials')} 
+          <button
+            type="button"
+            onClick={() => {
+              setStep('credentials');
+              setOtpCode('');
+              setServerError(null);
+            }}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-brand-600"
           >
-            <ArrowLeft className="h-3 w-3" /> {/* 👈 Aquí estaba el error */}
+            <ArrowLeft className="h-3 w-3" />
             Volver
           </button>
-          
+
           <div className="text-center bg-brand-50 rounded-xl p-4 border border-brand-100">
             <Lock className="h-5 w-5 text-brand-600 mx-auto mb-2" />
-            <p className="text-sm text-neutral-600">Código enviado a <b>{form.email}</b></p>
+            <p className="text-sm text-neutral-600">
+              Código enviado a <b>{form.email}</b>
+            </p>
           </div>
 
           <div className="space-y-1">
             <label className="text-sm font-medium text-neutral-700">Código de Verificación</label>
             <Input
               type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               placeholder="000000"
               maxLength={6}
               value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value)}
+              onChange={(e) => {
+                // Solo permitir dígitos
+                const value = e.target.value.replace(/\D/g, '');
+                setOtpCode(value);
+              }}
               required
               className="text-center text-2xl tracking-[0.4em] font-mono"
             />
@@ -138,9 +171,12 @@ export default function LoginForm() {
       </Button>
 
       <p className="text-center text-sm text-neutral-600">
-        ¿No tienes cuenta? <Link href={ROUTES.REGISTER} className="font-semibold text-brand-600 underline">Regístrate</Link>
+        ¿No tienes cuenta?{' '}
+        <Link href={ROUTES.REGISTER} className="font-semibold text-brand-600 underline">
+          Regístrate
+        </Link>
       </p>
-      
+
       <div className="flex items-center justify-center gap-1.5 pt-2 opacity-50">
         <ShieldCheck className="h-3.5 w-3.5" />
         <span className="text-[10px] uppercase tracking-widest font-bold">Secure Auth</span>

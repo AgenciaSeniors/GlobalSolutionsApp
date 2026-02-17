@@ -9,11 +9,22 @@ const nextConfig = {
     reactStrictMode: true,
 
     images: {
-        remotePatterns: [{
-            protocol: 'https',
-            hostname: '*.supabase.co',
-            pathname: '/storage/v1/object/public/**',
-        }, ],
+        remotePatterns: [
+            {
+                protocol: 'https',
+                hostname: '*.supabase.co',
+                pathname: '/storage/v1/object/public/**',
+            },
+            {
+                protocol: 'https',
+                hostname: 'logos.skyscnr.com',
+            },
+            {
+                protocol: 'https',
+                hostname: 'www.gstatic.com',
+                pathname: '/flights/**',
+            },
+        ],
     },
 
     async headers() {
@@ -31,14 +42,14 @@ const nextConfig = {
                         "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com",
                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                         "font-src 'self' https://fonts.gstatic.com",
-                        "img-src 'self' data: blob: https://*.supabase.co",
+                        "img-src 'self' data: blob: https://*.supabase.co https://logos.skyscnr.com https://www.gstatic.com",
                         "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
                         "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
                         "upgrade-insecure-requests",
                     ].join('; '),
                 },
             ],
-        }, ];
+        }];
     },
 };
 
