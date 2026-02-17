@@ -15,7 +15,11 @@ import type {
   ProviderSearchResponse,
 } from "./types";
 
-import { SkyScrapperClient } from "./skyScrapper.client";
+import {
+  SkyScrapperClient,
+  SkyScrapperHttpError,
+  SkyScrapperTimeoutError,
+} from "./skyScrapper.client";
 
 /* -------------------------------------------------- */
 /* ------------- TIMEOUT CONSTANTS ------------------- */
@@ -107,20 +111,7 @@ function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-function createTimeoutRace<T>(
-  ms: number,
-  label: string
-): { promise: Promise<T>; cleanup: () => void } {
-  let timer: ReturnType<typeof setTimeout>;
-  const promise = new Promise<T>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} exceeded ${ms}ms budget`)),
-      ms
-    );
-  });
-  const cleanup = () => clearTimeout(timer);
-  return { promise, cleanup };
-}
+
 
 function extractItineraries(json: JsonValue): JsonValue[] {
   const data = getObject(json, "data");
@@ -207,7 +198,8 @@ async function tryImproveResults(
       console.warn(
         `[SkyScrapper] search-incomplete poll failed (attempt ${attempt}): ${msg}`
       );
-      break;
+      // Best-effort: continue polling within budget.
+      continue;
     }
   }
 
@@ -637,6 +629,7 @@ async function searchOneLeg(
   leg: { origin: string; destination: string; departure_date: string },
   legIndex: number,
   passengers: number,
+  providerErrors: string[],
   externalSignal?: AbortSignal
 ): Promise<Flight[]> {
   const legController = new AbortController();
@@ -653,6 +646,12 @@ async function searchOneLeg(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[SkyScrapper] Leg ${legIndex} failed/timeout: ${msg}`);
+
+    // For circuit breaker: track hard provider failures (timeouts / HTTP errors)
+    if (err instanceof SkyScrapperTimeoutError) providerErrors.push(`timeout:${legIndex}`);
+    else if (err instanceof SkyScrapperHttpError) providerErrors.push(`http:${legIndex}`);
+    else providerErrors.push(`error:${legIndex}`);
+
     return [];
   } finally {
     clearTimeout(timer);
@@ -705,8 +704,8 @@ async function searchOneLegInternal(
     `[SkyScrapper] Leg ${legIndex}: search-one-way returned ${initialItineraries.length} itineraries`
   );
 
-  if (initialItineraries.length === 0) return [];
-
+  // Even if the first response has 0 itineraries, polling may complete later.
+  // (This avoids false "no results" when provider is slow.)
   let finalJson = initialJson;
   try {
     finalJson = await tryImproveResults(client, initialJson, signal);
@@ -739,11 +738,19 @@ export const skyScrapperProvider: FlightsProvider = {
   async search(req: ProviderSearchRequest, opts?: { signal?: AbortSignal }): Promise<ProviderSearchResponse> {
     const client = new SkyScrapperClient();
 
+    const providerErrors: string[] = [];
+
     const legPromises = req.legs.map((leg, legIndex) =>
-      searchOneLeg(client, leg, legIndex, req.passengers ?? 1, opts?.signal)
+      searchOneLeg(client, leg, legIndex, req.passengers ?? 1, providerErrors, opts?.signal)
     );
 
     const legResults = await Promise.all(legPromises);
+
+    // If everything failed due to provider errors, surface it so the circuit breaker can trip.
+    const total = legResults.reduce((sum, flights) => sum + flights.length, 0);
+    if (total === 0 && providerErrors.length >= Math.max(1, req.legs.length)) {
+      throw new Error(`SkyScrapper failed all legs (${providerErrors.join(",")})`);
+    }
 
     return legResults.map((flights, legIndex) => ({
       legIndex,

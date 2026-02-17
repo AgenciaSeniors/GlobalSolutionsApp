@@ -3,6 +3,17 @@ import type { FlightLeg, FlightSearchParams, FlightSearchFilters } from '@/types
 
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightWithDetails[] }>;
 
+type SessionStatus = 'pending' | 'refreshing' | 'running' | 'complete' | 'failed';
+
+type SearchSessionResponse = {
+  sessionId?: string;
+  status?: SessionStatus;
+  source?: string;
+  results?: ResultsByLeg;
+  providersUsed?: string[];
+  error?: string;
+};
+
 // Helper interface for the legacy search params structure
 interface LegacySearchParams {
   origin?: string;
@@ -82,51 +93,106 @@ function buildSearchBody(
  */
 export const flightsService = {
   /**
-   * Buscar vuelos (compatibilidad UI actual): devuelve SOLO el tramo 0
+   * C1.1
+   * Inicia una búsqueda y devuelve un sessionId (y resultados cacheados opcionales).
    */
-  async search(params: FlightSearchParams): Promise<FlightWithDetails[]> {
+  async startSearchSession(params: FlightSearchParams, opts?: { signal?: AbortSignal }): Promise<SearchSessionResponse> {
     const body = buildSearchBody(params);
 
     const res = await fetch('/api/flights/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: opts?.signal,
     });
 
-    const json = await res.json();
-
+    const json = (await res.json()) as SearchSessionResponse;
     if (!res.ok) {
-      throw new Error(json?.error ?? 'Error buscando vuelos');
+      throw new Error((json as unknown as { error?: string })?.error ?? 'Error buscando vuelos');
     }
 
-    // Backend nuevo: results por leg
-    if (Array.isArray(json?.results) && json.results.length && json.results[0]?.flights) {
-      return (json.results[0].flights ?? []) as FlightWithDetails[];
+    return json;
+  },
+
+  /**
+   * C1.1
+   * Obtiene el estado/resultados de una sesión.
+   */
+  async getSearchSession(sessionId: string, opts?: { signal?: AbortSignal }): Promise<SearchSessionResponse> {
+    const res = await fetch(`/api/flights/search/${encodeURIComponent(sessionId)}`, {
+      method: 'GET',
+      signal: opts?.signal,
+    });
+
+    const json = (await res.json()) as SearchSessionResponse;
+    if (!res.ok) {
+      throw new Error((json as unknown as { error?: string })?.error ?? 'Error buscando vuelos');
     }
 
-    // Fallback (por si un entorno devuelve array plano)
-    return (json.results ?? []) as FlightWithDetails[];
+    return json;
+  },
+
+  /**
+   * C1.1
+   * Polling helper: espera hasta completar (o fallar).
+   */
+  async pollSearchSession(
+    sessionId: string,
+    opts?: { signal?: AbortSignal; maxWaitMs?: number; intervalMs?: number }
+  ): Promise<SearchSessionResponse> {
+    const maxWaitMs = opts?.maxWaitMs ?? 45_000;
+    const intervalMs = opts?.intervalMs ?? 1_000;
+    const t0 = Date.now();
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (opts?.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
+      const snapshot = await flightsService.getSearchSession(sessionId, { signal: opts?.signal });
+      const status = snapshot.status;
+
+      if (status === 'complete') return snapshot;
+      if (status === 'failed') {
+        throw new Error(snapshot.error ?? 'Error buscando vuelos');
+      }
+
+      if (Date.now() - t0 > maxWaitMs) {
+        throw new Error('La búsqueda tardó demasiado. Intente nuevamente.');
+      }
+
+      await sleep(intervalMs, opts?.signal);
+    }
+  },
+
+  /**
+   * Buscar vuelos (compatibilidad UI actual): devuelve SOLO el tramo 0
+   */
+  async search(params: FlightSearchParams): Promise<FlightWithDetails[]> {
+    const started = await flightsService.startSearchSession(params);
+    const sessionId = started.sessionId;
+    if (!sessionId) {
+      // Legacy fallback (shouldn't happen)
+      const r0 = Array.isArray(started.results) && started.results[0]?.flights ? started.results[0].flights : [];
+      return (r0 ?? []) as FlightWithDetails[];
+    }
+
+    const final = started.status === 'complete' ? started : await flightsService.pollSearchSession(sessionId);
+    const r0 = Array.isArray(final.results) && final.results[0]?.flights ? final.results[0].flights : [];
+    return (r0 ?? []) as FlightWithDetails[];
   },
 
   /**
    * Buscar itinerario multi-leg (para UI multi-tramo)
    */
   async searchItinerary(params: FlightSearchParams): Promise<ResultsByLeg> {
-    const body = buildSearchBody(params);
+    const started = await flightsService.startSearchSession(params);
+    const sessionId = started.sessionId;
+    if (!sessionId) return (started.results ?? []) as ResultsByLeg;
 
-    const res = await fetch('/api/flights/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    const json = await res.json();
-
-    if (!res.ok) {
-      throw new Error(json?.error ?? 'Error buscando vuelos');
-    }
-
-    return (json.results ?? []) as ResultsByLeg;
+    const final = started.status === 'complete' ? started : await flightsService.pollSearchSession(sessionId);
+    return (final.results ?? []) as ResultsByLeg;
   },
 
   async getExclusiveOffers(): Promise<FlightWithDetails[]> {
@@ -145,3 +211,27 @@ export const flightsService = {
     return (json.data ?? null) as FlightWithDetails | null;
   },
 };
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    if (signal) {
+      if (signal.aborted) return onAbort();
+      signal.addEventListener('abort', onAbort, { once: true });
+      // Cleanup listener once resolved
+      const cleanup = () => {
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {
+          // ignore
+        }
+      };
+      // Resolve cleanup
+      setTimeout(cleanup, ms + 5);
+    }
+  });
+}

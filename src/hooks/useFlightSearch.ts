@@ -75,12 +75,38 @@ export function useFlightSearch(initialParams?: FlightSearchParams | null): UseF
     setError(null);
 
     try {
-      const data = await flightsService.search(params);
+      // C1.1: start session (may return cached results immediately)
+      const started = await flightsService.startSearchSession(params, { signal: controller.signal });
 
-      // If this request was aborted while in flight, discard
       if (controller.signal.aborted) return;
 
-      setResults(Array.isArray(data) ? data : []);
+      const initialFlights =
+        Array.isArray(started?.results) && started.results.length && started.results[0]?.flights
+          ? (started.results[0].flights ?? [])
+          : [];
+
+      setResults(Array.isArray(initialFlights) ? (initialFlights as FlightWithDetails[]) : []);
+
+      const sessionId = started?.sessionId;
+      const status = started?.status;
+
+      // If not complete, poll until completion (keeps SWR behavior)
+      if (sessionId && status && status !== 'complete') {
+        const final = await flightsService.pollSearchSession(sessionId, {
+          signal: controller.signal,
+          maxWaitMs: 45_000,
+          intervalMs: 1_000,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const finalFlights =
+          Array.isArray(final?.results) && final.results.length && final.results[0]?.flights
+            ? (final.results[0].flights ?? [])
+            : [];
+
+        setResults(Array.isArray(finalFlights) ? (finalFlights as FlightWithDetails[]) : []);
+      }
     } catch (e: unknown) {
       if (controller.signal.aborted) return;
 

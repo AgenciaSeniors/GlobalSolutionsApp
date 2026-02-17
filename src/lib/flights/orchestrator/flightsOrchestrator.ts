@@ -14,6 +14,11 @@ import type {
 
 import { agencyInventoryProvider } from "@/lib/flights/providers/agencyInventoryProvider";
 import { skyScrapperProvider } from "@/lib/flights/providers/skyScrapperProvider";
+import {
+  isCircuitOpen,
+  recordProviderFailure,
+  recordProviderSuccess,
+} from "@/lib/flights/orchestrator/providerCircuitBreaker";
 
 const TARGET_RESULTS_PER_LEG = 20;
 const EXTERNAL_TIMEOUT_MS = 40_000;
@@ -150,7 +155,10 @@ function totalFlights(res: ProviderSearchResponse): number {
 export const flightsOrchestrator = {
   id: "agency-first-orchestrator",
 
-  async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
+  async search(
+    req: ProviderSearchRequest,
+    opts?: { signal?: AbortSignal; allowExternal?: boolean }
+  ): Promise<ProviderSearchResponse> {
     const t0 = Date.now();
 
     // 1. Agency (DB, fast)
@@ -172,16 +180,51 @@ export const flightsOrchestrator = {
     // 3. SkyScrapper (real flights only — no stub fallback)
     let externalRes: ProviderSearchResponse = [];
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), EXTERNAL_TIMEOUT_MS);
-      try {
-        externalRes = await skyScrapperProvider.search(req, { signal: controller.signal });
-      } finally {
-        clearTimeout(timer);
+      const allowExternal = opts?.allowExternal !== false;
+      if (!allowExternal) {
+        console.log("[Orchestrator] External disabled by options");
+      } else {
+        const breaker = await isCircuitOpen("sky-scrapper");
+        if (breaker.open) {
+          console.warn(
+            `[Orchestrator] SkyScrapper circuit OPEN until ${breaker.openUntil ?? "?"} — skipping external`
+          );
+        } else {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), EXTERNAL_TIMEOUT_MS);
+
+          const onAbort = () => controller.abort();
+          if (opts?.signal) {
+            if (opts.signal.aborted) controller.abort();
+            else opts.signal.addEventListener("abort", onAbort, { once: true });
+          }
+
+          try {
+            externalRes = await skyScrapperProvider.search(req, {
+              signal: controller.signal,
+            });
+            await recordProviderSuccess("sky-scrapper");
+          } finally {
+            clearTimeout(timer);
+            if (opts?.signal) {
+              try {
+                opts.signal.removeEventListener("abort", onAbort);
+              } catch {
+                // ignore
+              }
+            }
+          }
+        }
       }
-      console.log(`[Orchestrator] SkyScrapper completed in ${Date.now() - t0}ms (${totalFlights(externalRes)} flights)`);
+
+      console.log(
+        `[Orchestrator] SkyScrapper completed in ${Date.now() - t0}ms (${totalFlights(externalRes)} flights)`
+      );
     } catch (err: unknown) {
-      console.warn(`[Orchestrator] SkyScrapper failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(
+        `[Orchestrator] SkyScrapper failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+      await recordProviderFailure("sky-scrapper");
     }
 
     const externalByLeg = mapByLegIndex(externalRes);
