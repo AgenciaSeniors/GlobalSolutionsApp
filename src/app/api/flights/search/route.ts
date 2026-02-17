@@ -12,7 +12,9 @@
  */
 
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
 import type { FlightLeg, FlightSearchFilters, FlightSearchParams } from "@/types/api.types";
 
 const CACHE_TTL_MINUTES = 15;
@@ -41,6 +43,39 @@ function isValidDateYYYYMMDD(x: string): boolean {
 
 function isValidHHMM(x: string): boolean {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
+}
+
+function getClientIp(req: Request): string {
+  const candidates = [
+    req.headers.get("x-real-ip"),
+    req.headers.get("x-vercel-forwarded-for"),
+    req.headers.get("cf-connecting-ip"),
+    req.headers.get("x-forwarded-for"),
+  ].filter(Boolean) as string[];
+
+  const raw = candidates[0] ?? "";
+  if (!raw) return "0.0.0.0";
+  return raw.split(",")[0]?.trim() || "0.0.0.0";
+}
+
+function makeRateLimitKey(ip: string, userAgent: string): string {
+  const secret =
+    process.env.RATE_LIMIT_HMAC_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    "dev-rate-limit-secret";
+
+  const fp = crypto.createHmac("sha256", secret).update(`${ip}|${userAgent}`).digest("hex").slice(0, 40);
+  return `anon:${fp}`;
+}
+
+async function getAuthenticatedUserId(): Promise<string | null> {
+  try {
+    const sb = await createSupabaseServerClient();
+    const { data } = await sb.auth.getUser();
+    return data.user?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeFilters(raw: unknown): FlightSearchFilters | undefined {
@@ -172,35 +207,45 @@ export async function POST(req: Request) {
   const supabase = createAdminClient();
 
   try {
-    // 1) RATE LIMIT
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
+    // 1) RATE LIMIT (C1.3)
     const now = new Date();
     const nowIso = now.toISOString();
+
+    const userAgent = req.headers.get("user-agent") || "";
+    const ip = getClientIp(req);
+    const userId = await getAuthenticatedUserId();
+
+    // Authenticated users: rate limit by user id.
+    // Anonymous: rate limit by HMAC(ip|userAgent) to reduce spoofing.
+    const rlKey = userId ? `user:${userId}` : makeRateLimitKey(ip, userAgent);
+
+    const maxPerWindow = userId ? 10 : 5; // slightly higher for authenticated users
+    const windowMs = 30_000;
 
     const { data: rlData } = await supabase
       .from("search_rate_limits")
       .select("ip_address,last_search_at,search_count")
-      .eq("ip_address", ip)
+      .eq("ip_address", rlKey)
       .maybeSingle();
 
     const rl = rlData as unknown;
     if (isRecord(rl) && isNonEmptyString(rl.last_search_at) && typeof rl.search_count === "number") {
       const diffMs = now.getTime() - new Date(rl.last_search_at).getTime();
 
-      if (rl.search_count >= 5 && diffMs < 30_000) {
+      if (rl.search_count >= maxPerWindow && diffMs < windowMs) {
         return NextResponse.json({ error: "Demasiadas búsquedas. Intente de nuevo en breve." }, { status: 429 });
       }
 
-      const newCount = diffMs > 30_000 ? 1 : rl.search_count + 1;
+      const newCount = diffMs > windowMs ? 1 : rl.search_count + 1;
 
       await supabase
         .from("search_rate_limits")
         .update({ last_search_at: nowIso, search_count: newCount })
-        .eq("ip_address", ip);
+        .eq("ip_address", rlKey);
     } else {
       await supabase
         .from("search_rate_limits")
-        .upsert({ ip_address: ip, last_search_at: nowIso, search_count: 1 }, { onConflict: "ip_address" });
+        .upsert({ ip_address: rlKey, last_search_at: nowIso, search_count: 1 }, { onConflict: "ip_address" });
     }
 
     // 2) Parse + normalize
@@ -215,7 +260,7 @@ export async function POST(req: Request) {
     // 3) Cache read (valid only within total TTL)
     const { data: cached } = await supabase
       .from("flight_search_cache")
-      .select("response, expires_at, created_at")
+      .select("response, expires_at, fresh_until, created_at")
       .eq("cache_key", cache_key)
       .gt("expires_at", nowIso)
       .maybeSingle();
@@ -228,12 +273,7 @@ export async function POST(req: Request) {
     if (cached?.response) {
       const expiresAt = safeParseDateIso(cached.expires_at);
       if (expiresAt && expiresAt.getTime() > now.getTime()) {
-        const createdAt =
-          safeParseDateIso((cached as unknown as Record<string, unknown>).created_at) ??
-          new Date(expiresAt.getTime() - CACHE_TTL_MINUTES * 60 * 1000);
-
-        const ageMs = now.getTime() - createdAt.getTime();
-
+        const freshUntil = safeParseDateIso((cached as unknown as Record<string, unknown>).fresh_until);
         const cachedResults: ResultsByLeg = Array.isArray(cached.response)
           ? (cached.response as unknown[])
               .filter(isRecord)
@@ -248,15 +288,17 @@ export async function POST(req: Request) {
         initialResults = cachedResults;
         providersUsed = extractProvidersUsed(cachedResults);
 
-        if (ageMs <= FRESH_MS) {
+        const createdAt =
+          safeParseDateIso((cached as unknown as Record<string, unknown>).created_at) ??
+          new Date(expiresAt.getTime() - CACHE_TTL_MINUTES * 60 * 1000);
+        const ageMs = now.getTime() - createdAt.getTime();
+
+        if ((freshUntil && freshUntil.getTime() > now.getTime()) || ageMs <= FRESH_MS) {
           status = "complete";
           source = "cache";
-        } else if (ageMs <= FRESH_MS + STALE_MS) {
+        } else {
           status = "refreshing";
           source = "stale-cache";
-        } else {
-          initialResults = null;
-          providersUsed = [];
         }
       }
     }

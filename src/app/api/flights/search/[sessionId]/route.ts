@@ -13,6 +13,7 @@ import { flightsOrchestrator } from "@/lib/flights/orchestrator/flightsOrchestra
 import type { FlightLeg, FlightSearchFilters } from "@/types/api.types";
 
 const CACHE_TTL_MINUTES = 15;
+const CACHE_CONTROL_RESULTS = "public, s-maxage=300, stale-while-revalidate=600";
 
 type FlightRecord = Record<string, unknown>;
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
@@ -97,13 +98,17 @@ export async function GET(_req: Request, ctx: { params: { sessionId: string } })
       .maybeSingle();
 
     if (sessionErr || !sessionData) {
-      return NextResponse.json({ error: "Sesión no encontrada." }, { status: 404 });
+      const res = NextResponse.json({ error: "Sesión no encontrada." }, { status: 404 });
+      res.headers.set("Cache-Control", "no-store");
+      return res;
     }
 
     const session = sessionData as unknown as SessionRow;
     const expiresAt = safeParseDateIso(session.expires_at);
     if (expiresAt && expiresAt.toISOString() <= nowIso) {
-      return NextResponse.json({ error: "Sesión expirada." }, { status: 410 });
+      const res = NextResponse.json({ error: "Sesión expirada." }, { status: 410 });
+      res.headers.set("Cache-Control", "no-store");
+      return res;
     }
 
     // If already finished, return immediately
@@ -118,7 +123,10 @@ export async function GET(_req: Request, ctx: { params: { sessionId: string } })
       };
       if (session.error) payload.error = session.error;
       const res = NextResponse.json(payload);
-      res.headers.set("Cache-Control", "no-store");
+      res.headers.set(
+        "Cache-Control",
+        session.status === "complete" ? CACHE_CONTROL_RESULTS : "no-store"
+      );
       return res;
     }
 
@@ -150,7 +158,10 @@ export async function GET(_req: Request, ctx: { params: { sessionId: string } })
       };
       if (session.error) payload.error = session.error;
       const res = NextResponse.json(payload);
-      res.headers.set("Cache-Control", "no-store");
+      res.headers.set(
+        "Cache-Control",
+        session.status === "complete" ? CACHE_CONTROL_RESULTS : "no-store"
+      );
       return res;
     }
 
@@ -162,7 +173,9 @@ export async function GET(_req: Request, ctx: { params: { sessionId: string } })
         .update({ status: "failed", error: "Sesión inválida.", updated_at: nowIso, worker_heartbeat: nowIso })
         .eq("session_id", sessionId);
 
-      return NextResponse.json({ sessionId, status: "failed", error: "Sesión inválida." }, { status: 400 });
+      const res = NextResponse.json({ sessionId, status: "failed", error: "Sesión inválida." }, { status: 400 });
+      res.headers.set("Cache-Control", "no-store");
+      return res;
     }
 
     try {
@@ -184,7 +197,9 @@ export async function GET(_req: Request, ctx: { params: { sessionId: string } })
               cache_key: session.cache_key,
               response: results,
               created_at: nowIso,
+              fresh_until: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
               expires_at: cacheExpires,
+              route_keys: makeRouteKeys(session.request),
             },
             { onConflict: "cache_key" }
           );
@@ -210,7 +225,7 @@ export async function GET(_req: Request, ctx: { params: { sessionId: string } })
         providersUsed,
         results,
       });
-      res.headers.set("Cache-Control", "no-store");
+      res.headers.set("Cache-Control", CACHE_CONTROL_RESULTS);
       return res;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e ?? "Error buscando vuelos");
@@ -240,6 +255,8 @@ export async function GET(_req: Request, ctx: { params: { sessionId: string } })
   } catch (err: unknown) {
     console.error("[FLIGHT_SEARCH_SESSION_ERROR]", err);
     const msg = err instanceof Error ? err.message : String(err ?? "Internal server error");
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const res = NextResponse.json({ error: msg }, { status: 500 });
+    res.headers.set("Cache-Control", "no-store");
+    return res;
   }
 }
