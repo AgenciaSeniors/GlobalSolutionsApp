@@ -274,6 +274,75 @@ export function bookingCancelledEmail(data: BookingCancelledData): string {
 }
 
 /* ================================================================== */
+/*  TEMPLATE: Refund Processed                                        */
+/* ================================================================== */
+
+export interface RefundEmailData {
+  clientName: string;
+  bookingCode: string;
+  refundAmount: string;     // Ej: "$120.00"
+  reason?: string;          // Ej: "customer_request" | "flight_cancelled"
+  processedAt?: string;     // Ej: "17 feb 2026, 14:30"
+}
+
+export function refundEmail(data: RefundEmailData): string {
+  const reasonText =
+    data.reason === 'flight_cancelled'
+      ? 'Vuelo cancelado por la aerolínea'
+      : data.reason === 'customer_request'
+        ? 'Solicitud del cliente'
+        : (data.reason ?? '—');
+
+  const processedAt =
+    data.processedAt ??
+    new Date().toLocaleString('es-ES', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+
+  return baseLayout(`
+    <div style="background:linear-gradient(135deg,#059669,#047857);padding:32px 24px;text-align:center;">
+      <p style="margin:0;font-size:40px;">💸</p>
+      <h2 style="margin:8px 0;color:#ffffff;font-size:22px;">Reembolso procesado</h2>
+      <p style="margin:0;color:rgba(255,255,255,0.85);font-size:14px;">Tu devolución fue registrada correctamente</p>
+    </div>
+
+    <div style="padding:24px;">
+      <p style="margin:0 0 16px;color:#334155;font-size:15px;">Hola <strong>${data.clientName}</strong>,</p>
+      <p style="margin:0 0 18px;color:#64748b;font-size:14px;line-height:1.6;">
+        Te confirmamos que hemos procesado el reembolso de tu reserva <strong>${data.bookingCode}</strong>.
+      </p>
+
+      <div style="background:#f8fafc;border-radius:12px;padding:16px;margin:0 0 18px;">
+        <table style="width:100%;border-collapse:collapse;">
+          ${infoRow('Reserva', data.bookingCode)}
+          ${infoRow('Monto reembolsado', data.refundAmount)}
+          ${infoRow('Motivo', reasonText)}
+          ${infoRow('Procesado el', processedAt)}
+        </table>
+      </div>
+
+      <div style="margin:0 0 18px;padding:14px;background:#ecfdf5;border-radius:10px;border:1px solid #bbf7d0;">
+        <p style="margin:0;color:#065f46;font-size:13px;line-height:1.5;">
+          ⏳ <strong>Importante:</strong> dependiendo de tu banco o tarjeta, el reembolso puede reflejarse en 5–10 días hábiles.
+        </p>
+      </div>
+
+      ${button('Ver Mis Reservas', `${APP_URL}/user/dashboard/bookings`)}
+
+      <p style="margin:18px 0 0;color:#94a3b8;font-size:12px;text-align:center;">
+        Si tienes dudas, responde este correo y te ayudamos.
+      </p>
+    </div>
+  `);
+}
+
+
+/* ================================================================== */
 /*  TEMPLATE: Review Request (after completed trip)                   */
 /* ================================================================== */
 

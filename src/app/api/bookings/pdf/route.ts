@@ -1,188 +1,141 @@
-/**
- * @fileoverview Endpoint seguro de generación de PDF para vouchers de reserva.
- * Cumple con spec §6.2: Genera PDF oficial con validación estricta de propiedad.
- * FASE 2: Seguridad IDOR implementada (Auth + Ownership Check).
- */
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import React from 'react';
+import { pdf } from '@react-pdf/renderer';
+import { Buffer } from 'buffer';
+import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { BookingVoucherDocument, type VoucherBooking } from '@/lib/pdf/bookingVoucher';
 
-// Cliente Admin (Service Role) - Solo para leer datos completos tras verificar permisos
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+export const runtime = 'nodejs';
 
-/**
- * Genera el HTML estructurado para el PDF.
- */
-function generateVoucherHTML(booking: Record<string, unknown>): string {
-  const flight = booking.flight as Record<string, unknown> | null;
-  const passengers = booking.passengers as Array<Record<string, unknown>> || [];
-  const profile = booking.profile as Record<string, unknown> | null;
-  const airline = flight?.airline as Record<string, unknown> | null;
-  const origin = flight?.origin_airport as Record<string, unknown> | null;
-  const destination = flight?.destination_airport as Record<string, unknown> | null;
-
-  const passengersRows = passengers.map((p, i) => `
-    <tr>
-      <td style="padding:8px;border:1px solid #e5e7eb;">${i + 1}</td>
-      <td style="padding:8px;border:1px solid #e5e7eb;">${p.first_name} ${p.last_name}</td>
-      <td style="padding:8px;border:1px solid #e5e7eb;font-family:monospace;">${p.ticket_number || 'Pendiente'}</td>
-      <td style="padding:8px;border:1px solid #e5e7eb;">${p.nationality}</td>
-    </tr>
-  `).join('');
-
-  return `
-<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>Voucher ${booking.booking_code}</title></head>
-<body style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:40px;color:#1a1a2e;">
-  <div style="text-align:center;border-bottom:3px solid #1e3a8a;padding-bottom:20px;margin-bottom:30px;">
-    <h1 style="color:#1e3a8a;margin:0;font-size:28px;">✈️ GLOBAL SOLUTIONS TRAVEL</h1>
-    <p style="color:#6b7280;margin:5px 0 0;">Confirmación de Reserva / E-Ticket Voucher</p>
-  </div>
-
-  <div style="display:flex;justify-content:space-between;margin-bottom:20px;">
-    <div>
-      <p style="margin:2px 0;"><strong>Código de Reserva (Interno):</strong></p>
-      <p style="font-size:24px;font-family:monospace;color:#1e3a8a;margin:0;">${booking.booking_code}</p>
-    </div>
-    <div style="text-align:right;">
-      <p style="margin:2px 0;"><strong>PNR Aerolínea:</strong></p>
-      <p style="font-size:24px;font-family:monospace;color:#059669;margin:0;">${booking.airline_pnr || 'PENDIENTE'}</p>
-    </div>
-  </div>
-
-  <div style="background:#f0f9ff;border-radius:8px;padding:15px;margin-bottom:20px;">
-    <p style="margin:4px 0;"><strong>Cliente:</strong> ${profile?.full_name || 'N/A'}</p>
-    <p style="margin:4px 0;"><strong>Email:</strong> ${profile?.email || 'N/A'}</p>
-    <p style="margin:4px 0;"><strong>Fecha de Emisión:</strong> ${new Date().toLocaleDateString('es', { day:'numeric', month:'long', year:'numeric' })}</p>
-    <p style="margin:4px 0;"><strong>Estado:</strong> ${booking.booking_status === 'confirmed' ? '✅ EMITIDO' : '⏳ PROCESANDO'}</p>
-  </div>
-
-  <h2 style="color:#1e3a8a;border-bottom:1px solid #e5e7eb;padding-bottom:8px;">Detalle del Vuelo</h2>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-    <tr>
-      <td style="padding:8px;width:50%;"><strong>Aerolínea:</strong><br/>${airline?.name || 'N/A'} (${airline?.iata_code || ''})</td>
-      <td style="padding:8px;"><strong>Número de Vuelo:</strong><br/>${flight?.flight_number || 'N/A'}</td>
-    </tr>
-    <tr>
-      <td style="padding:8px;"><strong>Origen:</strong><br/>${origin?.city || ''} (${origin?.iata_code || ''}) — ${origin?.name || ''}</td>
-      <td style="padding:8px;"><strong>Destino:</strong><br/>${destination?.city || ''} (${destination?.iata_code || ''}) — ${destination?.name || ''}</td>
-    </tr>
-    <tr>
-      <td style="padding:8px;"><strong>Salida:</strong><br/>${flight?.departure_datetime ? new Date(flight.departure_datetime as string).toLocaleString('es') : 'N/A'}</td>
-      <td style="padding:8px;"><strong>Llegada:</strong><br/>${flight?.arrival_datetime ? new Date(flight.arrival_datetime as string).toLocaleString('es') : 'N/A'}</td>
-    </tr>
-    <tr>
-      <td style="padding:8px;"><strong>Tipo de Aeronave:</strong><br/>${flight?.aircraft_type || 'Por confirmar'}</td>
-      <td style="padding:8px;"><strong>Equipaje:</strong><br/>Consultar política de ${airline?.name || 'la aerolínea'}</td>
-    </tr>
-  </table>
-
-  <h2 style="color:#1e3a8a;border-bottom:1px solid #e5e7eb;padding-bottom:8px;">Pasajeros</h2>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-    <thead>
-      <tr style="background:#f8fafc;">
-        <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">#</th>
-        <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Nombre Completo</th>
-        <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Nº Ticket</th>
-        <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Nacionalidad</th>
-      </tr>
-    </thead>
-    <tbody>${passengersRows}</tbody>
-  </table>
-
-  <h2 style="color:#1e3a8a;border-bottom:1px solid #e5e7eb;padding-bottom:8px;">Resumen de Pago</h2>
-  <table style="width:100%;margin-bottom:20px;">
-    <tr><td style="padding:4px;">Subtotal (vuelo × ${passengers.length} pasajeros):</td><td style="text-align:right;">$${(booking.subtotal as number)?.toFixed(2)}</td></tr>
-    <tr><td style="padding:4px;">Comisión pasarela (${booking.payment_method}):</td><td style="text-align:right;">$${(booking.payment_gateway_fee as number)?.toFixed(2)}</td></tr>
-    <tr style="font-size:18px;font-weight:bold;border-top:2px solid #1e3a8a;">
-      <td style="padding:8px 4px;">TOTAL PAGADO:</td>
-      <td style="text-align:right;color:#059669;padding:8px 4px;">$${(booking.total_amount as number)?.toFixed(2)}</td>
-    </tr>
-  </table>
-
-  <div style="border-top:2px solid #1e3a8a;padding-top:15px;margin-top:30px;text-align:center;color:#6b7280;font-size:12px;">
-    <p><strong>Global Solutions Travel</strong> — Tu viaje, nuestra pasión</p>
-    <p>Este documento es tu comprobante de reserva. Preséntalo junto con tu pasaporte al momento del check-in.</p>
-    <p>Generado automáticamente el ${new Date().toLocaleString('es')}</p>
-  </div>
-</body>
-</html>
-  `;
+function isUuid(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
 export async function GET(request: NextRequest) {
-  const bookingId = request.nextUrl.searchParams.get('id');
-  if (!bookingId) {
-    return NextResponse.json({ error: 'Falta el ID de reserva' }, { status: 400 });
-  }
+  try {
+    // Back-compat: accept ?id= OR ?booking_id=
+    const { searchParams } = new URL(request.url);
+    const bookingId = searchParams.get('booking_id') ?? searchParams.get('id');
 
-  // 1. SEGURIDAD: Verificar sesión del usuario real
-  const cookieStore = cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll() },
-        // SOLUCIÓN: Agregamos el tipo y usamos void para evitar el warning de variable no usada
-        setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) { 
-          void cookiesToSet; 
-        }
-      }
+    if (!bookingId) {
+      return NextResponse.json({ error: 'Falta el ID de reserva' }, { status: 400 });
     }
-  );
+    if (!isUuid(bookingId)) {
+      return NextResponse.json({ error: 'Invalid booking id format' }, { status: 400 });
+    }
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // 1) Auth required
+    const supabase = await createClient();
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const user = authData?.user;
 
-  if (authError || !user) {
-    return NextResponse.json({ error: 'No autorizado. Inicia sesión.' }, { status: 401 });
+    if (authError || !user) {
+      return NextResponse.json({ error: 'No autorizado. Inicia sesión.' }, { status: 401 });
+    }
+
+    // 2) Admin client for complex relations (RLS bypass). We MUST check permissions ourselves.
+    const supabaseAdmin = createAdminClient();
+
+    // Optional: determine role to allow admins to view any voucher
+    const { data: requesterProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    const requesterRole = requesterProfile?.role ?? 'client';
+    const isAdmin = requesterRole === 'admin';
+
+    // 3) Fetch booking + relations
+    const { data: booking, error: bookingError } = await supabaseAdmin
+      .from('bookings')
+      .select(`
+        *,
+        profile:profiles!user_id(full_name, email),
+        flight:flights(
+          flight_number, departure_datetime, arrival_datetime, aircraft_type,
+          airline:airlines(name, iata_code),
+          origin_airport:airports!origin_airport_id(iata_code, name, city),
+          destination_airport:airports!destination_airport_id(iata_code, name, city)
+        ),
+        passengers:booking_passengers(first_name, last_name, ticket_number, nationality)
+      `)
+      .eq('id', bookingId)
+      .single();
+
+    if (bookingError || !booking) {
+      return NextResponse.json({ error: 'Reserva no encontrada' }, { status: 404 });
+    }
+
+    // 4) SECURITY (IDOR): allow if owner or assigned agent, or admin role
+    const isOwner = booking.user_id === user.id;
+    const isAgent = booking.assigned_agent_id === user.id;
+
+    if (!isAdmin && !isOwner && !isAgent) {
+      console.warn(`[SECURITY] Unauthorized PDF access attempt booking=${bookingId} user=${user.id}`);
+      return NextResponse.json({ error: 'Prohibido: No tienes permiso para ver esta reserva.' }, { status: 403 });
+    }
+
+    // 5) Normalize embedded rows (Supabase can return arrays)
+    const profileRow = Array.isArray(booking.profile) ? booking.profile[0] : booking.profile;
+
+    const flightRow = Array.isArray(booking.flight) ? booking.flight[0] : booking.flight;
+
+    const airlineRow = flightRow
+      ? (Array.isArray(flightRow.airline) ? flightRow.airline[0] : flightRow.airline)
+      : null;
+
+    const originRow = flightRow
+      ? (Array.isArray(flightRow.origin_airport) ? flightRow.origin_airport[0] : flightRow.origin_airport)
+      : null;
+
+    const destinationRow = flightRow
+      ? (Array.isArray(flightRow.destination_airport) ? flightRow.destination_airport[0] : flightRow.destination_airport)
+      : null;
+
+    const normalizedFlight = flightRow
+      ? {
+          flight_number: flightRow.flight_number ?? null,
+          departure_datetime: flightRow.departure_datetime ?? null,
+          arrival_datetime: flightRow.arrival_datetime ?? null,
+          aircraft_type: flightRow.aircraft_type ?? null,
+          airline: airlineRow ?? null,
+          origin_airport: originRow ?? null,
+          destination_airport: destinationRow ?? null,
+        }
+      : null;
+
+    const voucherBooking: VoucherBooking = {
+      booking_code: booking.booking_code,
+      airline_pnr: booking.airline_pnr,
+      booking_status: booking.booking_status,
+      payment_status: booking.payment_status,
+      payment_method: booking.payment_method,
+      subtotal: Number(booking.subtotal ?? 0),
+      payment_gateway_fee: Number(booking.payment_gateway_fee ?? 0),
+      total_amount: Number(booking.total_amount ?? 0),
+      profile: (profileRow ?? null) as any,
+      flight: (normalizedFlight ?? null) as any,
+      passengers: (booking.passengers ?? []) as any,
+    };
+
+    // 6) Generate PDF (binary)
+    const doc = React.createElement(BookingVoucherDocument as any, { booking: voucherBooking });
+    const raw = await (pdf(doc as any) as any).toBuffer();
+    const body = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+
+    return new Response(body as any, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="GST-Voucher-${booking.booking_code}.pdf"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[PDF Voucher] Error:', message);
+    return NextResponse.json({ error: 'Failed to generate voucher PDF' }, { status: 500 });
   }
-
-  // 2. DATA: Buscar la reserva (Usamos Admin para traer relaciones complejas, pero validaremos ownership)
-  const { data: booking, error } = await supabaseAdmin
-    .from('bookings')
-    .select(`
-      *, 
-      profile:profiles!user_id(full_name, email),
-      flight:flights(
-        flight_number, departure_datetime, arrival_datetime, aircraft_type,
-        airline:airlines(name, iata_code),
-        origin_airport:airports!origin_airport_id(iata_code, name, city),
-        destination_airport:airports!destination_airport_id(iata_code, name, city)
-      ),
-      passengers:booking_passengers(first_name, last_name, ticket_number, nationality)
-    `)
-    .eq('id', bookingId)
-    .single();
-
-  if (error || !booking) {
-    return NextResponse.json({ error: 'Reserva no encontrada' }, { status: 404 });
-  }
-
-  // 3. SEGURIDAD CRÍTICA: Ownership Check (Candado Final)
-  // Solo permitimos ver el PDF si:
-  // A. El usuario es el dueño de la reserva.
-  // B. O el usuario es el agente asignado a esa reserva.
-  const isOwner = booking.user_id === user.id;
-  const isAgent = booking.assigned_agent_id === user.id;
-
-  if (!isOwner && !isAgent) {
-    console.warn(`[SECURITY] Intento de acceso no autorizado al PDF ${bookingId} por usuario ${user.id}`);
-    return NextResponse.json({ error: 'Prohibido: No tienes permiso para ver esta reserva.' }, { status: 403 });
-  }
-
-  // 4. GENERAR: Si pasa el check, entregamos el archivo
-  const html = generateVoucherHTML(booking);
-
-  return new NextResponse(html, {
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Content-Disposition': `inline; filename="GST-Voucher-${booking.booking_code}.html"`,
-    },
-  });
 }
