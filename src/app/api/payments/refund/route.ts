@@ -6,17 +6,12 @@ export const runtime = "nodejs";
  * Processes a refund for a booking. Admin/Agent only.
  *
  * Flow:
- *  1. Authenticate + verify admin/agent role
- *  2. Fetch booking from DB
- *  3. Calculate refund via refundCalculator (pure)
- *  4. Execute refund on gateway (Stripe or PayPal)
- *  5. Update booking DB + log event
- *  6. Return refund details
- *
- * Supports:
- *  - customer_request: <48h → 100%, >48h → 50%
- *  - flight_cancelled: 100% + $20 bonus
- *  - Gateway fees are NEVER refunded
+ * 1. Authenticate + verify admin/agent role
+ * 2. Fetch booking from DB
+ * 3. Calculate refund via refundCalculator (pure)
+ * 4. Execute refund on gateway (Stripe or PayPal)
+ * 5. Update booking DB + log event
+ * 6. Return refund details
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -25,6 +20,7 @@ import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { calculateRefundAmount } from "@/lib/payments/refundCalculator";
+// ❌ RETIRADO: import { notifyRefund } ...
 
 /* ───────────────────── Env ───────────────────── */
 
@@ -89,10 +85,6 @@ async function getPayPalAccessToken(): Promise<string> {
   return token;
 }
 
-/**
- * Find the capture ID from a PayPal order.
- * Needed to issue refunds (you refund captures, not orders).
- */
 async function getPayPalCaptureId(orderId: string): Promise<string | null> {
   const token = await getPayPalAccessToken();
 
@@ -104,7 +96,6 @@ async function getPayPalCaptureId(orderId: string): Promise<string | null> {
   const raw: unknown = await res.json().catch(() => null);
   if (!res.ok || !isRecord(raw)) return null;
 
-  // Navigate: purchase_units[0].payments.captures[0].id
   const purchaseUnits = raw.purchase_units;
   if (!Array.isArray(purchaseUnits) || purchaseUnits.length === 0) return null;
 
@@ -200,7 +191,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const supabaseAdmin = createAdminClient();
 
-    // Check role: only admin or agent can process refunds
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .select("role")
@@ -222,9 +212,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // ── 3. Fetch booking ──
     const { data: booking, error: bookingErr } = await supabaseAdmin
       .from("bookings")
-      .select(
-        "id, total_amount, payment_gateway_fee, payment_status, payment_method, payment_gateway, payment_intent_id, paid_at, pricing_breakdown"
-      )
+      .select(`
+        id, booking_code, total_amount, payment_gateway_fee, payment_status, 
+        payment_method, payment_gateway, payment_intent_id, paid_at, pricing_breakdown
+      `)
       .eq("id", booking_id)
       .single();
 
@@ -239,14 +230,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // ── 4. Calculate refund amount (pure function) ──
+    // ── 4. Calculate refund amount ──
     const hoursSinceBooking = booking.paid_at
       ? Math.floor(
           (Date.now() - new Date(booking.paid_at).getTime()) / (1000 * 60 * 60)
         )
       : 0;
 
-    // Extract gateway fee from pricing_breakdown or column
     const gatewayFee: number =
       (typeof booking.payment_gateway_fee === "number"
         ? booking.payment_gateway_fee
@@ -273,12 +263,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // ── 5. Execute refund on the payment gateway ──
+    // ── 5. Execute refund on gateway ──
     const gateway = booking.payment_gateway || booking.payment_method || "stripe";
     let gatewayRefundId: string | null = null;
 
     if (gateway === "stripe") {
-      // Stripe refund
       const stripe = new Stripe(requiredEnv("STRIPE_SECRET_KEY"), {
         apiVersion: "2024-06-20",
       });
@@ -292,11 +281,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       const stripeRefund = await stripe.refunds.create({
         payment_intent: booking.payment_intent_id,
-        amount: refundCalc.cents.refund_amount, // Stripe uses cents
-        reason:
-          reason === "flight_cancelled"
-            ? "requested_by_customer"
-            : "requested_by_customer",
+        amount: refundCalc.cents.refund_amount,
+        reason: "requested_by_customer",
         metadata: {
           booking_id,
           refund_reason: reason,
@@ -305,23 +291,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
 
       gatewayRefundId = stripeRefund.id;
+
     } else if (gateway === "paypal") {
-      // PayPal refund — need capture ID
       if (!booking.payment_intent_id) {
         return NextResponse.json(
           { error: "No PayPal order_id found for refund" },
           { status: 400 }
         );
       }
-
       const captureId = await getPayPalCaptureId(booking.payment_intent_id);
       if (!captureId) {
         return NextResponse.json(
-          { error: "Could not find PayPal capture ID for this order" },
+          { error: "Could not find PayPal capture ID" },
           { status: 400 }
         );
       }
-
       const ppResult = await refundPayPalCapture(captureId, refundCalc.refund_amount);
       if (!ppResult.success) {
         return NextResponse.json(
@@ -329,7 +313,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           { status: 502 }
         );
       }
-
       gatewayRefundId = ppResult.refundId;
     } else {
       return NextResponse.json(
@@ -351,7 +334,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     if (updErr) {
       console.error("[Refund] DB update failed:", updErr.message);
-      // Don't fail — the gateway already refunded
     }
 
     // ── 7. Log refund event ──
@@ -369,10 +351,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           calculation: refundCalc,
           timestamp: new Date().toISOString(),
         }),
-      })
-      .then(({ error }) => {
-        if (error) console.error("[Refund] Event log failed:", error.message);
       });
+
+    // ❌ RETIRADO: Envío de email (notifyRefund)
 
     // ── 8. Return result ──
     return NextResponse.json(

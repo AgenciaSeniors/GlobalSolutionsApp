@@ -1,22 +1,21 @@
 /**
- * @fileoverview PDF Generation endpoint for booking vouchers.
- * Per spec §6.2: System generates PDF with official GST template,
- * containing PNR, ticket numbers, flight details, passenger data.
- * Sent to client within 24h of payment.
- * @module app/api/bookings/pdf/route
+ * @fileoverview Endpoint seguro de generación de PDF para vouchers de reserva.
+ * Cumple con spec §6.2: Genera PDF oficial con validación estricta de propiedad.
+ * FASE 2: Seguridad IDOR implementada (Auth + Ownership Check).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 
+// Cliente Admin (Service Role) - Solo para leer datos completos tras verificar permisos
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 /**
- * Generates HTML for the booking PDF voucher.
- * In production, use a library like puppeteer or @react-pdf/renderer.
- * This returns structured HTML that can be converted to PDF.
+ * Genera el HTML estructurado para el PDF.
  */
 function generateVoucherHTML(booking: Record<string, unknown>): string {
   const flight = booking.flight as Record<string, unknown> | null;
@@ -40,13 +39,11 @@ function generateVoucherHTML(booking: Record<string, unknown>): string {
 <html>
 <head><meta charset="UTF-8"><title>Voucher ${booking.booking_code}</title></head>
 <body style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:40px;color:#1a1a2e;">
-  <!-- Header -->
   <div style="text-align:center;border-bottom:3px solid #1e3a8a;padding-bottom:20px;margin-bottom:30px;">
     <h1 style="color:#1e3a8a;margin:0;font-size:28px;">✈️ GLOBAL SOLUTIONS TRAVEL</h1>
     <p style="color:#6b7280;margin:5px 0 0;">Confirmación de Reserva / E-Ticket Voucher</p>
   </div>
 
-  <!-- Booking Info -->
   <div style="display:flex;justify-content:space-between;margin-bottom:20px;">
     <div>
       <p style="margin:2px 0;"><strong>Código de Reserva (Interno):</strong></p>
@@ -65,7 +62,6 @@ function generateVoucherHTML(booking: Record<string, unknown>): string {
     <p style="margin:4px 0;"><strong>Estado:</strong> ${booking.booking_status === 'confirmed' ? '✅ EMITIDO' : '⏳ PROCESANDO'}</p>
   </div>
 
-  <!-- Flight Details -->
   <h2 style="color:#1e3a8a;border-bottom:1px solid #e5e7eb;padding-bottom:8px;">Detalle del Vuelo</h2>
   <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
     <tr>
@@ -86,7 +82,6 @@ function generateVoucherHTML(booking: Record<string, unknown>): string {
     </tr>
   </table>
 
-  <!-- Passengers -->
   <h2 style="color:#1e3a8a;border-bottom:1px solid #e5e7eb;padding-bottom:8px;">Pasajeros</h2>
   <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
     <thead>
@@ -100,7 +95,6 @@ function generateVoucherHTML(booking: Record<string, unknown>): string {
     <tbody>${passengersRows}</tbody>
   </table>
 
-  <!-- Payment -->
   <h2 style="color:#1e3a8a;border-bottom:1px solid #e5e7eb;padding-bottom:8px;">Resumen de Pago</h2>
   <table style="width:100%;margin-bottom:20px;">
     <tr><td style="padding:4px;">Subtotal (vuelo × ${passengers.length} pasajeros):</td><td style="text-align:right;">$${(booking.subtotal as number)?.toFixed(2)}</td></tr>
@@ -111,7 +105,6 @@ function generateVoucherHTML(booking: Record<string, unknown>): string {
     </tr>
   </table>
 
-  <!-- Footer -->
   <div style="border-top:2px solid #1e3a8a;padding-top:15px;margin-top:30px;text-align:center;color:#6b7280;font-size:12px;">
     <p><strong>Global Solutions Travel</strong> — Tu viaje, nuestra pasión</p>
     <p>Este documento es tu comprobante de reserva. Preséntalo junto con tu pasaporte al momento del check-in.</p>
@@ -125,9 +118,32 @@ function generateVoucherHTML(booking: Record<string, unknown>): string {
 export async function GET(request: NextRequest) {
   const bookingId = request.nextUrl.searchParams.get('id');
   if (!bookingId) {
-    return NextResponse.json({ error: 'Missing booking id' }, { status: 400 });
+    return NextResponse.json({ error: 'Falta el ID de reserva' }, { status: 400 });
   }
 
+  // 1. SEGURIDAD: Verificar sesión del usuario real
+  const cookieStore = cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll() },
+        // SOLUCIÓN: Agregamos el tipo y usamos void para evitar el warning de variable no usada
+        setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) { 
+          void cookiesToSet; 
+        }
+      }
+    }
+  );
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return NextResponse.json({ error: 'No autorizado. Inicia sesión.' }, { status: 401 });
+  }
+
+  // 2. DATA: Buscar la reserva (Usamos Admin para traer relaciones complejas, pero validaremos ownership)
   const { data: booking, error } = await supabaseAdmin
     .from('bookings')
     .select(`
@@ -145,15 +161,28 @@ export async function GET(request: NextRequest) {
     .single();
 
   if (error || !booking) {
-    return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Reserva no encontrada' }, { status: 404 });
   }
 
+  // 3. SEGURIDAD CRÍTICA: Ownership Check (Candado Final)
+  // Solo permitimos ver el PDF si:
+  // A. El usuario es el dueño de la reserva.
+  // B. O el usuario es el agente asignado a esa reserva.
+  const isOwner = booking.user_id === user.id;
+  const isAgent = booking.assigned_agent_id === user.id;
+
+  if (!isOwner && !isAgent) {
+    console.warn(`[SECURITY] Intento de acceso no autorizado al PDF ${bookingId} por usuario ${user.id}`);
+    return NextResponse.json({ error: 'Prohibido: No tienes permiso para ver esta reserva.' }, { status: 403 });
+  }
+
+  // 4. GENERAR: Si pasa el check, entregamos el archivo
   const html = generateVoucherHTML(booking);
 
   return new NextResponse(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Content-Disposition': `inline; filename="voucher-${booking.booking_code}.html"`,
+      'Content-Disposition': `inline; filename="GST-Voucher-${booking.booking_code}.html"`,
     },
   });
 }

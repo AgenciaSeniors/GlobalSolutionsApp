@@ -12,7 +12,7 @@ import type {
   ProviderSearchRequest,
   ProviderSearchResponse,
 } from "@/lib/flights/providers/types";
-
+import { logger } from "@/lib/observability/logger";
 import { agencyInventoryProvider } from "@/lib/flights/providers/agencyInventoryProvider";
 import { skyScrapperProvider } from "@/lib/flights/providers/skyScrapperProvider";
 import {
@@ -120,7 +120,7 @@ function getDestinationIata(f: Flight): string {
   return getAirportCode(rec["destination_airport"]) ?? "NDEST";
 }
 
-function flightDedupeKey(f: Flight): string {
+export function flightDedupeKey(f: Flight): string {
   return `${normalizeAirlineCode(f)}|${normalizeFlightNumber(f)}|${getOriginIata(f)}|${getDestinationIata(f)}|${normalizeDepartureDatetime(f)}`;
 }
 
@@ -230,9 +230,7 @@ export const flightsOrchestrator = {
     );
 
     if (!needsExternal) {
-      console.log(
-        `[Orchestrator] Agency has enough results (${agencyTotal}), skipping external`
-      );
+      logger.info({ metric: 'cache_hit_rate', status: 'agency_sufficient' }, 'Agency has enough results, skipping external');
       return req.legs.map((_, idx) => ({
         legIndex: idx,
         flights: (agencyByLeg.get(idx) ?? [])
@@ -243,6 +241,7 @@ export const flightsOrchestrator = {
 
     // ── 3. SkyScrapper ───────────────────────────────
     let externalRes: ProviderSearchResponse = [];
+    const tSkyScrapper = Date.now(); // 🚀 Tiempo específico de SkyScrapper
     try {
       const allowExternal = opts?.allowExternal !== false;
       if (!allowExternal) {

@@ -14,6 +14,14 @@ import {
   welcomeEmail, type WelcomeEmailData,
 } from './templates';
 
+// Definimos la interfaz para el reembolso aquí mismo para ser prácticos
+export interface RefundData {
+  bookingCode: string;
+  amount: number;
+  reason: string;
+  clientName: string;
+}
+
 /**
  * Send booking confirmation after successful payment.
  * Triggered when: payment_status changes to 'paid'
@@ -101,5 +109,37 @@ export async function notifyWelcome(
     to: email,
     subject: `🌍 ¡Bienvenido a Global Solutions Travel, ${data.clientName}!`,
     html: welcomeEmail(data),
+  });
+}
+
+/**
+ * Send refund notification.
+ * NEW: Added in Phase 2 to improve transparency.
+ */
+export async function notifyRefund(
+  email: string,
+  data: RefundData
+): Promise<SendEmailResult> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+      <h2 style="color: #059669;">💸 Reembolso Procesado</h2>
+      <p>Hola <strong>${data.clientName}</strong>,</p>
+      <p>Te informamos que hemos procesado un reembolso para tu reserva <strong>${data.bookingCode}</strong>.</p>
+      
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 5px 0;"><strong>Monto reembolsado:</strong> $${data.amount.toFixed(2)} USD</p>
+        <p style="margin: 5px 0;"><strong>Motivo:</strong> ${data.reason}</p>
+      </div>
+
+      <p>El dinero debería aparecer en tu cuenta en un plazo de 5 a 10 días hábiles, dependiendo de tu banco.</p>
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+      <p style="font-size: 12px; color: #666;">Global Solutions Travel Team</p>
+    </div>
+  `;
+
+  return sendEmail({
+    to: email,
+    subject: `💸 Reembolso aprobado — Reserva ${data.bookingCode}`,
+    html: html,
   });
 }
