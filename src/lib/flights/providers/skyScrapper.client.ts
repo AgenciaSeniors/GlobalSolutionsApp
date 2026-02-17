@@ -49,10 +49,12 @@ export class SkyScrapperClient {
    * GET con timeout vía AbortController.
    * @param pathAndQuery  — ruta + querystring
    * @param overrideTimeoutMs — timeout específico para esta llamada (opcional)
+   * @param externalSignal — AbortSignal opcional para abortar desde un timeout/cancelación superior
    */
   async get(
     pathAndQuery: string,
-    overrideTimeoutMs?: number
+    overrideTimeoutMs?: number,
+    externalSignal?: AbortSignal
   ): Promise<JsonValue> {
     const url = `${this.baseUrl}${pathAndQuery}`;
     const endpoint = url.split("?")[0];
@@ -60,6 +62,12 @@ export class SkyScrapperClient {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const onAbort = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort();
+      else externalSignal.addEventListener("abort", onAbort, { once: true });
+    }
 
     const t0 = Date.now();
 
@@ -118,6 +126,13 @@ export class SkyScrapperClient {
       throw new Error(`SkyScrapper network error: ${msg}`);
     } finally {
       clearTimeout(timer);
+      if (externalSignal) {
+        try {
+          externalSignal.removeEventListener("abort", onAbort);
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 }

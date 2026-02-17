@@ -21,11 +21,14 @@ import { SkyScrapperClient } from "./skyScrapper.client";
 /* ------------- TIMEOUT CONSTANTS ------------------- */
 /* -------------------------------------------------- */
 
-const LEG_TIMEOUT_MS = 25_000;
-const POLLING_BUDGET_MS = 6_000;
-const POLL_CALL_TIMEOUT_MS = 5_000;
-const MAX_POLL_ATTEMPTS = 1;
+const LEG_TIMEOUT_MS = 35_000;
+const SEARCH_ONE_WAY_TIMEOUT_MS = 30_000;
+const POLLING_BUDGET_MS = 10_000;
+const POLL_CALL_TIMEOUT_MS = 6_000;
+const MAX_POLL_ATTEMPTS = 3;
 const AUTOCOMPLETE_TIMEOUT_MS = 15_000;
+
+const POLL_BACKOFF_MS = [1000, 2000, 4000] as const;
 
 /* -------------------------------------------------- */
 /* ----------------- JSON HELPERS ------------------- */
@@ -77,6 +80,33 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return sleep(ms);
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      cleanup();
+      resolve();
+    };
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      try {
+        signal.removeEventListener("abort", onAbort);
+      } catch {
+        // ignore
+      }
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function createTimeoutRace<T>(
   ms: number,
   label: string
@@ -116,7 +146,8 @@ function extractContext(json: JsonValue): {
 
 async function tryImproveResults(
   client: SkyScrapperClient,
-  initialJson: JsonValue
+  initialJson: JsonValue,
+  signal?: AbortSignal
 ): Promise<JsonValue> {
   const { sessionId, status } = extractContext(initialJson);
 
@@ -133,17 +164,27 @@ async function tryImproveResults(
   let bestJson = initialJson;
 
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-    const elapsed = Date.now() - pollingStart;
-    if (elapsed >= POLLING_BUDGET_MS) break;
+    if (signal?.aborted) break;
 
-    const waitMs = Math.min(1500, POLLING_BUDGET_MS - elapsed);
-    if (waitMs <= 0) break;
-    await sleep(waitMs);
+    const elapsed = Date.now() - pollingStart;
+    const remainingBudget = POLLING_BUDGET_MS - elapsed;
+    if (remainingBudget <= 0) break;
+
+    const backoff = POLL_BACKOFF_MS[attempt] ?? POLL_BACKOFF_MS[POLL_BACKOFF_MS.length - 1];
+    const waitMs = Math.min(backoff, Math.max(0, remainingBudget - 500));
+    if (waitMs > 0) await sleepWithSignal(waitMs, signal);
+
+    if (signal?.aborted) break;
+
+    const remainingAfterWait = POLLING_BUDGET_MS - (Date.now() - pollingStart);
+    if (remainingAfterWait <= 0) break;
+    const callTimeout = Math.min(POLL_CALL_TIMEOUT_MS, Math.max(1500, remainingAfterWait));
 
     try {
       const pollJson = await client.get(
         `/flights/search-incomplete?sessionId=${encodeURIComponent(sessionId)}`,
-        POLL_CALL_TIMEOUT_MS
+        callTimeout,
+        signal
       );
 
       const newCount = extractItineraries(pollJson).length;
@@ -209,7 +250,8 @@ function setCachedPlaceId(iata: string, entityId: string): void {
  */
 async function resolvePlaceId(
   client: SkyScrapperClient,
-  query: string
+  query: string,
+  signal?: AbortSignal
 ): Promise<string> {
   const upper = query.toUpperCase().trim();
 
@@ -222,7 +264,7 @@ async function resolvePlaceId(
 
   // 2. Try /flights/auto-complete (primary endpoint)
   try {
-    const entityId = await resolveViaAutoComplete(client, upper);
+    const entityId = await resolveViaAutoComplete(client, upper, signal);
     setCachedPlaceId(upper, entityId);
     console.log(`[SkyScrapper] Resolved ${upper} via auto-complete: ${entityId}`);
     return entityId;
@@ -233,7 +275,7 @@ async function resolvePlaceId(
 
   // 3. Fallback: try /api/v1/flights/searchAirport
   try {
-    const entityId = await resolveViaSearchAirport(client, upper);
+    const entityId = await resolveViaSearchAirport(client, upper, signal);
     setCachedPlaceId(upper, entityId);
     console.log(`[SkyScrapper] Resolved ${upper} via searchAirport: ${entityId}`);
     return entityId;
@@ -247,11 +289,13 @@ async function resolvePlaceId(
 
 async function resolveViaAutoComplete(
   client: SkyScrapperClient,
-  query: string
+  query: string,
+  signal?: AbortSignal
 ): Promise<string> {
   const json = await client.get(
     `/flights/auto-complete?query=${encodeURIComponent(query)}`,
-    AUTOCOMPLETE_TIMEOUT_MS
+    AUTOCOMPLETE_TIMEOUT_MS,
+    signal
   );
 
   const dataArr = getArray(json, "data");
@@ -311,11 +355,13 @@ async function resolveViaAutoComplete(
 
 async function resolveViaSearchAirport(
   client: SkyScrapperClient,
-  query: string
+  query: string,
+  signal?: AbortSignal
 ): Promise<string> {
   const json = await client.get(
     `/api/v1/flights/searchAirport?query=${encodeURIComponent(query)}`,
-    AUTOCOMPLETE_TIMEOUT_MS
+    AUTOCOMPLETE_TIMEOUT_MS,
+    signal
   );
 
   const dataArr = getArray(json, "data");
@@ -590,25 +636,33 @@ async function searchOneLeg(
   client: SkyScrapperClient,
   leg: { origin: string; destination: string; departure_date: string },
   legIndex: number,
-  passengers: number
+  passengers: number,
+  externalSignal?: AbortSignal
 ): Promise<Flight[]> {
-  const { promise: timeout, cleanup } = createTimeoutRace<Flight[]>(
-    LEG_TIMEOUT_MS,
-    `Leg ${legIndex} (${leg.origin}→${leg.destination})`
-  );
+  const legController = new AbortController();
+  const timer = setTimeout(() => legController.abort(), LEG_TIMEOUT_MS);
+
+  const onAbort = () => legController.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) legController.abort();
+    else externalSignal.addEventListener("abort", onAbort, { once: true });
+  }
 
   try {
-    const result = await Promise.race([
-      searchOneLegInternal(client, leg, legIndex, passengers),
-      timeout,
-    ]);
-    return result;
+    return await searchOneLegInternal(client, leg, legIndex, passengers, legController.signal);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[SkyScrapper] Leg ${legIndex} failed/timeout: ${msg}`);
     return [];
   } finally {
-    cleanup();
+    clearTimeout(timer);
+    if (externalSignal) {
+      try {
+        externalSignal.removeEventListener("abort", onAbort);
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
@@ -616,14 +670,16 @@ async function searchOneLegInternal(
   client: SkyScrapperClient,
   leg: { origin: string; destination: string; departure_date: string },
   legIndex: number,
-  passengers: number
+  passengers: number,
+  signal?: AbortSignal
 ): Promise<Flight[]> {
   const date = String(leg.departure_date ?? "").trim();
   if (!date) return [];
+  if (signal?.aborted) return [];
 
   const [fromEntityId, toEntityId] = await Promise.all([
-    resolvePlaceId(client, leg.origin),
-    resolvePlaceId(client, leg.destination),
+    resolvePlaceId(client, leg.origin, signal),
+    resolvePlaceId(client, leg.destination, signal),
   ]);
 
   console.log(`[SkyScrapper] Leg ${legIndex}: resolved ${leg.origin}→${fromEntityId}, ${leg.destination}→${toEntityId}`);
@@ -639,7 +695,9 @@ async function searchOneLegInternal(
   });
 
   const initialJson = await client.get(
-    `/flights/search-one-way?${qs.toString()}`
+    `/flights/search-one-way?${qs.toString()}`,
+    SEARCH_ONE_WAY_TIMEOUT_MS,
+    signal
   );
 
   const initialItineraries = extractItineraries(initialJson);
@@ -651,7 +709,7 @@ async function searchOneLegInternal(
 
   let finalJson = initialJson;
   try {
-    finalJson = await tryImproveResults(client, initialJson);
+    finalJson = await tryImproveResults(client, initialJson, signal);
   } catch {
     finalJson = initialJson;
   }
@@ -678,11 +736,11 @@ async function searchOneLegInternal(
 export const skyScrapperProvider: FlightsProvider = {
   id: "sky-scrapper",
 
-  async search(req: ProviderSearchRequest): Promise<ProviderSearchResponse> {
+  async search(req: ProviderSearchRequest, opts?: { signal?: AbortSignal }): Promise<ProviderSearchResponse> {
     const client = new SkyScrapperClient();
 
     const legPromises = req.legs.map((leg, legIndex) =>
-      searchOneLeg(client, leg, legIndex, req.passengers ?? 1)
+      searchOneLeg(client, leg, legIndex, req.passengers ?? 1, opts?.signal)
     );
 
     const legResults = await Promise.all(legPromises);

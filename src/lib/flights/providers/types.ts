@@ -21,5 +21,8 @@ export interface FlightsProvider {
   id: string;
 
   /** Search for flights for one or more legs. */
-  search(req: ProviderSearchRequest): Promise<ProviderSearchResponse>;
+  search(
+    req: ProviderSearchRequest,
+    opts?: { signal?: AbortSignal }
+  ): Promise<ProviderSearchResponse>;
 }

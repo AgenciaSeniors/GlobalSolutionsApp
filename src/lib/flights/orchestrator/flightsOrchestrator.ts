@@ -16,7 +16,7 @@ import { agencyInventoryProvider } from "@/lib/flights/providers/agencyInventory
 import { skyScrapperProvider } from "@/lib/flights/providers/skyScrapperProvider";
 
 const TARGET_RESULTS_PER_LEG = 20;
-const EXTERNAL_TIMEOUT_MS = 30_000;
+const EXTERNAL_TIMEOUT_MS = 40_000;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -172,12 +172,13 @@ export const flightsOrchestrator = {
     // 3. SkyScrapper (real flights only — no stub fallback)
     let externalRes: ProviderSearchResponse = [];
     try {
-      externalRes = await Promise.race([
-        skyScrapperProvider.search(req),
-        new Promise<ProviderSearchResponse>((_, reject) =>
-          setTimeout(() => reject(new Error(`External timeout after ${EXTERNAL_TIMEOUT_MS}ms`)), EXTERNAL_TIMEOUT_MS)
-        ),
-      ]);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), EXTERNAL_TIMEOUT_MS);
+      try {
+        externalRes = await skyScrapperProvider.search(req, { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       console.log(`[Orchestrator] SkyScrapper completed in ${Date.now() - t0}ms (${totalFlights(externalRes)} flights)`);
     } catch (err: unknown) {
       console.warn(`[Orchestrator] SkyScrapper failed: ${err instanceof Error ? err.message : String(err)}`);
