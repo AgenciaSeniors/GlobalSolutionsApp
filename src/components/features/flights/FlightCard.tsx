@@ -2,7 +2,7 @@ import type { FlightOffer } from '@/types/models';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { Plane, ChevronDown, ChevronUp } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import FlightStopsDetails from './FlightStopsDetails';
 
 interface FlightCardProps {
@@ -36,25 +36,31 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
   const stopsLabel = isDirect ? 'Directo' : `${stopsCount} Escala${stopsCount === 1 ? '' : 's'}`;
 
   const logoUrl = firstSegment.airline?.logoUrl ?? '';
-
-  // ✅ fallback real
   const [canShowLogo, setCanShowLogo] = useState(Boolean(logoUrl));
   useEffect(() => setCanShowLogo(Boolean(logoUrl)), [logoUrl]);
 
-  // ✅ NUEVO: Estado para mostrar/ocultar detalles de escalas
   const [showStopsDetails, setShowStopsDetails] = useState(false);
 
-  // ✅ NUEVO: Obtener aeropuertos de escalas para mostrar en el badge
-  const stopAirports = !isDirect
-    ? segments
-        .slice(0, -1)
-        .map((seg) => seg.destination)
-        .join(', ')
-    : '';
+  const stopAirports = useMemo(() => {
+    if (isDirect) return '';
+    return segments
+      .slice(0, -1)
+      .map((seg) => seg.destination)
+      .filter(Boolean)
+      .join(', ');
+  }, [segments, isDirect]);
+
+  const stopAirportsShort = useMemo(() => {
+    if (!stopAirports) return '';
+    const list = stopAirports.split(', ').filter(Boolean);
+    const short = list.slice(0, 2).join(', ');
+    return list.length > 2 ? `${short}…` : short;
+  }, [stopAirports]);
 
   return (
-    <article className="group rounded-2xl border-2 border-transparent bg-white p-6 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:border-brand-200 hover:shadow-lg hover:shadow-brand-600/[0.06]">
+    <article className="group rounded-2xl border-2 border-transparent bg-white p-4 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:border-brand-200 hover:shadow-lg hover:shadow-brand-600/[0.06] sm:p-6">
       <div className="grid grid-cols-1 items-center gap-6 sm:grid-cols-[1fr_2fr_1fr]">
+        {/* Airline */}
         <div>
           <span className="mb-2 flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 text-brand-600">
             {canShowLogo ? (
@@ -78,6 +84,7 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
           </p>
         </div>
 
+        {/* Times */}
         <div className="grid grid-cols-3 items-center gap-4">
           <div className="text-left">
             <p className="text-2xl font-bold text-neutral-900">{departureTime}</p>
@@ -93,19 +100,21 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
             </div>
 
             <div className="mt-2">
-              {/* ✅ MEJORADO: Badge clickeable con info de escalas */}
               {!isDirect ? (
                 <button
                   onClick={() => setShowStopsDetails(!showStopsDetails)}
-                  className="group/badge flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 transition-all hover:bg-amber-200 hover:shadow-md"
+                  className="group/badge flex max-w-[240px] items-center gap-2 rounded-full bg-amber-100 px-3 py-1 transition-all hover:bg-amber-200 hover:shadow-md"
                   title={`Vía ${stopAirports}`}
+                  type="button"
                 >
                   <span className="text-xs font-semibold text-amber-700">{stopsLabel}</span>
-                  <span className="text-[10px] text-amber-600">vía {stopAirports}</span>
+                  <span className="max-w-[140px] truncate text-[10px] text-amber-700/80">
+                    vía {stopAirportsShort}
+                  </span>
                   {showStopsDetails ? (
-                    <ChevronUp className="h-3.5 w-3.5 text-amber-600 transition-transform group-hover/badge:scale-110" />
+                    <ChevronUp className="h-3.5 w-3.5 text-amber-700 transition-transform group-hover/badge:scale-110" />
                   ) : (
-                    <ChevronDown className="h-3.5 w-3.5 text-amber-600 transition-transform group-hover/badge:scale-110" />
+                    <ChevronDown className="h-3.5 w-3.5 text-amber-700 transition-transform group-hover/badge:scale-110" />
                   )}
                 </button>
               ) : (
@@ -120,19 +129,23 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
           </div>
         </div>
 
+        {/* Price + CTA */}
         <div className="flex flex-row items-center justify-between gap-4 sm:flex-col sm:items-end sm:justify-center">
           <div className="text-right">
             <span className="text-xs text-neutral-400">Total por pasajero</span>
             <p className="text-3xl font-extrabold text-[#FF4757]">${flight.price}</p>
           </div>
 
-          <Button onClick={() => onSelect?.(flight.id)} variant="primary" className="w-full sm:w-auto">
+          <Button
+            onClick={() => onSelect?.(flight.id)}
+            variant="primary"
+            className="w-full sm:w-auto"
+          >
             Seleccionar
           </Button>
         </div>
       </div>
 
-      {/* ✅ NUEVO: Componente de detalles de escalas */}
       <FlightStopsDetails segments={segments} isOpen={showStopsDetails} />
     </article>
   );
