@@ -34,6 +34,7 @@ export default function AdminOffersPage() {
   // Form state
   const [destination, setDestination] = useState('');
   const [destinationImg, setDestinationImg] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [originalPrice, setOriginalPrice] = useState('');
   const [offerPrice, setOfferPrice] = useState('');
   const [validDates, setValidDates] = useState('');
@@ -42,6 +43,7 @@ export default function AdminOffersPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  
 
 
   useEffect(() => { fetchOffers(); }, []);
@@ -71,6 +73,7 @@ export default function AdminOffersPage() {
     setDestination(''); setDestinationImg(''); setOriginalPrice('');
     setOfferPrice(''); setValidDates(''); setUrgencyLabel('');
     setMaxSeats('20'); setSelectedTags([]); setEditingId(null);
+    setImageFile(null);
   }
 
   function editOffer(offer: SpecialOffer) {
@@ -83,17 +86,45 @@ export default function AdminOffersPage() {
     setUrgencyLabel(offer.urgency_label || '');
     setMaxSeats(offer.max_seats.toString());
     setSelectedTags(offer.tags);
+    setImageFile(null);
     setShowForm(true);
   }
+async function uploadOfferImage(file: File) {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Solo se permiten imágenes');
+  }
+
+  const ext = file.name.split('.').pop() || 'jpg';
+  const fileName = `${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+  const path = `special-offers/${fileName}`;
+
+  const { error: uploadError } = await supabase
+    .storage
+    .from('offer-images')
+    .upload(path, file, { upsert: false, contentType: file.type });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from('offer-images').getPublicUrl(path);
+  return data.publicUrl;
+}
 
   async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSaving(true);
+  e.preventDefault();
+  setSaving(true);
 
+  try {
     const dates = validDates.split(',').map(d => d.trim()).filter(Boolean);
+
+    let finalImgUrl = destinationImg;
+    if (imageFile) {
+      finalImgUrl = await uploadOfferImage(imageFile);
+      setDestinationImg(finalImgUrl); // para que el preview quede con la nueva
+    }
+
     const payload = {
       destination,
-      destination_img: destinationImg || null,
+      destination_img: finalImgUrl || null,
       original_price: parseFloat(originalPrice),
       offer_price: parseFloat(offerPrice),
       valid_dates: dates,
@@ -103,22 +134,22 @@ export default function AdminOffersPage() {
     };
 
     const res = editingId
-  ? await supabase.from('special_offers').update(payload).eq('id', editingId)
-  : await supabase.from('special_offers').insert(payload);
+      ? await supabase.from('special_offers').update(payload).eq('id', editingId)
+      : await supabase.from('special_offers').insert(payload);
 
-if (res.error) {
-  console.error('save offer error:', res.error);
-  setErrorMsg(res.error.message);
-  setSaving(false);
-  return; // 👈 no cierres el form si falló
+    if (res.error) throw res.error;
+
+    resetForm();
+    setShowForm(false);
+    await fetchOffers();
+  } catch (err: any) {
+    console.error(err);
+    alert(err?.message || 'Error guardando la oferta');
+  } finally {
+    setSaving(false);
+  }
 }
 
-resetForm();
-setShowForm(false);
-await fetchOffers();
-setSaving(false);
-
-  }
 
   async function toggleActive(id: string, currentActive: boolean) {
     await supabase.from('special_offers').update({ is_active: !currentActive }).eq('id', id);
@@ -181,13 +212,26 @@ value={destination} onChange={e => setDestination(e.target.value)} placeholder="
                     />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="url_imagen_destino" className="mb-1 block text-sm font-medium text-neutral-700">
-                      URL Imagen destino
-                    </label>
-                    <Input
-value={destinationImg} onChange={e => setDestinationImg(e.target.value)} placeholder="https://..."
-                    id="url_imagen_destino"
-                    />
+                   <label htmlFor="imagen_destino" className="mb-1 block text-sm font-medium text-neutral-700">
+  Imagen destino (Supabase Storage)
+</label>
+
+<input
+  id="imagen_destino"
+  type="file"
+  accept="image/*"
+  className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
+  onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+/>
+
+{destinationImg && (
+  <img
+    src={destinationImg}
+    alt="preview"
+    className="mt-3 h-24 w-full rounded-xl object-cover"
+  />
+)}
+
                   </div>
                   <div className="space-y-1">
                     <label htmlFor="precio_original" className="mb-1 block text-sm font-medium text-neutral-700">
