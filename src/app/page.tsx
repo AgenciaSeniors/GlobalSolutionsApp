@@ -100,7 +100,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-5xl px-6">
           <div className="mb-12 text-center">
             <span className="text-sm font-bold uppercase tracking-widest text-brand-500">
-              B\u00fasqueda de Vuelos
+              Búsqueda de Vuelos
             </span>
             <h2 className="mt-2 font-display text-4xl font-bold text-brand-950">
               Encuentra tu vuelo ideal
@@ -140,7 +140,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl px-6">
           <div className="mb-12 text-center">
             <span className="text-sm font-bold uppercase tracking-widest text-emerald-600">
-              Rese\u00f1as Verificadas
+              Reseñas Verificadas
             </span>
             <h2 className="mt-2 font-display text-4xl font-bold text-brand-950">
               Lo que dicen nuestros viajeros
