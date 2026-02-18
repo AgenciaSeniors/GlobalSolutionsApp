@@ -41,18 +41,31 @@ export default function AdminOffersPage() {
   const [maxSeats, setMaxSeats] = useState('20');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
 
   useEffect(() => { fetchOffers(); }, []);
 
   async function fetchOffers() {
-    setLoading(true);
-    const { data } = await supabase
-      .from('special_offers')
-      .select('*')
-      .order('created_at', { ascending: false });
+  setLoading(true);
+  setErrorMsg(null);
+
+  const { data, error } = await supabase
+    .from('special_offers')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('fetchOffers error:', error);
+    setOffers([]);
+    setErrorMsg(error.message);
+  } else {
     setOffers((data as SpecialOffer[]) || []);
-    setLoading(false);
   }
+
+  setLoading(false);
+}
+
 
   function resetForm() {
     setDestination(''); setDestinationImg(''); setOriginalPrice('');
@@ -89,16 +102,22 @@ export default function AdminOffersPage() {
       tags: selectedTags,
     };
 
-    if (editingId) {
-      await supabase.from('special_offers').update(payload).eq('id', editingId);
-    } else {
-      await supabase.from('special_offers').insert(payload);
-    }
+    const res = editingId
+  ? await supabase.from('special_offers').update(payload).eq('id', editingId)
+  : await supabase.from('special_offers').insert(payload);
 
-    resetForm();
-    setShowForm(false);
-    fetchOffers();
-    setSaving(false);
+if (res.error) {
+  console.error('save offer error:', res.error);
+  setErrorMsg(res.error.message);
+  setSaving(false);
+  return; // 👈 no cierres el form si falló
+}
+
+resetForm();
+setShowForm(false);
+await fetchOffers();
+setSaving(false);
+
   }
 
   async function toggleActive(id: string, currentActive: boolean) {
@@ -136,6 +155,12 @@ export default function AdminOffersPage() {
             <Button onClick={() => { resetForm(); setShowForm(true); }} className="gap-2">
               <Plus className="h-4 w-4" /> Nueva Oferta
             </Button>
+            {errorMsg && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+           {errorMsg}
+           </div>
+          )}
+
           </div>
 
           {/* Form */}

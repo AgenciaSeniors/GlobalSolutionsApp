@@ -123,7 +123,8 @@ export default async function HomePage() {
     .limit(8);
 
   const offers = ((data as SpecialOffer[]) ?? []).filter(Boolean);
-  const carouselOffers = offers.length >= 2 ? offers : FALLBACK_OFFERS;
+  const carouselOffers = offers.length ? offers : FALLBACK_OFFERS;
+
 
   return (
     <>
