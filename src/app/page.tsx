@@ -6,7 +6,6 @@
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import HeroSection from '@/components/features/home/HeroSection';
-import TrustBanner from '@/components/features/home/TrustBanner';
 import FlightSearchForm from '@/components/forms/FlightSearchForm';
 import ReviewCard from '@/components/features/reviews/ReviewCard';
 import AboutSection from '@/components/features/home/AboutSection';
@@ -124,7 +123,7 @@ export default async function HomePage() {
     .limit(8);
 
   const offers = ((data as SpecialOffer[]) ?? []).filter(Boolean);
-  const carouselOffers = offers.length ? offers : FALLBACK_OFFERS;
+  const carouselOffers = offers.length >= 2 ? offers : FALLBACK_OFFERS;
 
   return (
     <>
@@ -166,9 +165,6 @@ export default async function HomePage() {
           <HomeOffersCarousel offers={carouselOffers} />
         </div>
       </section>
-
-      {/* Trust */}
-      <TrustBanner />
 
       {/* Landing sections */}
       <AboutSection />

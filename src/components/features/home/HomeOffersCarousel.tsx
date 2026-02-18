@@ -20,6 +20,8 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
   const [selected, setSelected] = useState(0);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+
 
   const onSelect = useCallback(() => {
     if (!emblaApi) return;
@@ -35,6 +37,23 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
     emblaApi.on('reInit', onSelect);
   }, [emblaApi, onSelect]);
 
+  useEffect(() => {
+  if (!emblaApi) return;
+  if (offers.length <= 1) return;
+  if (isPaused) return;
+
+  const id = window.setInterval(() => {
+    if (document.hidden) return;
+
+    if (emblaApi.canScrollNext()) emblaApi.scrollNext();
+    else emblaApi.scrollTo(0);
+  }, 2500);
+
+  return () => window.clearInterval(id);
+}, [emblaApi, offers.length, isPaused]);
+
+
+
   const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
   const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
 
@@ -42,6 +61,7 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
 
   return (
     <div className="relative">
+
       <div ref={emblaRef} className="overflow-hidden">
         <div className="flex gap-6">
           {offers.map((o) => {
