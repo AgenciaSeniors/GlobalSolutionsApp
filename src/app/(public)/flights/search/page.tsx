@@ -171,24 +171,39 @@ export default function FlightSearchResultsPage() {
                   isLoading={isLoading}
                   error={error}
                   onSelectFlight={async (flightId) => {
-                    // Persist the selected offer into DB (service role) so the detail page can load by UUID.
-                    // Falls back to the raw id if persist fails.
+                    // Save raw flight data to sessionStorage so checkout can use it
+                    // (the persist to DB will happen at checkout time)
+                    try {
+                      const rawFlight = rawResultsMapRef.current.get(flightId);
+                      if (rawFlight) {
+                        sessionStorage.setItem('selectedFlightData', JSON.stringify(rawFlight));
+                      }
+                    } catch (e) {
+                      console.warn('[flights/search] Could not save to sessionStorage:', e);
+                    }
+
+                    // Try to persist to get a UUID for the detail page.
+                    // If it fails, still navigate with the raw ID — checkout will handle persist.
                     try {
                       const raw = rawResultsMapRef.current.get(flightId);
-                      const res = await fetch('/api/flights/persist', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ flight: raw ?? { id: flightId } }),
-                      });
-
-                      const json = (await res.json()) as { id?: string; error?: string };
-                      const dbId = res.ok && json?.id ? json.id : null;
-
-                      router.push(`/flights/${dbId ?? flightId}?passengers=${passengerCount}`);
+                      if (raw) {
+                        const res = await fetch('/api/flights/persist', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ flight: raw }),
+                        });
+                        const json = (await res.json()) as { id?: string };
+                        if (res.ok && json?.id) {
+                          router.push(`/flights/${json.id}?passengers=${passengerCount}`);
+                          return;
+                        }
+                      }
                     } catch (e) {
                       console.warn('[flights/search] persist failed, using raw id:', e);
-                      router.push(`/flights/${flightId}?passengers=${passengerCount}`);
                     }
+
+                    // Fallback: navigate with raw ID, checkout will persist
+                    router.push(`/checkout?flight=${flightId}&passengers=${passengerCount}`);
                   }}
                 />
               </div>
