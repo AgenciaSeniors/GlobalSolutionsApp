@@ -31,13 +31,13 @@ export const DEFAULT_SPECS: CarSpecs = {
 
 /* ─── Car categories ─── */
 export const CAR_CATEGORIES = [
-  'economy',
-  'compact',
-  'midsize',
-  'suv',
-  'van',
-  'luxury',
-  'convertible',
+  "economy",
+  "compact",
+  "midsize",
+  "suv",
+  "van",
+  "luxury",
+  "convertible",
 ] as const;
 
 export type CarCategory = (typeof CAR_CATEGORIES)[number];

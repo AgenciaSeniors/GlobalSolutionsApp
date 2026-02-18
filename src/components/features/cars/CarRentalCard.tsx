@@ -5,6 +5,7 @@
  * @author Dev B
  */
 import Link from 'next/link';
+import Image from 'next/image';
 import { Car, Users, Fuel, Cog } from 'lucide-react';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -25,10 +26,13 @@ export default function CarRentalCard({ car }: CarRentalCardProps) {
         {/* Image */}
         <div className="relative flex h-44 items-center justify-center bg-gradient-to-br from-brand-50 to-brand-100">
           {car.image_url ? (
-            <img
+            <Image
               src={car.image_url}
               alt={`${car.brand} ${car.model}`}
-              className="h-full w-full object-cover"
+              fill
+              unoptimized
+              className="object-cover"
+              sizes="(max-width: 768px) 100vw, 33vw"
             />
           ) : (
             <Car className="h-16 w-16 text-brand-300" />

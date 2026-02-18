@@ -7,11 +7,20 @@
 
 import { useState, type FormEvent, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import Button from '@/components/ui/Button';
 import { createClient } from '@/lib/supabase/client';
 import { CAR_CATEGORIES, CATEGORY_LABELS, FUEL_TYPES, FUEL_LABELS, DEFAULT_SPECS } from '@/lib/cars/types';
 import type { Car, CarSpecs, CarCategory } from '@/lib/cars/types';
-import { Car as CarIcon, Upload, X, Save, ArrowLeft } from 'lucide-react';
+import { Upload, X, Save, ArrowLeft } from 'lucide-react';
+
+function isCarCategory(v: string): v is CarCategory {
+  return (CAR_CATEGORIES as readonly string[]).includes(v);
+}
+
+function isTransmission(v: string): v is 'manual' | 'automatic' {
+  return v === 'manual' || v === 'automatic';
+}
 
 interface Props {
   car?: Car | null;
@@ -26,7 +35,25 @@ export default function CarForm({ car, mode }: Props) {
   const [imageFile, setImageFile] = useState<File | null>(null);
 
   // Form state
-  const [form, setForm] = useState({
+  type FormState = {
+    brand: string;
+    model: string;
+    category: CarCategory;
+    transmission: 'manual' | 'automatic';
+    passenger_capacity: number;
+    luggage_capacity: number;
+    daily_rate: number;
+    available_units: number;
+    description: string;
+    currency: string;
+    pickup_location: string;
+    dropoff_location: string;
+    supplier: string;
+    features: string;
+    is_active: boolean;
+  };
+
+  const [form, setForm] = useState<FormState>({
     brand: car?.brand ?? '',
     model: car?.model ?? '',
     category: (car?.category ?? 'economy') as CarCategory,
@@ -46,11 +73,11 @@ export default function CarForm({ car, mode }: Props) {
 
   const [specs, setSpecs] = useState<CarSpecs>(car?.specs ?? DEFAULT_SPECS);
 
-  function updateForm(field: string, value: unknown) {
+  function updateForm<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  function updateSpec(field: keyof CarSpecs, value: unknown) {
+  function updateSpec<K extends keyof CarSpecs>(field: K, value: CarSpecs[K]) {
     setSpecs((prev) => ({ ...prev, [field]: value }));
   }
 
@@ -108,22 +135,22 @@ export default function CarForm({ car, mode }: Props) {
         .filter(Boolean);
 
       const payload: Record<string, unknown> = {
-        brand: form.brand,
-        model: form.model,
+        brand: form.brand.trim(),
+        model: form.model.trim(),
         category: form.category,
         transmission: form.transmission,
-        passenger_capacity: Number(form.passenger_capacity),
-        luggage_capacity: Number(form.luggage_capacity),
-        daily_rate: Number(form.daily_rate),
-        available_units: Number(form.available_units),
+        passenger_capacity: Number.isFinite(form.passenger_capacity) ? form.passenger_capacity : 0,
+        luggage_capacity: Number.isFinite(form.luggage_capacity) ? form.luggage_capacity : 0,
+        daily_rate: Number.isFinite(form.daily_rate) ? form.daily_rate : 0,
+        available_units: Number.isFinite(form.available_units) ? Math.max(1, form.available_units) : 1,
         description: form.description || null,
-        currency: form.currency,
-        pickup_location: form.pickup_location,
+        currency: form.currency?.trim() || 'USD',
+        pickup_location: form.pickup_location?.trim() || 'Mismo lugar de recogida',
         dropoff_location: form.dropoff_location || null,
         supplier: form.supplier || null,
         features,
-        specs,
-        year: specs.year || null,
+        specs: specs ?? {},
+        year: (specs as CarSpecs).year ?? null,
         is_active: form.is_active,
       };
 
@@ -198,7 +225,14 @@ export default function CarForm({ car, mode }: Props) {
           </div>
           <div>
             <label className={labelClass}>Categoría *</label>
-            <select className={inputClass} value={form.category} onChange={(e) => updateForm('category', e.target.value)}>
+            <select
+              className={inputClass}
+              value={form.category}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (isCarCategory(v)) updateForm('category', v);
+              }}
+            >
               {CAR_CATEGORIES.map((c) => (
                 <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
               ))}
@@ -206,26 +240,62 @@ export default function CarForm({ car, mode }: Props) {
           </div>
           <div>
             <label className={labelClass}>Transmisión *</label>
-            <select className={inputClass} value={form.transmission} onChange={(e) => updateForm('transmission', e.target.value)}>
+            <select
+              className={inputClass}
+              value={form.transmission}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (isTransmission(v)) updateForm('transmission', v);
+              }}
+            >
               <option value="automatic">Automático</option>
               <option value="manual">Manual</option>
             </select>
           </div>
           <div>
             <label className={labelClass}>Precio por día (USD) *</label>
-            <input className={inputClass} type="number" min={0} step={0.01} value={form.daily_rate} onChange={(e) => updateForm('daily_rate', e.target.value)} required />
+            <input
+              className={inputClass}
+              type="number"
+              min={0}
+              step={0.01}
+              value={form.daily_rate}
+              onChange={(e) => updateForm('daily_rate', Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0)}
+              required
+            />
           </div>
           <div>
             <label className={labelClass}>Unidades disponibles</label>
-            <input className={inputClass} type="number" min={0} value={form.available_units} onChange={(e) => updateForm('available_units', e.target.value)} />
+            <input
+              className={inputClass}
+              type="number"
+              min={1}
+              value={form.available_units}
+              onChange={(e) => updateForm('available_units', Number.isFinite(e.target.valueAsNumber) ? Math.max(1, e.target.valueAsNumber) : 1)}
+            />
           </div>
           <div>
             <label className={labelClass}>Pasajeros</label>
-            <input className={inputClass} type="number" min={1} max={15} value={form.passenger_capacity} onChange={(e) => updateForm('passenger_capacity', e.target.value)} />
+            <input
+              className={inputClass}
+              type="number"
+              min={1}
+              max={15}
+              value={form.passenger_capacity}
+              onChange={(e) => updateForm('passenger_capacity', Number.isFinite(e.target.valueAsNumber) ? Math.max(1, e.target.valueAsNumber) : 1)}
+              required
+            />
           </div>
           <div>
             <label className={labelClass}>Maletas</label>
-            <input className={inputClass} type="number" min={0} value={form.luggage_capacity} onChange={(e) => updateForm('luggage_capacity', e.target.value)} />
+            <input
+              className={inputClass}
+              type="number"
+              min={0}
+              value={form.luggage_capacity}
+              onChange={(e) => updateForm('luggage_capacity', Number.isFinite(e.target.valueAsNumber) ? Math.max(0, e.target.valueAsNumber) : 0)}
+              required
+            />
           </div>
         </div>
         <div className="mt-4">
@@ -245,11 +315,25 @@ export default function CarForm({ car, mode }: Props) {
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
           <div>
             <label className={labelClass}>Asientos</label>
-            <input className={inputClass} type="number" min={1} max={15} value={specs.seats} onChange={(e) => updateSpec('seats', Number(e.target.value))} />
+            <input
+              className={inputClass}
+              type="number"
+              min={1}
+              max={15}
+              value={Number(specs.seats ?? 0)}
+              onChange={(e) => updateSpec('seats', (e.target.valueAsNumber as CarSpecs['seats']) ?? (specs.seats as CarSpecs['seats']))}
+            />
           </div>
           <div>
             <label className={labelClass}>Puertas</label>
-            <input className={inputClass} type="number" min={2} max={6} value={specs.doors} onChange={(e) => updateSpec('doors', Number(e.target.value))} />
+            <input
+              className={inputClass}
+              type="number"
+              min={2}
+              max={6}
+              value={Number(specs.doors ?? 0)}
+              onChange={(e) => updateSpec('doors', (e.target.valueAsNumber as CarSpecs['doors']) ?? (specs.doors as CarSpecs['doors']))}
+            />
           </div>
           <div>
             <label className={labelClass}>Combustible</label>
@@ -261,7 +345,14 @@ export default function CarForm({ car, mode }: Props) {
           </div>
           <div>
             <label className={labelClass}>Año</label>
-            <input className={inputClass} type="number" min={2000} max={2030} value={specs.year} onChange={(e) => updateSpec('year', Number(e.target.value))} />
+            <input
+              className={inputClass}
+              type="number"
+              min={2000}
+              max={2030}
+              value={Number(specs.year ?? 0)}
+              onChange={(e) => updateSpec('year', (e.target.valueAsNumber as CarSpecs['year']) ?? (specs.year as CarSpecs['year']))}
+            />
           </div>
           <div>
             <label className={labelClass}>Motor</label>
@@ -312,7 +403,14 @@ export default function CarForm({ car, mode }: Props) {
         <h3 className="mb-4 text-lg font-bold text-neutral-900">Imagen</h3>
         {imagePreview ? (
           <div className="relative inline-block">
-            <img src={imagePreview} alt="Preview" className="h-40 w-60 rounded-xl object-cover border border-neutral-200" />
+            <Image
+              src={imagePreview}
+              alt="Preview"
+              width={240}
+              height={160}
+              className="h-40 w-60 rounded-xl object-cover border border-neutral-200"
+              unoptimized
+            />
             <button
               type="button"
               onClick={removeImage}
