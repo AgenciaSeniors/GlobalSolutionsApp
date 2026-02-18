@@ -4,15 +4,16 @@
  * @author Dev B
  */
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
-import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { getCarById } from '@/lib/cars/service';
 import { CATEGORY_LABELS, FUEL_LABELS } from '@/lib/cars/types';
 import { formatCurrency } from '@/lib/utils/formatters';
+import ReserveWhatsApp from '@/components/features/cars/ReserveWhatsApp';
 import {
   Car, Users, Fuel, Cog, Thermometer, Briefcase,
   MapPin, Calendar, ArrowLeft, DoorOpen, Palette,
@@ -39,6 +40,10 @@ export default async function CarDetailPage({ params }: Props) {
 
   const specs = car.specs;
 
+  const carUrl = process.env.NEXT_PUBLIC_APP_URL
+    ? `${process.env.NEXT_PUBLIC_APP_URL}/cars/${id}`
+    : undefined;
+
   return (
     <>
       <Navbar />
@@ -57,9 +62,12 @@ export default async function CarDetailPage({ params }: Props) {
               {/* Image */}
               <div>
                 {car.image_url ? (
-                  <img
+                  <Image
                     src={car.image_url}
                     alt={`${car.brand} ${car.model}`}
+                    width={1200}
+                    height={800}
+                    unoptimized
                     className="h-80 w-full rounded-2xl object-cover border border-neutral-200 shadow-sm"
                   />
                 ) : (
@@ -124,15 +132,18 @@ export default async function CarDetailPage({ params }: Props) {
                   </div>
                 )}
 
-                {/* CTA */}
-                <div className="mt-8">
-                  <Button size="lg" className="w-full justify-center text-base">
-                    Solicitar Reserva
-                  </Button>
-                  <p className="mt-2 text-center text-xs text-neutral-400">
-                    Un agente te contactará para confirmar disponibilidad
-                  </p>
-                </div>
+                {/* CTA (WhatsApp reservation) */}
+                <ReserveWhatsApp
+                  car={{
+                    brand: car.brand,
+                    model: car.model,
+                    daily_rate: car.daily_rate,
+                    currency: car.currency,
+                    pickup_location: car.pickup_location,
+                    dropoff_location: car.dropoff_location,
+                  }}
+                  carUrl={carUrl}
+                />
               </div>
             </div>
 
