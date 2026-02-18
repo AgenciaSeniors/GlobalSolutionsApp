@@ -119,6 +119,7 @@ export const USER_SIDEBAR_LINKS: SidebarLink[] = [
 
 export const AGENT_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/agent/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/agent/dashboard/quick-quote', label: 'Cotizador Rápido', icon: DollarSign },
   { href: '/agent/dashboard/bookings', label: 'Reservas Asignadas', icon: CalendarCheck },
   { href: '/agent/dashboard/commissions', label: 'Mis Comisiones', icon: DollarSign },
   { href: '/agent/dashboard/news', label: 'Muro de Noticias', icon: Newspaper },
