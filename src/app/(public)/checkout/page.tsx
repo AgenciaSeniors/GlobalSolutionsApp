@@ -97,6 +97,13 @@ function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: str
   } as FlightWithDetails;
 }
 
+
+function isUuid(v: string): boolean {
+  // Simple UUID v4-ish check (accepts any valid UUID format)
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+
 export default function CheckoutPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -303,12 +310,48 @@ export default function CheckoutPage() {
       const newBookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
       // Create booking (always pending until payment is confirmed by backend)
+      // Ensure flight exists in DB and we have a real UUID for the FK (bookings.flight_id)
+      let flightDbId = flight.id;
+      if (!isUuid(flightDbId)) {
+        const { data: insertedFlight, error: insFlightErr } = await supabase
+          .from('flights')
+          .insert({
+            airline_id: isUuid(flight.airline_id) ? flight.airline_id : null,
+            flight_number: flight.flight_number || 'EXT',
+            origin_airport_id: isUuid(flight.origin_airport_id) ? flight.origin_airport_id : null,
+            destination_airport_id: isUuid(flight.destination_airport_id) ? flight.destination_airport_id : null,
+            departure_datetime: flight.departure_datetime,
+            arrival_datetime: flight.arrival_datetime,
+            base_price: Number(flight.base_price) || Number(flight.final_price) || 0,
+            markup_percentage: Number.isFinite(Number(flight.markup_percentage))
+              ? Number(flight.markup_percentage)
+              : 10,
+            total_seats: Number(flight.total_seats) || Math.max(50, passengerCount),
+            available_seats:
+              Number(flight.available_seats) || Math.max(50, passengerCount),
+            aircraft_type: flight.aircraft_type ?? null,
+            is_exclusive_offer: Boolean(flight.is_exclusive_offer),
+            offer_expires_at: flight.offer_expires_at ?? null,
+          })
+          .select('id')
+          .single();
+
+        if (insFlightErr || !insertedFlight?.id) {
+          throw new Error(
+            insFlightErr?.message ??
+              'No se pudo registrar el vuelo para completar la reserva.'
+          );
+        }
+
+        flightDbId = insertedFlight.id;
+      }
+
       const { data: booking, error: bookingErr } = await supabase
         .from('bookings')
         .insert({
           booking_code: newBookingCode,
           user_id: user.id,
-          flight_id: flight.id,
+          flight_id: flightDbId,
           subtotal: breakdown.subtotal,
           payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
           total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
@@ -341,7 +384,7 @@ export default function CheckoutPage() {
       await supabase
         .from('flights')
         .update({ available_seats: flight.available_seats - passengerCount })
-        .eq('id', flight.id);
+        .eq('id', flightDbId);
 
       if (gateway === 'zelle') {
         setBookingCode(newBookingCode);

@@ -24,6 +24,11 @@ import {
   Luggage, ArrowRight, ArrowLeft, CreditCard, ChevronDown, Briefcase, Crown, Armchair
 } from 'lucide-react';
 
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 export default function FlightDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -41,6 +46,12 @@ export default function FlightDetailPage() {
 
   useEffect(() => {
   async function load() {
+    const id = String(params.id ?? '');
+    if (!isUuid(id)) {
+      setFlight(null);
+      setLoading(false);
+      return;
+    }
     const { data, error } = await supabase
       .from('flights')
       .select('*')
