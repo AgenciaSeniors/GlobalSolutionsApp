@@ -1,3 +1,4 @@
+//C:\Users\Eduardo\GlobalSolutionsApp\src\app\(public)\flights\[id]/page.tsx
 /**
  * @fileoverview Flight detail page — complete technical specs.
  * Per spec §3.4: Must show airline, aircraft model, departure/arrival,
@@ -24,11 +25,6 @@ import {
   Luggage, ArrowRight, ArrowLeft, CreditCard, ChevronDown, Briefcase, Crown, Armchair
 } from 'lucide-react';
 
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
-
 export default function FlightDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -46,15 +42,9 @@ export default function FlightDetailPage() {
 
   useEffect(() => {
   async function load() {
-    const id = String(params.id ?? '');
-    if (!isUuid(id)) {
-      setFlight(null);
-      setLoading(false);
-      return;
-    }
     const { data, error } = await supabase
       .from('flights')
-      .select('*')
+      .select('*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)')
       .eq('id', params.id)
       .single();
     
@@ -68,9 +58,7 @@ export default function FlightDetailPage() {
       return;
     }
     
-    if (data) {
-      setFlight(data as unknown as FlightWithDetails);
-    }
+    if (data) setFlight(data as unknown as FlightWithDetails);
     setLoading(false);
   }
   if (params.id) load();

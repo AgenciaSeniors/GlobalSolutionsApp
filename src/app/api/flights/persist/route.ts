@@ -1,112 +1,200 @@
+// src/app/api/flights/persist/route.ts
 /**
  * POST /api/flights/persist
- * Persists a selected FlightOffer into `public.flights` and returns the DB uuid.
  *
- * This is needed because the flight search provider uses non-uuid ids, while
- * `bookings.flight_id` is a FK to `flights.id` (uuid).
+ * Persists a flight offer (from external provider search results) into the DB
+ * so that subsequent pages can reference it via a real UUID.
+ *
+ * This endpoint uses the Supabase Service Role (createAdminClient) to bypass RLS.
  */
-import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 
-type FlightOffer = {
-  id: string;
-  price: number;
-  currency: string;
-  segments: Array<{
-    origin?: string;
-    destination?: string;
-    departureTime?: string;
-    arrivalTime?: string;
-    airline?: { code?: string; name?: string } | null;
-    flightNumber?: string;
-  }>;
-  provider?: string;
-};
+import { NextRequest, NextResponse } from 'next/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
-function isISODateTime(s: string | undefined): s is string {
-  if (!s) return false;
-  const d = new Date(s);
-  return !Number.isNaN(d.getTime());
+type AnyRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is AnyRecord {
+  return typeof v === 'object' && v !== null;
 }
 
-function safeFlightNumber(offer: FlightOffer): string {
-  const first = offer.segments?.[0];
-  const n = (first?.flightNumber || "").trim();
-  if (n) return n.slice(0, 10);
-  const airlineCode = (first?.airline?.code || "EXT").trim();
-  // Create a short deterministic-ish label (<= 10 chars)
-  const suffix = Math.abs(hashString(offer.id)).toString().slice(0, 4);
-  return `${airlineCode}`.slice(0, 6) + suffix; // <= 10
+function pickString(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  return s ? s : null;
 }
 
-function hashString(str: string): number {
-  // tiny deterministic hash
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h << 5) - h + str.charCodeAt(i);
-    h |= 0;
-  }
-  return h;
+function pickNumber(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function upper3(s: string | null): string | null {
+  if (!s) return null;
+  const u = s.toUpperCase();
+  return u.length === 3 ? u : u;
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = createAdminClient();
+
+  let body: unknown;
   try {
-    const body = (await req.json()) as { offer?: FlightOffer; passengers?: number | null };
-    const offer = body.offer;
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Body JSON inválido.' }, { status: 400 });
+  }
 
-    if (!offer || !Array.isArray(offer.segments) || offer.segments.length === 0) {
-      return NextResponse.json({ error: "Missing or invalid offer" }, { status: 400 });
-    }
+  const flight = isRecord(body) && isRecord(body.flight) ? (body.flight as AnyRecord) : null;
+  if (!flight) {
+    return NextResponse.json({ error: 'flight es requerido.' }, { status: 400 });
+  }
 
-    const first = offer.segments[0];
-    const last = offer.segments[offer.segments.length - 1];
+  // ---- Extract airline ----
+  const airline = isRecord(flight.airline) ? (flight.airline as AnyRecord) : {};
+  const airlineIata = upper3(
+    pickString(airline.iata_code) ?? pickString(flight.airline_code) ?? pickString(flight.airline_iata)
+  );
+  const airlineName = pickString(airline.name) ?? pickString(flight.airline_name) ?? 'Aerolínea';
+  const airlineLogo = pickString(airline.logo_url) ?? pickString((airline as AnyRecord).logo_symbol_url) ?? null;
 
-    if (!isISODateTime(first.departureTime) || !isISODateTime(last.arrivalTime)) {
-      return NextResponse.json({ error: "Offer has invalid departure/arrival datetimes" }, { status: 400 });
-    }
+  if (!airlineIata) {
+    return NextResponse.json({ error: 'No se pudo determinar iata_code de la aerolínea.' }, { status: 400 });
+  }
 
-    const basePrice = Number(offer.price);
-    if (!Number.isFinite(basePrice) || basePrice <= 0) {
-      return NextResponse.json({ error: "Offer has invalid price" }, { status: 400 });
-    }
+  // ---- Extract airports ----
+  const originAirport = isRecord(flight.origin_airport) ? (flight.origin_airport as AnyRecord) : {};
+  const destAirport = isRecord(flight.destination_airport) ? (flight.destination_airport as AnyRecord) : {};
 
-    const passengers = Number(body.passengers ?? 1);
-    const seats = Number.isFinite(passengers) && passengers > 0 ? Math.min(Math.max(passengers, 1), 9) : 1;
+  const originIata = upper3(
+    pickString(originAirport.iata_code) ?? pickString(flight.origin_iata) ?? pickString(flight.origin)
+  );
+  const destIata = upper3(
+    pickString(destAirport.iata_code) ?? pickString(flight.destination_iata) ?? pickString(flight.destination)
+  );
 
-    const supabase = createAdminClient();
+  if (!originIata || !destIata) {
+    return NextResponse.json({ error: 'No se pudo determinar IATA origen/destino.' }, { status: 400 });
+  }
 
-    // Insert a flight row. We don't have a provider_key column in schema, so we store only
-    // what the schema requires; this row exists primarily to provide a uuid for FK.
-    const flight_number = safeFlightNumber(offer);
+  // ---- Extract schedule/pricing ----
+  const departure = pickString(flight.departure_datetime) ?? pickString(flight.departureTime);
+  const arrival = pickString(flight.arrival_datetime) ?? pickString(flight.arrivalTime);
+  const flightNumber =
+    pickString(flight.flight_number) ?? pickString(flight.flightNumber) ?? pickString((flight as AnyRecord).number);
 
-    const { data, error } = await supabase
-      .from("flights")
-      .insert({
-        flight_number,
-        departure_datetime: first.departureTime,
-        arrival_datetime: last.arrivalTime,
-        base_price: basePrice,
-        total_seats: Math.max(seats, 1),
-        available_seats: Math.max(seats, 1),
-        aircraft_type: null,
-        is_exclusive_offer: Boolean((offer as any).is_exclusive_offer ?? false),
-        offer_expires_at: null,
-      })
-      .select("id")
-      .single();
-
-    if (error || !data?.id) {
-      return NextResponse.json(
-        { error: error?.message ?? "Failed to persist flight" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ flight_id: data.id }, { status: 200 });
-  } catch (e: any) {
+  if (!departure || !arrival || !flightNumber) {
     return NextResponse.json(
-      { error: e?.message ?? "Unexpected error" },
-      { status: 500 }
+      { error: 'Campos requeridos faltantes: departure_datetime, arrival_datetime o flight_number.' },
+      { status: 400 }
     );
   }
+
+  const basePrice = pickNumber(flight.base_price) ?? pickNumber(flight.price) ?? 0;
+  const markupPct = pickNumber(flight.markup_percentage) ?? 0;
+  const finalPrice = pickNumber(flight.final_price) ?? pickNumber(flight.price) ?? basePrice;
+  const aircraftType = pickString(flight.aircraft_type);
+  const baggage = pickString(flight.baggage_included);
+  const isExclusive = Boolean(flight.is_exclusive_offer);
+
+  // ---- Upsert airline & airports (by iata_code) ----
+  const { data: airlineRow, error: airlineErr } = await supabase
+    .from('airlines')
+    .upsert(
+      {
+        iata_code: airlineIata,
+        name: airlineName,
+        logo_url: airlineLogo,
+        is_active: true,
+      },
+      { onConflict: 'iata_code' }
+    )
+    .select('id')
+    .single();
+
+  if (airlineErr || !airlineRow) {
+    return NextResponse.json({ error: airlineErr?.message ?? 'Error guardando aerolínea.' }, { status: 500 });
+  }
+
+  const { data: originRow, error: originErr } = await supabase
+    .from('airports')
+    .upsert(
+      {
+        iata_code: originIata,
+        name: pickString(originAirport.name) ?? originIata,
+        city: pickString((originAirport as AnyRecord).city) ?? originIata,
+        country: pickString((originAirport as AnyRecord).country) ?? '',
+        timezone: pickString((originAirport as AnyRecord).timezone),
+        is_active: true,
+      },
+      { onConflict: 'iata_code' }
+    )
+    .select('id')
+    .single();
+
+  if (originErr || !originRow) {
+    return NextResponse.json({ error: originErr?.message ?? 'Error guardando aeropuerto origen.' }, { status: 500 });
+  }
+
+  const { data: destRow, error: destErr } = await supabase
+    .from('airports')
+    .upsert(
+      {
+        iata_code: destIata,
+        name: pickString(destAirport.name) ?? destIata,
+        city: pickString((destAirport as AnyRecord).city) ?? destIata,
+        country: pickString((destAirport as AnyRecord).country) ?? '',
+        timezone: pickString((destAirport as AnyRecord).timezone),
+        is_active: true,
+      },
+      { onConflict: 'iata_code' }
+    )
+    .select('id')
+    .single();
+
+  if (destErr || !destRow) {
+    return NextResponse.json({ error: destErr?.message ?? 'Error guardando aeropuerto destino.' }, { status: 500 });
+  }
+
+  // ---- Reuse if an identical flight already exists ----
+  const { data: existing } = await supabase
+    .from('flights')
+    .select('id')
+    .eq('flight_number', flightNumber)
+    .eq('departure_datetime', departure)
+    .eq('arrival_datetime', arrival)
+    .eq('origin_airport_id', originRow.id)
+    .eq('destination_airport_id', destRow.id)
+    .maybeSingle();
+
+  if (existing?.id) {
+    return NextResponse.json({ id: existing.id }, { status: 200 });
+  }
+
+  // ---- Insert flight ----
+  const { data: flightRow, error: flightErr } = await supabase
+    .from('flights')
+    .insert({
+      airline_id: airlineRow.id,
+      origin_airport_id: originRow.id,
+      destination_airport_id: destRow.id,
+      flight_number: flightNumber,
+      departure_datetime: departure,
+      arrival_datetime: arrival,
+      base_price: basePrice,
+      markup_percentage: markupPct,
+      final_price: finalPrice,
+      total_seats: 200,
+      available_seats: 200,
+      aircraft_type: aircraftType,
+      baggage_included: baggage,
+      is_exclusive_offer: isExclusive,
+    })
+    .select('id')
+    .single();
+
+  if (flightErr || !flightRow) {
+    return NextResponse.json({ error: flightErr?.message ?? 'Error guardando vuelo.' }, { status: 500 });
+  }
+
+  return NextResponse.json({ id: flightRow.id }, { status: 200 });
 }

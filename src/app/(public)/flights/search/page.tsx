@@ -1,6 +1,7 @@
+//C:\Users\Eduardo\GlobalSolutionsApp\src\app\(public)\flights\search
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -14,11 +15,6 @@ import FlightResultsList from '@/components/features/flights/FlightResultsList';
 import { useFlightSearch } from '@/hooks/useFlightSearch';
 import type { FlightOffer } from '@/types/models';
 import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
-
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
 
 type FilterState = {
   stops: string[];
@@ -55,6 +51,9 @@ export default function FlightSearchResultsPage() {
     priceRange: { min: 0, max: 2000 },
     airlines: [],
   });
+
+  // Keep a raw->mapped index so we can persist the selected flight
+  const rawResultsMapRef = useRef<Map<string, unknown>>(new Map());
 
   const from = searchParams.get('from') || '';
   const to = searchParams.get('to') || '';
@@ -104,7 +103,17 @@ export default function FlightSearchResultsPage() {
   }, [activeLeg, from, to, departure, returnDate, passengerCount, search]);
 
   const flights: FlightOffer[] = useMemo(() => {
-    return Array.isArray(results) ? results.map(mapApiFlightToOffer) : [];
+    const rawArr = Array.isArray(results) ? results : [];
+    const mapped = rawArr.map(mapApiFlightToOffer);
+
+    const newMap = new Map<string, unknown>();
+    for (let i = 0; i < mapped.length; i++) {
+      const raw = rawArr[i];
+      if (raw) newMap.set(mapped[i].id, raw);
+    }
+    rawResultsMapRef.current = newMap;
+
+    return mapped;
   }, [results]);
 
   // Apply client-side filters
@@ -161,9 +170,26 @@ export default function FlightSearchResultsPage() {
                   flights={filteredFlights}
                   isLoading={isLoading}
                   error={error}
-                  onSelectFlight={(flightId) =>
-                    router.push(`/flights/${flightId}?passengers=${passengerCount}`)
-                  }
+                  onSelectFlight={async (flightId) => {
+                    // Persist the selected offer into DB (service role) so the detail page can load by UUID.
+                    // Falls back to the raw id if persist fails.
+                    try {
+                      const raw = rawResultsMapRef.current.get(flightId);
+                      const res = await fetch('/api/flights/persist', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ flight: raw ?? { id: flightId } }),
+                      });
+
+                      const json = (await res.json()) as { id?: string; error?: string };
+                      const dbId = res.ok && json?.id ? json.id : null;
+
+                      router.push(`/flights/${dbId ?? flightId}?passengers=${passengerCount}`);
+                    } catch (e) {
+                      console.warn('[flights/search] persist failed, using raw id:', e);
+                      router.push(`/flights/${flightId}?passengers=${passengerCount}`);
+                    }
+                  }}
                 />
               </div>
             </div>

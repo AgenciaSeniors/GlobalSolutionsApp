@@ -1,3 +1,4 @@
+//C:\Users\Eduardo\GlobalSolutionsApp\src\app\(public)\checkout
 /**
  * @fileoverview Checkout page — creates booking + passengers, then redirects to /pay for real payment (Stripe/PayPal).
  * Keeps existing UI and UX while making the flow production-correct:
@@ -97,12 +98,9 @@ function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: str
   } as FlightWithDetails;
 }
 
-
-function isUuid(v: string): boolean {
-  // Simple UUID v4-ish check (accepts any valid UUID format)
+function isUuidLike(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
-
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -168,6 +166,28 @@ export default function CheckoutPage() {
           // Verify it matches the flight ID in the URL
           if (parsedId === flightId) {
             flightData = rawToFlightWithDetails(parsed, flightId);
+
+            // If this is an external (non-UUID) offer id, persist it to DB now and replace the id with a UUID.
+            if (!isUuidLike(flightData.id)) {
+              try {
+                const res = await fetch('/api/flights/persist', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ flight: parsed }),
+                });
+                const json = (await res.json()) as { id?: string; error?: string };
+
+                if (res.ok && json?.id && isUuidLike(json.id)) {
+                  flightData = { ...flightData, id: json.id };
+                  console.log('[Checkout] ✅ Persisted external offer -> UUID:', json.id);
+                } else {
+                  console.warn('[Checkout] Persist returned no UUID:', json?.error ?? json);
+                }
+              } catch (e) {
+                console.warn('[Checkout] Persist failed:', e);
+              }
+            }
+
             console.log('[Checkout] ✅ Loaded flight from sessionStorage:', flightData.airline.name, flightData.flight_number);
           }
 
@@ -180,7 +200,7 @@ export default function CheckoutPage() {
 
       // ✅ 2) If sessionStorage didn't have it, try DB (only works for real DB UUIDs)
       if (!flightData) {
-        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(flightId!);
+        const isUUID = isUuidLike(flightId!);
 
         if (isUUID) {
           try {
@@ -310,48 +330,12 @@ export default function CheckoutPage() {
       const newBookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
       // Create booking (always pending until payment is confirmed by backend)
-      // Ensure flight exists in DB and we have a real UUID for the FK (bookings.flight_id)
-      let flightDbId = flight.id;
-      if (!isUuid(flightDbId)) {
-        const { data: insertedFlight, error: insFlightErr } = await supabase
-          .from('flights')
-          .insert({
-            airline_id: isUuid(flight.airline_id) ? flight.airline_id : null,
-            flight_number: flight.flight_number || 'EXT',
-            origin_airport_id: isUuid(flight.origin_airport_id) ? flight.origin_airport_id : null,
-            destination_airport_id: isUuid(flight.destination_airport_id) ? flight.destination_airport_id : null,
-            departure_datetime: flight.departure_datetime,
-            arrival_datetime: flight.arrival_datetime,
-            base_price: Number(flight.base_price) || Number(flight.final_price) || 0,
-            markup_percentage: Number.isFinite(Number(flight.markup_percentage))
-              ? Number(flight.markup_percentage)
-              : 10,
-            total_seats: Number(flight.total_seats) || Math.max(50, passengerCount),
-            available_seats:
-              Number(flight.available_seats) || Math.max(50, passengerCount),
-            aircraft_type: flight.aircraft_type ?? null,
-            is_exclusive_offer: Boolean(flight.is_exclusive_offer),
-            offer_expires_at: flight.offer_expires_at ?? null,
-          })
-          .select('id')
-          .single();
-
-        if (insFlightErr || !insertedFlight?.id) {
-          throw new Error(
-            insFlightErr?.message ??
-              'No se pudo registrar el vuelo para completar la reserva.'
-          );
-        }
-
-        flightDbId = insertedFlight.id;
-      }
-
       const { data: booking, error: bookingErr } = await supabase
         .from('bookings')
         .insert({
           booking_code: newBookingCode,
           user_id: user.id,
-          flight_id: flightDbId,
+          flight_id: flight.id,
           subtotal: breakdown.subtotal,
           payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
           total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
@@ -381,10 +365,12 @@ export default function CheckoutPage() {
       }
 
       // Update available seats
-      await supabase
-        .from('flights')
-        .update({ available_seats: flight.available_seats - passengerCount })
-        .eq('id', flightDbId);
+      if (isUuidLike(flight.id)) {
+        await supabase
+          .from('flights')
+          .update({ available_seats: flight.available_seats - passengerCount })
+          .eq('id', flight.id);
+      }
 
       if (gateway === 'zelle') {
         setBookingCode(newBookingCode);
