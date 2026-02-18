@@ -102,7 +102,10 @@ export const agencyInventoryProvider: FlightsProvider = {
       const destinationId = airportIdByIata.get(leg.destination);
 
       if (!originId || !destinationId) {
-        throw new Error(`IATA inválido en tramo ${i + 1}`);
+        // Airport not in local DB — return empty for this leg.
+        // External providers (SkyScrapper) can still search worldwide IATAs.
+        results.push({ legIndex: i, flights: [] });
+        continue;
       }
 
       // Day window

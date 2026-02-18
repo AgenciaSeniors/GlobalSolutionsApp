@@ -40,6 +40,7 @@ export const ROUTES = {
   ADMIN_QUOTATIONS: '/admin/dashboard/quotations',
   ADMIN_TICKETS: '/admin/dashboard/tickets',
   ADMIN_SETTINGS: '/admin/dashboard/settings',
+  ADMIN_CARS: '/admin/dashboard/cars',
 } as const;
 
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES];

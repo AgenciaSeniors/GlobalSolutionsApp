@@ -21,7 +21,6 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
 
 /* ─────────────────────────────────────────────
  * Constants
@@ -378,11 +377,25 @@ function mergeResults(
  *    repeated searches are served entirely from the DB.
  * ───────────────────────────────────────────── */
 
+/**
+ * Background upsert: save new airports from API to local DB.
+ * Uses a service-role admin client to bypass RLS.
+ * If the admin client is not available (missing env var), this is a no-op.
+ */
 async function upsertAirportsInBackground(apiResults: AutocompleteResult[]): Promise<void> {
   if (apiResults.length === 0) return;
 
   try {
-    const adminClient = createAdminClient();
+    // Dynamically import admin client — if SUPABASE_SERVICE_ROLE_KEY is missing,
+    // createAdminClient() throws and we silently skip the upsert.
+    let adminClient;
+    try {
+      const { createAdminClient } = await import('@/lib/supabase/admin');
+      adminClient = createAdminClient();
+    } catch {
+      // Service role key not configured — skip upsert silently
+      return;
+    }
 
     // Only insert airports with valid 3-char IATA codes
     const rows = apiResults
@@ -391,26 +404,24 @@ async function upsertAirportsInBackground(apiResults: AutocompleteResult[]): Pro
         iata_code: r.code,
         name: r.name,
         city: r.city,
-        // Use existing country code if available, otherwise leave as-is
         country: r.countryCode ?? r.code,
       }));
 
     if (rows.length === 0) return;
 
-    // Upsert: insert if not exists, skip if IATA already present
     const { error } = await adminClient
       .from('airports')
       .upsert(rows, {
         onConflict: 'iata_code',
-        ignoreDuplicates: true, // Don't overwrite existing enriched data
+        ignoreDuplicates: true,
       });
 
     if (error) {
-      console.warn('[autocomplete] Background upsert error:', error.message);
+      // Log but don't crash — this is a nice-to-have optimization
+      console.warn('[autocomplete] Background upsert skipped:', error.message);
     }
-  } catch (err) {
-    // Non-critical — log and move on
-    console.warn('[autocomplete] Background upsert failed:', err);
+  } catch {
+    // Completely non-critical — swallow silently
   }
 }
 
