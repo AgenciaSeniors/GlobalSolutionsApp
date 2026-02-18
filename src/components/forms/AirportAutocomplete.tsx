@@ -208,6 +208,8 @@ export default function AirportAutocomplete({
       <input
         ref={inputRef}
         type="text"
+        // 🧪 MEJORA PARA TESTING: Identificador único
+        data-testid={placeholder?.toLowerCase().includes('origen') ? 'origin-input' : 'destination-input'}
         value={inputValue}
         onChange={(e) => handleInputChange(e.target.value)}
         onKeyDown={handleKeyDown}
