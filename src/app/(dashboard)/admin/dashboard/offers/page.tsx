@@ -35,6 +35,7 @@ export default function AdminOffersPage() {
   const [destination, setDestination] = useState('');
   const [destinationImg, setDestinationImg] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [originalPrice, setOriginalPrice] = useState('');
   const [offerPrice, setOfferPrice] = useState('');
   const [validDates, setValidDates] = useState('');
@@ -47,6 +48,19 @@ export default function AdminOffersPage() {
 
 
   useEffect(() => { fetchOffers(); }, []);
+
+  useEffect(() => {
+  if (!imageFile) {
+    setImagePreviewUrl(null);
+    return;
+  }
+
+  const url = URL.createObjectURL(imageFile);
+  setImagePreviewUrl(url);
+
+  return () => URL.revokeObjectURL(url);
+}, [imageFile]);
+
 
   async function fetchOffers() {
   setLoading(true);
@@ -74,6 +88,8 @@ export default function AdminOffersPage() {
     setOfferPrice(''); setValidDates(''); setUrgencyLabel('');
     setMaxSeats('20'); setSelectedTags([]); setEditingId(null);
     setImageFile(null);
+    setImagePreviewUrl(null);
+
   }
 
   function editOffer(offer: SpecialOffer) {
@@ -87,6 +103,8 @@ export default function AdminOffersPage() {
     setMaxSeats(offer.max_seats.toString());
     setSelectedTags(offer.tags);
     setImageFile(null);
+    setImagePreviewUrl(null);
+    setImagePreviewUrl(null);
     setShowForm(true);
   }
 async function uploadOfferImage(file: File) {
@@ -224,9 +242,9 @@ value={destination} onChange={e => setDestination(e.target.value)} placeholder="
   onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
 />
 
-{destinationImg && (
+{(imagePreviewUrl || destinationImg) && (
   <img
-    src={destinationImg}
+    src={imagePreviewUrl || destinationImg}
     alt="preview"
     className="mt-3 h-24 w-full rounded-xl object-cover"
   />
