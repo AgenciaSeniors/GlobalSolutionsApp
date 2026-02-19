@@ -9,7 +9,6 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import { calcDiscount, formatCurrency, formatDate } from '@/lib/utils/formatters';
-import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 
 function tagLabel(tag: string) {
@@ -22,7 +21,6 @@ function tagLabel(tag: string) {
 
 export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffer[] }) {
   const router = useRouter();
-  const supabase = createClient();
   const { user } = useAuthContext();
 
   const today = new Date();
@@ -99,97 +97,7 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
 
   const offersForSelected = selectedDate ? dateToOffers.get(selectedDate) ?? [] : [];
 
-    async function resolveOfferFlightId(offer: SpecialOffer, dateStr: string): Promise<string | null> {
-    /**
-     * Same reasoning as offer detail page:
-     * DATE[] (no tz) vs TIMESTAMPTZ → we search a wider window then filter by LOCAL day.
-     */
-    const localDateKey = (d: Date) => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    };
-
-    const start = new Date(`${dateStr}T00:00:00.000Z`);
-    const startWide = new Date(start);
-    startWide.setUTCDate(startWide.getUTCDate() - 1);
-    const endWide = new Date(start);
-    endWide.setUTCDate(endWide.getUTCDate() + 2);
-
-    const buildQuery = (enforceExclusive: boolean) => {
-      let query = supabase
-        .from('flights')
-        .select('*')
-        .gte('departure_datetime', startWide.toISOString())
-        .lt('departure_datetime', endWide.toISOString());
-
-      if (enforceExclusive) query = query.eq('is_exclusive_offer', true);
-
-      if (offer.airline_id) query = query.eq('airline_id', offer.airline_id);
-      if (offer.flight_number) query = query.eq('flight_number', offer.flight_number);
-      if (offer.origin_airport_id) query = query.eq('origin_airport_id', offer.origin_airport_id);
-      if (offer.destination_airport_id) query = query.eq('destination_airport_id', offer.destination_airport_id);
-
-      return query.order('departure_datetime', { ascending: true }).limit(50);
-    };
-
-    // 1) strict
-    let { data, error } = await buildQuery(true);
-    if (error) {
-      console.error('[OffersCalendarExplorer] resolveOfferFlightId error:', error);
-      return null;
-    }
-
-    let candidates = (data ?? []) as Array<Record<string, unknown>>;
-
-    let match =
-      candidates.find((f) => {
-        const dep = f.departure_datetime as string | undefined;
-        if (!dep) return false;
-        return localDateKey(new Date(dep)) === dateStr;
-      }) ??
-      candidates.find((f) => {
-        const dep = f.departure_datetime as string | undefined;
-        if (!dep) return false;
-        return new Date(dep).toISOString().slice(0, 10) === dateStr;
-      }) ??
-      null;
-
-    // 2) fallback: not exclusive required
-    if (!match) {
-      const res2 = await buildQuery(false);
-      if (res2.error) {
-        console.error('[OffersCalendarExplorer] resolveOfferFlightId fallback error:', res2.error);
-        return null;
-      }
-      candidates = (res2.data ?? []) as Array<Record<string, unknown>>;
-      match =
-        candidates.find((f) => {
-          const dep = f.departure_datetime as string | undefined;
-          if (!dep) return false;
-          return localDateKey(new Date(dep)) === dateStr;
-        }) ??
-        candidates.find((f) => {
-          const dep = f.departure_datetime as string | undefined;
-          if (!dep) return false;
-          return new Date(dep).toISOString().slice(0, 10) === dateStr;
-        }) ??
-        candidates[0] ??
-        null;
-    }
-
-    if (!match || !match.id) return null;
-
-    try {
-      sessionStorage.setItem('selectedFlightData', JSON.stringify(match));
-    } catch (e) {
-      console.warn('[OffersCalendarExplorer] sessionStorage set error:', e);
-    }
-    return String(match.id);
-  }
-
-  async function goToCheckout(offer: SpecialOffer) {
+  function goToCheckout(offer: SpecialOffer) {
     if (!selectedDate) return;
 
     if (!user) {
@@ -197,13 +105,25 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
       return;
     }
 
-    const flightId = await resolveOfferFlightId(offer, selectedDate);
-    if (!flightId) {
-      alert('No se encontró un vuelo para esta oferta en esa fecha. Verifica que exista en flights (is_exclusive_offer=true) y coincida con la oferta.');
-      return;
+    // Store offer data in sessionStorage for checkout to pick up
+    try {
+      sessionStorage.setItem('selectedOfferData', JSON.stringify({
+        offer_id: offer.id,
+        destination: offer.destination,
+        destination_img: offer.destination_img,
+        offer_price: offer.offer_price,
+        original_price: offer.original_price,
+        flight_number: offer.flight_number,
+        selected_date: selectedDate,
+        max_seats: offer.max_seats,
+        sold_seats: offer.sold_seats,
+        tags: offer.tags,
+      }));
+    } catch (e) {
+      console.warn('[OffersCalendarExplorer] sessionStorage set error:', e);
     }
 
-    router.push(`/checkout?flight=${flightId}&passengers=1`);
+    router.push(`/checkout?offer=${offer.id}&date=${selectedDate}&passengers=1`);
   }
 
   return (
