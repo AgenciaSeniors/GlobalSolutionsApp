@@ -99,37 +99,94 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
 
   const offersForSelected = selectedDate ? dateToOffers.get(selectedDate) ?? [] : [];
 
-  async function resolveOfferFlightId(offer: SpecialOffer, dateStr: string): Promise<string | null> {
-    const start = new Date(`${dateStr}T00:00:00.000Z`).toISOString();
-    const end = new Date(`${dateStr}T23:59:59.999Z`).toISOString();
+    async function resolveOfferFlightId(offer: SpecialOffer, dateStr: string): Promise<string | null> {
+    /**
+     * Same reasoning as offer detail page:
+     * DATE[] (no tz) vs TIMESTAMPTZ → we search a wider window then filter by LOCAL day.
+     */
+    const localDateKey = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
 
-    let query = supabase
-      .from('flights')
-      .select('*')
-      .eq('is_exclusive_offer', true)
-      .gte('departure_datetime', start)
-      .lte('departure_datetime', end);
+    const start = new Date(`${dateStr}T00:00:00.000Z`);
+    const startWide = new Date(start);
+    startWide.setUTCDate(startWide.getUTCDate() - 1);
+    const endWide = new Date(start);
+    endWide.setUTCDate(endWide.getUTCDate() + 2);
 
-    if (offer.airline_id) query = query.eq('airline_id', offer.airline_id);
-    if (offer.flight_number) query = query.eq('flight_number', offer.flight_number);
-    if (offer.origin_airport_id) query = query.eq('origin_airport_id', offer.origin_airport_id);
-    if (offer.destination_airport_id) query = query.eq('destination_airport_id', offer.destination_airport_id);
+    const buildQuery = (enforceExclusive: boolean) => {
+      let query = supabase
+        .from('flights')
+        .select('*')
+        .gte('departure_datetime', startWide.toISOString())
+        .lt('departure_datetime', endWide.toISOString());
 
-    const { data, error } = await query.order('departure_datetime', { ascending: true }).limit(1);
+      if (enforceExclusive) query = query.eq('is_exclusive_offer', true);
+
+      if (offer.airline_id) query = query.eq('airline_id', offer.airline_id);
+      if (offer.flight_number) query = query.eq('flight_number', offer.flight_number);
+      if (offer.origin_airport_id) query = query.eq('origin_airport_id', offer.origin_airport_id);
+      if (offer.destination_airport_id) query = query.eq('destination_airport_id', offer.destination_airport_id);
+
+      return query.order('departure_datetime', { ascending: true }).limit(50);
+    };
+
+    // 1) strict
+    let { data, error } = await buildQuery(true);
     if (error) {
       console.error('[OffersCalendarExplorer] resolveOfferFlightId error:', error);
       return null;
     }
 
-    const flight = (data ?? [])[0] as Record<string, unknown> | undefined;
-    if (!flight?.id) return null;
+    let candidates = (data ?? []) as Array<Record<string, unknown>>;
+
+    let match =
+      candidates.find((f) => {
+        const dep = f.departure_datetime as string | undefined;
+        if (!dep) return false;
+        return localDateKey(new Date(dep)) === dateStr;
+      }) ??
+      candidates.find((f) => {
+        const dep = f.departure_datetime as string | undefined;
+        if (!dep) return false;
+        return new Date(dep).toISOString().slice(0, 10) === dateStr;
+      }) ??
+      null;
+
+    // 2) fallback: not exclusive required
+    if (!match) {
+      const res2 = await buildQuery(false);
+      if (res2.error) {
+        console.error('[OffersCalendarExplorer] resolveOfferFlightId fallback error:', res2.error);
+        return null;
+      }
+      candidates = (res2.data ?? []) as Array<Record<string, unknown>>;
+      match =
+        candidates.find((f) => {
+          const dep = f.departure_datetime as string | undefined;
+          if (!dep) return false;
+          return localDateKey(new Date(dep)) === dateStr;
+        }) ??
+        candidates.find((f) => {
+          const dep = f.departure_datetime as string | undefined;
+          if (!dep) return false;
+          return new Date(dep).toISOString().slice(0, 10) === dateStr;
+        }) ??
+        candidates[0] ??
+        null;
+    }
+
+    if (!match || !match.id) return null;
 
     try {
-      sessionStorage.setItem('selectedFlightData', JSON.stringify(flight));
+      sessionStorage.setItem('selectedFlightData', JSON.stringify(match));
     } catch (e) {
       console.warn('[OffersCalendarExplorer] sessionStorage set error:', e);
     }
-    return String(flight.id);
+    return String(match.id);
   }
 
   async function goToCheckout(offer: SpecialOffer) {
