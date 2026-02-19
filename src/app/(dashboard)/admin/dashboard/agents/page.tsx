@@ -17,11 +17,6 @@ import type { Profile, UserRole, AgentRequest } from '@/types/models';
 
 type ToastState = { ok: string | null; error: string | null };
 
-// Tipo para la solicitud unida con el perfil
-type RequestWithProfile = AgentRequest & {
-  profiles: { full_name: string; email: string } | null;
-};
-
 function isNonEmpty(s: string): boolean {
   return s.trim().length > 0;
 }
@@ -34,8 +29,11 @@ export default function AdminAgentsPage() {
   const supabase = createClient();
 
   const [agents, setAgents] = useState<Profile[]>([]);
-  const [requests, setRequests] = useState<RequestWithProfile[]>([]);
+  const [requests, setRequests] = useState<AgentRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Estado para desplegar/ocultar la lista de solicitudes al dar clic en la tarjeta
+  const [showRequests, setShowRequests] = useState(false);
 
   // búsqueda en tabla
   const [search, setSearch] = useState('');
@@ -45,7 +43,6 @@ export default function AdminAgentsPage() {
   const [promoteCode, setPromoteCode] = useState('');
   const [promoteActive, setPromoteActive] = useState(true);
   const [promoteLoading, setPromoteLoading] = useState(false);
-  const [pendingRequestIdToApprove, setPendingRequestIdToApprove] = useState<string | null>(null);
   
   const [toast, setToast] = useState<ToastState>({ ok: null, error: null });
 
@@ -61,7 +58,7 @@ export default function AdminAgentsPage() {
   async function fetchAgents() {
     setLoading(true);
     
-    // Peticiones en paralelo para agentes y solicitudes pendientes
+    // Peticiones en paralelo
     const [agentsRes, requestsRes] = await Promise.all([
       supabase
         .from('profiles')
@@ -70,7 +67,7 @@ export default function AdminAgentsPage() {
         .order('created_at', { ascending: false }),
       supabase
         .from('agent_requests')
-        .select('*, profiles(full_name, email)')
+        .select('*')
         .eq('status', 'pending')
         .order('created_at', { ascending: true })
     ]);
@@ -91,7 +88,10 @@ export default function AdminAgentsPage() {
     }
 
     if (!requestsRes.error) {
-      setRequests((requestsRes.data as unknown as RequestWithProfile[]) ?? []);
+      const pendingReqs = (requestsRes.data as unknown as AgentRequest[]) ?? [];
+      setRequests(pendingReqs);
+      // Si el contador llega a 0, ocultar la lista
+      if (pendingReqs.length === 0) setShowRequests(false);
     }
 
     setLoading(false);
@@ -120,13 +120,11 @@ export default function AdminAgentsPage() {
 
     setSavingCodeById((p) => ({ ...p, [agentId]: true }));
     try {
-      // Evita codes vacíos
       if (!isNonEmpty(code)) {
         setToast({ ok: null, error: 'El código no puede estar vacío.' });
         return;
       }
 
-      // evita duplicados: buscar si ya existe ese agent_code en otro perfil
       const { data: existing, error: existErr } = await supabase
         .from('profiles')
         .select('id, agent_code')
@@ -160,19 +158,42 @@ export default function AdminAgentsPage() {
     }
   }
 
-  // Preparar aprobación desde la tabla de solicitudes
-  function handlePrepareApproval(req: RequestWithProfile) {
-    // Autocompletamos el form con su correo
-    setPromoteEmail(req.profiles?.email || '');
-    setPromoteCode('');
-    setPendingRequestIdToApprove(req.id);
+  // --- LÓGICA DE SOLICITUDES --- //
+  
+  // Aprobar: Cambia el rol directo a agent y marca como approved
+  async function handleApproveRequest(req: AgentRequest) {
+    setToast({ ok: null, error: null });
     
-    // Hacemos scroll suave hacia el formulario
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    setToast({ ok: 'Se requiere asignar un código de gestor para finalizar la aprobación.', error: null });
+    // 1. Actualizar el rol en la tabla perfiles
+    const { error: profileErr } = await supabase
+      .from('profiles')
+      .update({ role: 'agent' })
+      .eq('id', req.user_id);
+      
+    if (profileErr) {
+      setToast({ ok: null, error: 'Error al cambiar el rol del usuario.' });
+      return;
+    }
+    
+    // 2. Marcar la solicitud como aprobada
+    const { error: reqErr } = await supabase
+      .from('agent_requests')
+      .update({ status: 'approved' })
+      .eq('id', req.id);
+      
+    if (reqErr) {
+      setToast({ ok: null, error: 'Error al actualizar la solicitud.' });
+      return;
+    }
+
+    setToast({ 
+      ok: `¡Usuario ${req.contact_full_name} aprobado como agente! Recuerda asignarle un código en la tabla.`, 
+      error: null 
+    });
+    fetchAgents();
   }
 
-  // Declinar la solicitud
+  // Declinar: Marca la solicitud como rechazada
   async function handleDeclineRequest(reqId: string) {
     setToast({ ok: null, error: null });
     const { error } = await supabase
@@ -186,9 +207,10 @@ export default function AdminAgentsPage() {
     }
 
     setToast({ ok: 'Solicitud declinada.', error: null });
-    fetchAgents(); // Recargar tablas
+    fetchAgents(); 
   }
 
+  // Creación manual
   async function promoteToAgent() {
     setToast({ ok: null, error: null });
 
@@ -206,7 +228,6 @@ export default function AdminAgentsPage() {
 
     setPromoteLoading(true);
     try {
-      // 1) encuentra el usuario por email
       const { data: found, error: findErr } = await supabase
         .from('profiles')
         .select('*')
@@ -220,7 +241,6 @@ export default function AdminAgentsPage() {
 
       const profile = found as Profile;
 
-      // 2) evitar duplicados de agent_code
       const { data: existing, error: existErr } = await supabase
         .from('profiles')
         .select('id, agent_code')
@@ -237,7 +257,6 @@ export default function AdminAgentsPage() {
         return;
       }
 
-      // 3) actualizar role + agent_code + is_active
       const nextRole: UserRole = 'agent';
       const { error: upErr } = await supabase
         .from('profiles')
@@ -253,19 +272,10 @@ export default function AdminAgentsPage() {
         return;
       }
 
-      // 4) Si venía de una solicitud pendiente, marcarla como aprobada
-      if (pendingRequestIdToApprove) {
-        await supabase
-          .from('agent_requests')
-          .update({ status: 'approved' })
-          .eq('id', pendingRequestIdToApprove);
-      }
-
       setToast({ ok: `Agente aprobado exitosamente: ${profile.full_name}`, error: null });
       setPromoteEmail('');
       setPromoteCode('');
       setPromoteActive(true);
-      setPendingRequestIdToApprove(null);
       fetchAgents();
     } finally {
       setPromoteLoading(false);
@@ -294,6 +304,12 @@ export default function AdminAgentsPage() {
         />
 
         <div className="p-8 space-y-6">
+          {/* Alertas */}
+          <div className="flex items-center gap-2">
+            {toast.ok && <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-3 py-1 rounded-md w-full">{toast.ok}</span>}
+            {toast.error && <span className="text-sm font-medium text-red-600 bg-red-50 px-3 py-1 rounded-md w-full">{toast.error}</span>}
+          </div>
+
           {/* Stats */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card variant="bordered">
@@ -326,21 +342,37 @@ export default function AdminAgentsPage() {
               </div>
             </Card>
 
-            {/* Tarjeta de Solicitudes Pendientes */}
-            <Card variant="bordered">
-              <div className="flex items-center gap-3">
-                <ClipboardList className="h-8 w-8 text-blue-500" />
-                <div>
-                  <p className="text-sm text-neutral-500">Nuevas Solicitudes</p>
-                  <p className="text-2xl font-bold text-blue-600">{requests.length}</p>
+            {/* Tarjeta Botón de Solicitudes Pendientes */}
+            <div 
+              onClick={() => {
+                if (requests.length > 0) setShowRequests(!showRequests);
+              }}
+              className={`rounded-2xl border bg-white p-6 shadow-sm transition ${
+                requests.length > 0 
+                  ? 'cursor-pointer hover:border-blue-300 hover:shadow-md border-blue-100 ring-2 ring-transparent hover:ring-blue-50' 
+                  : 'border-neutral-200 opacity-70'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <ClipboardList className={`h-8 w-8 ${requests.length > 0 ? 'text-blue-500' : 'text-neutral-400'}`} />
+                  <div>
+                    <p className="text-sm text-neutral-500">Nuevas Solicitudes</p>
+                    <p className={`text-2xl font-bold ${requests.length > 0 ? 'text-blue-600' : 'text-neutral-600'}`}>
+                      {requests.length}
+                    </p>
+                  </div>
                 </div>
+                {requests.length > 0 && (
+                  <span className="text-xs text-blue-500 font-medium">Ver {showRequests ? 'menos' : 'todas'}</span>
+                )}
               </div>
-            </Card>
+            </div>
           </div>
 
-          {/* LISTA DE SOLICITUDES PENDIENTES */}
-          {requests.length > 0 && (
-            <Card variant="bordered" className="border-blue-200 bg-blue-50/20">
+          {/* LISTA DESPLEGABLE DE SOLICITUDES PENDIENTES */}
+          {showRequests && requests.length > 0 && (
+            <Card variant="bordered" className="border-blue-200 bg-blue-50/20 animate-in fade-in slide-in-from-top-4 duration-300">
               <h3 className="text-base font-bold text-neutral-900 mb-4 flex items-center gap-2">
                 <ClipboardList className="h-4 w-4 text-blue-600" /> Solicitudes Pendientes de Aprobación
               </h3>
@@ -349,14 +381,9 @@ export default function AdminAgentsPage() {
                   <div key={req.id} className="py-3 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                     <div>
                       <p className="font-semibold text-sm text-neutral-900">
-                        {req.profiles?.full_name || 'Sin nombre'}
+                        {req.contact_full_name}
                       </p>
-                      <p className="text-xs text-neutral-600">{req.profiles?.email}</p>
-                      {req.notes && (
-                        <p className="text-xs text-neutral-500 mt-1 italic border-l-2 border-blue-200 pl-2">
-                          "{req.notes}"
-                        </p>
-                      )}
+                      <p className="text-xs text-neutral-600">{req.contact_email}</p>
                       <p className="text-[11px] text-neutral-400 mt-1">
                         Solicitado el: {new Date(req.created_at).toLocaleDateString('es')}
                       </p>
@@ -365,7 +392,7 @@ export default function AdminAgentsPage() {
                       <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50 hover:border-red-200" onClick={() => handleDeclineRequest(req.id)}>
                         <X className="h-3.5 w-3.5 mr-1" /> Declinar
                       </Button>
-                      <Button size="sm" onClick={() => handlePrepareApproval(req)}>
+                      <Button size="sm" onClick={() => handleApproveRequest(req)}>
                         <Check className="h-3.5 w-3.5 mr-1" /> Aprobar
                       </Button>
                     </div>
@@ -375,20 +402,16 @@ export default function AdminAgentsPage() {
             </Card>
           )}
 
-          {/* Promote/Create Agent */}
+          {/* Promote/Create Agent Manual */}
           <Card variant="bordered">
             <div className="flex items-start justify-between gap-4 flex-col md:flex-row md:items-center">
               <div>
                 <h3 className="text-base font-bold text-neutral-900 flex items-center gap-2">
-                  <UserPlus className="h-4 w-4" /> Aprobar / Promover a Agente
+                  <UserPlus className="h-4 w-4" /> Aprobar Manualmente / Promover a Agente
                 </h3>
                 <p className="text-sm text-neutral-500">
                   Convierte un usuario existente en agente asignándole <span className="font-medium">agent_code</span>.
                 </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {toast.ok && <span className="text-sm text-emerald-600">{toast.ok}</span>}
-                {toast.error && <span className="text-sm text-red-600">{toast.error}</span>}
               </div>
             </div>
 
@@ -398,14 +421,12 @@ export default function AdminAgentsPage() {
                 value={promoteEmail}
                 onChange={(e) => setPromoteEmail(e.target.value)}
                 placeholder="ej: user@email.com"
-                className={pendingRequestIdToApprove ? "border-blue-400 ring-2 ring-blue-100" : ""}
               />
               <Input
                 label="Agent Code"
                 value={promoteCode}
                 onChange={(e) => setPromoteCode(e.target.value)}
                 placeholder="ej: GST123"
-                className={pendingRequestIdToApprove ? "border-blue-400 ring-2 ring-blue-100" : ""}
               />
 
               <div className="space-y-1">
@@ -423,7 +444,7 @@ export default function AdminAgentsPage() {
 
             <div className="mt-4 flex justify-end">
               <Button onClick={promoteToAgent} isLoading={promoteLoading} className="gap-2">
-                <UserPlus className="h-4 w-4" /> Finalizar Aprobación
+                <UserPlus className="h-4 w-4" /> Promover Agente
               </Button>
             </div>
           </Card>
@@ -462,7 +483,7 @@ export default function AdminAgentsPage() {
                       <td className="px-4 py-3 font-semibold">{agent.full_name}</td>
                       <td className="px-4 py-3 text-neutral-600">{agent.email}</td>
 
-                      {/* Código editable */}
+                      {/* Código editable - Aquí se le asignará código a los recién aprobados */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <input

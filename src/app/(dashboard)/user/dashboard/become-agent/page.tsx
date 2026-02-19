@@ -44,11 +44,12 @@ export default function BecomeAgentPage() {
     
     setUserId(user.id);
 
-    // 1. Buscar si ya envió una solicitud previamente
+    // Revisar si ya tiene solicitud pendiente
     const { data: existingRequest } = await supabase
       .from('agent_requests')
       .select('id, status')
       .eq('user_id', user.id)
+      .eq('status', 'pending')
       .limit(1)
       .maybeSingle();
 
@@ -56,7 +57,7 @@ export default function BecomeAgentPage() {
       setAlreadyRequested(true);
     }
 
-    // 2. Cargar los datos de su perfil para rellenar el formulario por defecto
+    // Pre-rellenar formulario con sus datos de perfil
     const { data: profile } = await supabase
       .from('profiles')
       .select('full_name, email')
@@ -80,17 +81,17 @@ export default function BecomeAgentPage() {
     setSubmitting(true);
     setMessage(null);
 
-    // Guardamos la solicitud en la base de datos
     const { error } = await supabase
       .from('agent_requests')
       .insert({
         user_id: userId,
-        status: 'pending',
-        notes: `Nombre de contacto: ${formData.fullName} | Correo: ${formData.email}`
+        contact_full_name: formData.fullName,
+        contact_email: formData.email,
+        status: 'pending'
       });
 
     if (error) {
-      setMessage({ type: 'error', text: 'Hubo un error al procesar tu solicitud. Intenta de nuevo más tarde.' });
+      setMessage({ type: 'error', text: 'Hubo un error al enviar tu solicitud. Intenta más tarde.' });
     } else {
       setMessage({ type: 'success', text: '¡Solicitud enviada con éxito!' });
       setAlreadyRequested(true);
@@ -101,7 +102,6 @@ export default function BecomeAgentPage() {
 
   return (
     <div className="flex min-h-screen">
-      {/* Añadimos el Sidebar del usuario aquí */}
       <Sidebar links={USER_SIDEBAR_LINKS} />
       
       <div className="flex-1">
@@ -120,7 +120,7 @@ export default function BecomeAgentPage() {
               </div>
               <h2 className="text-2xl font-bold text-neutral-900 mb-2">¡Solicitud en revisión!</h2>
               <p className="text-neutral-500">
-                Ya hemos recibido tu solicitud para convertirte en gestor. Nuestro equipo la está evaluando y se pondrá en contacto contigo pronto.
+                Hemos recibido tu solicitud. Un administrador la evaluará y pronto tendrás respuesta.
               </p>
             </Card>
           ) : (
@@ -131,7 +131,7 @@ export default function BecomeAgentPage() {
               </div>
               
               <p className="text-sm text-neutral-500 mb-6">
-                Verifica tus datos de contacto a continuación para que un administrador pueda evaluar tu perfil.
+                Confirma tus datos de contacto para enviar la solicitud de gestoría.
               </p>
 
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -161,11 +161,7 @@ export default function BecomeAgentPage() {
                 )}
 
                 <div className="pt-4 flex justify-end">
-                  <Button 
-                    type="submit" 
-                    isLoading={submitting} 
-                    className="gap-2"
-                  >
+                  <Button type="submit" isLoading={submitting} className="gap-2">
                     <Send className="h-4 w-4" /> Solicitar
                   </Button>
                 </div>

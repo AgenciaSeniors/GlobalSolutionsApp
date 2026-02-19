@@ -23,6 +23,11 @@ export interface Profile {
   created_at: string;
   updated_at: string;
 }
+
+/* ------------------------------------------------------------------ */
+/* AGENT REQUESTS                                                     */
+/* ------------------------------------------------------------------ */
+
 /* ------------------------------------------------------------------ */
 /* AGENT REQUESTS                                                    */
 /* ------------------------------------------------------------------ */
@@ -32,11 +37,14 @@ export type AgentRequestStatus = 'pending' | 'approved' | 'rejected';
 export interface AgentRequest {
   id: string;
   user_id: string;
+  contact_full_name: string;
+  contact_email: string;
   status: AgentRequestStatus;
   notes: string | null;
   created_at: string;
   updated_at: string;
 }
+
 /* ------------------------------------------------------------------ */
 /*  FLIGHTS                                                           */
 /* ------------------------------------------------------------------ */
@@ -74,7 +82,7 @@ export interface Flight {
   aircraft_type: string | null;
   is_exclusive_offer: boolean;
   offer_expires_at: string | null;
-  stops?: Array<{ airport: string; duration_minutes: number }> | null; // info de escalas
+  stops?: Array<{ airport: string; duration_minutes: number }> | null;
   created_at: string;
   updated_at: string;
 }
@@ -134,7 +142,7 @@ export interface BookingPassenger {
 }
 
 /* ------------------------------------------------------------------ */
-/*  PRICE BREAKDOWN (§5.1 Transparency)                               */
+/*  PRICE BREAKDOWN                                                   */
 /* ------------------------------------------------------------------ */
 
 export interface PriceBreakdown {
@@ -184,7 +192,7 @@ export interface CarRentalBooking {
 }
 
 /* ------------------------------------------------------------------ */
-/*  SPECIAL OFFERS (§3.2 Visual Engine)                               */
+/*  SPECIAL OFFERS                                                    */
 /* ------------------------------------------------------------------ */
 
 export interface SpecialOffer {
@@ -210,7 +218,7 @@ export interface SpecialOffer {
 }
 
 /* ------------------------------------------------------------------ */
-/*  QUOTATION REQUESTS (§3.3)                                         */
+/*  QUOTATION REQUESTS                                                */
 /* ------------------------------------------------------------------ */
 
 export type QuotationStatus = 'pending' | 'quoted' | 'accepted' | 'expired' | 'cancelled';
@@ -239,7 +247,7 @@ export interface QuotationRequest {
 }
 
 /* ------------------------------------------------------------------ */
-/*  REVIEWS (§7.2 Verified Reviews)                                   */
+/*  REVIEWS                                                           */
 /* ------------------------------------------------------------------ */
 
 export type ReviewStatus = 'pending_approval' | 'approved' | 'rejected';
@@ -261,7 +269,7 @@ export interface ReviewWithAuthor extends Review {
 }
 
 /* ------------------------------------------------------------------ */
-/*  AGENT NEWS (§2.2 Community Wall)                                  */
+/*  AGENT NEWS                                                        */
 /* ------------------------------------------------------------------ */
 
 export interface AgentNews {
@@ -276,7 +284,7 @@ export interface AgentNews {
 }
 
 /* ------------------------------------------------------------------ */
-/*  AGENT TICKETS (§2.2 Internal Comm)                                */
+/*  AGENT TICKETS                                                     */
 /* ------------------------------------------------------------------ */
 
 export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -314,7 +322,7 @@ export interface TicketMessage {
 }
 
 /* ------------------------------------------------------------------ */
-/*  LOYALTY (§7.2 Points)                                             */
+/*  LOYALTY                                                           */
 /* ------------------------------------------------------------------ */
 
 export interface LoyaltyTransaction {
@@ -328,7 +336,7 @@ export interface LoyaltyTransaction {
 }
 
 /* ------------------------------------------------------------------ */
-/*  CHAT SYSTEM (§7.1 Chatbot IA + Human)                             */
+/*  CHAT SYSTEM                                                       */
 /* ------------------------------------------------------------------ */
 
 export type ChatStatus = 'bot' | 'waiting_agent' | 'with_agent' | 'resolved' | 'closed';
@@ -355,7 +363,7 @@ export interface ChatMessage {
 }
 
 /* ------------------------------------------------------------------ */
-/*  OTP AUTH (§2 Hybrid Auth)                                         */
+/*  OTP AUTH                                                          */
 /* ------------------------------------------------------------------ */
 
 export type OTPStep = 'email' | 'verify' | 'password';
@@ -369,7 +377,9 @@ export interface RegisterState {
   password: string;
   confirm_password: string;
 }
+
 // -------- UI types for Flight Results (Liannah) --------
+
 export interface UiAirline {
   id: string;
   name: string;
@@ -395,7 +405,6 @@ export interface FlightOffer {
   segments: FlightSegment[];
   totalDuration: string;
   type: 'oneway' | 'roundtrip' | 'multicity';
-  // Filter-friendly fields (populated by mapper)
   airline_code?: string;
   stops_count?: number;
   stops?: Array<{ airport: string; duration_minutes: number }>;
