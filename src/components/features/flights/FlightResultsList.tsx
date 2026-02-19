@@ -2,7 +2,7 @@ import { FlightOffer } from '@/types/models';
 import FlightCard from './FlightCard';
 import Skeleton from '@/components/ui/Skeleton';
 import { AlertCircle } from 'lucide-react'; // Necesitaremos este icono
-
+import { FlightLoader } from '@/components/ui';
 interface FlightResultsListProps {
   flights: FlightOffer[];
   isLoading?: boolean;
@@ -18,12 +18,20 @@ export default function FlightResultsList({
 }: FlightResultsListProps) {
 
   // 1. Estado de Carga
+ // 1. Estado de Carga
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        {[1, 2, 3].map((i) => (
-          <FlightCardSkeleton key={i} />
-        ))}
+      <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-gray-100 shadow-sm">
+        {/* Aquí llamamos a tu nueva animación */}
+        <FlightLoader />
+        
+        {/* Texto que acompaña a la animación */}
+        <h3 className="mt-12 text-xl font-bold text-[#0F2545]">
+          Buscando los mejores vuelos...
+        </h3>
+        <p className="mt-2 text-sm text-gray-500">
+          Por favor, espera unos segundos mientras conectamos con las aerolíneas.
+        </p>
       </div>
     );
   }
