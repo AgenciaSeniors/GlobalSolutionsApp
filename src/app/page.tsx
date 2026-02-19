@@ -10,7 +10,6 @@ import FlightSearchForm from '@/components/forms/FlightSearchForm';
 import ReviewCard from '@/components/features/reviews/ReviewCard';
 import AboutSection from '@/components/features/home/AboutSection';
 import ServicesSection from '@/components/features/home/ServicesSection';
-import HomeCtaSection from '@/components/features/home/HomeCtaSection';
 import HomeOffersCarousel from '@/components/features/home/HomeOffersCarousel';
 import { createClient } from '@/lib/supabase/server';
 import type { SpecialOffer } from '@/types/models';
@@ -189,9 +188,6 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
-
-      {/* “Footer visual” */}
-      <HomeCtaSection />
 
       <Footer />
     </>

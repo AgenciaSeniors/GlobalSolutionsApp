@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { authService } from '@/services/auth.service';
 import {
-  LayoutDashboard, Plane, CalendarCheck, Star, Settings,
+ Briefcase, LayoutDashboard, Plane, CalendarCheck, Star, Settings,
   ChevronLeft, LogOut, Newspaper, MessageSquare, Tag,
   Users, FileText, HelpCircle, DollarSign, Trophy, Car,
 } from 'lucide-react';
@@ -111,14 +111,17 @@ export default function Sidebar({ links }: SidebarProps) {
 /** Pre-configured link sets for each role. */
 export const USER_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/user/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/user/dashboard/create-route', label: 'Crear Ruta', icon: DollarSign },
   { href: '/user/dashboard/bookings', label: 'Mis Reservas', icon: CalendarCheck },
   { href: '/user/dashboard/reviews', label: 'Mis Reseñas', icon: Star },
   { href: '/user/dashboard/loyalty', label: 'Mis Puntos', icon: Trophy },
+  { href: '/user/dashboard/become-agent', label: 'Convertirse en Agente', icon: Briefcase },
   { href: '/user/dashboard/settings', label: 'Configuración', icon: Settings },
 ];
 
 export const AGENT_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/agent/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+ { href: '/agent/dashboard/create-route', label: 'Crear Ruta', icon: DollarSign },
   { href: '/agent/dashboard/bookings', label: 'Reservas Asignadas', icon: CalendarCheck },
   { href: '/agent/dashboard/commissions', label: 'Mis Comisiones', icon: DollarSign },
   { href: '/agent/dashboard/news', label: 'Muro de Noticias', icon: Newspaper },
@@ -132,8 +135,6 @@ export const ADMIN_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/admin/dashboard/bookings', label: 'Todas las Reservas', icon: CalendarCheck },
   { href: '/admin/dashboard/flights', label: 'Vuelos & Markup', icon: Plane },
   { href: '/admin/dashboard/offers', label: 'Ofertas Visuales', icon: Tag },
-  { href: '/admin/dashboard/cars', label: 'Autos', icon: Car },
-  { href: '/admin/dashboard/quotations', label: 'Cotizaciones', icon: HelpCircle },
   { href: '/admin/dashboard/agents', label: 'Gestores', icon: Users },
   { href: '/admin/dashboard/news', label: 'Noticias Agentes', icon: Newspaper },
   { href: '/admin/dashboard/tickets', label: 'Tickets Soporte', icon: MessageSquare },

@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Flame, MapPin, Calendar } from 'lucide-react';
 import type { SpecialOffer } from '@/types/models';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import { calcDiscount, formatCurrency, formatDate } from '@/lib/utils/formatters';
+import { useAuthContext } from '@/components/providers/AuthProvider';
 
 function tagLabel(tag: string) {
   if (tag === 'exclusive') return 'Exclusivo';
@@ -18,6 +20,9 @@ function tagLabel(tag: string) {
 }
 
 export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffer[] }) {
+  const router = useRouter();
+  const { user } = useAuthContext();
+
   const today = new Date();
   const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
@@ -91,6 +96,35 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
   }, [currentYear, currentMonth, daysInMonth, dateToOffers, todayMid]);
 
   const offersForSelected = selectedDate ? dateToOffers.get(selectedDate) ?? [] : [];
+
+  function goToCheckout(offer: SpecialOffer) {
+    if (!selectedDate) return;
+
+    if (!user) {
+      router.push(`/login?redirect=${encodeURIComponent('/offers')}`);
+      return;
+    }
+
+    // Store offer data in sessionStorage for checkout to pick up
+    try {
+      sessionStorage.setItem('selectedOfferData', JSON.stringify({
+        offer_id: offer.id,
+        destination: offer.destination,
+        destination_img: offer.destination_img,
+        offer_price: offer.offer_price,
+        original_price: offer.original_price,
+        flight_number: offer.flight_number,
+        selected_date: selectedDate,
+        max_seats: offer.max_seats,
+        sold_seats: offer.sold_seats,
+        tags: offer.tags,
+      }));
+    } catch (e) {
+      console.warn('[OffersCalendarExplorer] sessionStorage set error:', e);
+    }
+
+    router.push(`/checkout?offer=${offer.id}&date=${selectedDate}&passengers=1`);
+  }
 
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
@@ -195,7 +229,12 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
             return (
               <Card key={o.id} variant="elevated" className="p-5">
                 <div className="flex gap-4">
-                  <div className="h-16 w-16 overflow-hidden rounded-2xl bg-neutral-100">
+                  <button
+                    type="button"
+                    onClick={() => goToCheckout(o)}
+                    className="h-16 w-16 overflow-hidden rounded-2xl bg-neutral-100 focus:outline-none"
+                    title="Ir directo al checkout"
+                  >
                     {o.destination_img ? (
                       <img
                         src={o.destination_img}
@@ -206,13 +245,18 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
                     ) : (
                       <div className="h-full w-full bg-gradient-to-br from-brand-200 to-brand-500" />
                     )}
-                  </div>
+                  </button>
 
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 font-bold text-brand-950">
+                    <button
+                      type="button"
+                      onClick={() => goToCheckout(o)}
+                      className="flex items-center gap-1.5 font-bold text-brand-950 text-left"
+                      title="Ir directo al checkout"
+                    >
                       <MapPin className="h-4 w-4 text-brand-600" />
                       <span className="truncate">{o.destination}</span>
-                    </p>
+                    </button>
 
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Badge variant="success" className="text-xs font-extrabold">

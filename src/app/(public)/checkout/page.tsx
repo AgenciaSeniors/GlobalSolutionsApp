@@ -1,10 +1,9 @@
 // src/app/(public)/checkout/page.tsx
 /**
  * @fileoverview Checkout page — creates booking + passengers, then redirects to /pay for real payment (Stripe/PayPal).
- * Keeps existing UI and UX while making the flow production-correct:
- * - NEVER mark bookings as paid from the frontend.
- * - Stripe/PayPal payment confirmation must happen via backend (intent/order + webhook).
- * - External flight IDs are persisted to DB first to get a real UUID before creating booking.
+ * Supports two booking modes:
+ *   1. Flight-based: ?flight={uuid}&passengers=N  (from flight search)
+ *   2. Offer-based:  ?offer={uuid}&date=YYYY-MM-DD&passengers=N  (from exclusive offers)
  */
 
 'use client';
@@ -30,9 +29,10 @@ import {
   CheckCircle,
   Plane,
   AlertTriangle,
+  MapPin,
+  Flame,
 } from 'lucide-react';
 
-// Helper component to render label + input (your Input doesn't accept label prop)
 const FormField = ({
   label,
   ...props
@@ -45,10 +45,20 @@ const FormField = ({
 
 type Gateway = 'stripe' | 'paypal' | 'zelle';
 
-/**
- * Helper: converts any raw flight object (from DB or from external stub)
- * into the FlightWithDetails shape that the checkout UI expects.
- */
+/** Shape of offer data stored in sessionStorage */
+interface OfferCheckoutData {
+  offer_id: string;
+  destination: string;
+  destination_img: string | null;
+  offer_price: number;
+  original_price: number;
+  flight_number: string | null;
+  selected_date: string;
+  max_seats: number;
+  sold_seats: number;
+  tags: string[];
+}
+
 function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: string): FlightWithDetails {
   const airline = (parsed.airline ?? {}) as Record<string, unknown>;
   const originAirport = (parsed.origin_airport ?? {}) as Record<string, unknown>;
@@ -103,10 +113,6 @@ function isUuidLike(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
 
-/**
- * Persist an external flight to the DB and get a real UUID.
- * Returns { uuid, externalId } or throws with a descriptive message.
- */
 async function persistFlightToDb(
   rawFlightData: Record<string, unknown>
 ): Promise<{ uuid: string; externalId: string | null }> {
@@ -138,18 +144,25 @@ export default function CheckoutPage() {
   const { user } = useAuthContext();
   const { settings, loading: settingsLoading, calculateGatewayFee } = useAppSettings();
 
+  // Detect mode: offer-based or flight-based
+  const offerId = searchParams.get('offer');
+  const offerDate = searchParams.get('date');
   const flightId = searchParams.get('flight');
   const offerId = searchParams.get('offer');
   const offerDate = searchParams.get('date');
   const passengerCount = parseInt(searchParams.get('passengers') || '1', 10);
 
-  const [flight, setFlight] = useState<FlightWithDetails | null>(null);
-  // The real UUID that will be used for the booking (may differ from flightId in URL)
-  const [flightDbId, setFlightDbId] = useState<string | null>(null);
-  // The external provider ID (e.g. "12079-2602270500--32407-0-15608-2602270740")
-  const [flightProviderId, setFlightProviderId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const isOfferMode = Boolean(offerId);
 
+  // -- Offer state --
+  const [offerData, setOfferData] = useState<OfferCheckoutData | null>(null);
+
+  // -- Flight state --
+  const [flight, setFlight] = useState<FlightWithDetails | null>(null);
+  const [flightDbId, setFlightDbId] = useState<string | null>(null);
+  const [flightProviderId, setFlightProviderId] = useState<string | null>(null);
+
+  const [loading, setLoading] = useState(true);
   const [gateway, setGateway] = useState<Gateway>('stripe');
   const [passengers, setPassengers] = useState<
     Array<{
@@ -164,12 +177,9 @@ export default function CheckoutPage() {
 
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Success screen is ONLY for Zelle (manual payment). Stripe/PayPal redirect to /pay.
   const [success, setSuccess] = useState(false);
   const [bookingCode, setBookingCode] = useState('');
 
-  // ✅ Guard against React Strict Mode double-execution of useEffect
   const hasLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -187,57 +197,62 @@ export default function CheckoutPage() {
       return;
     }
 
-    // ✅ Prevent double execution (React Strict Mode in dev calls useEffect twice)
+    if (isOfferMode && (!offerId || !offerDate)) {
+      router.push('/offers');
+      return;
+    }
+
     if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
 
     async function load() {
-      let flightData: FlightWithDetails | null = null;
-      let resolvedDbId: string | null = null;
-      let resolvedProviderId: string | null = null;
+      if (isOfferMode) {
+        // === OFFER MODE ===
+        let offer: OfferCheckoutData | null = null;
 
-      // ✅ 1) Try to load from sessionStorage first (works for ALL flight sources)
-      try {
-        const cached = sessionStorage.getItem('selectedFlightData');
-        if (cached) {
-          const parsed = JSON.parse(cached) as Record<string, unknown>;
-          const parsedId = String(parsed?.id ?? '');
-
-          // Verify it matches the flight ID in the URL
-          if (parsedId === flightId) {
-            flightData = rawToFlightWithDetails(parsed, flightId);
-
-            // If this is an external (non-UUID) offer id, persist it to DB now and replace the id with a UUID.
-            if (!isUuidLike(flightData.id)) {
-              try {
-                const { uuid, externalId } = await persistFlightToDb(parsed);
-                resolvedDbId = uuid;
-                resolvedProviderId = externalId;
-                // Update the flightData with the DB UUID
-                flightData = { ...flightData, id: uuid };
-                console.log('[Checkout] ✅ Persisted external offer -> UUID:', uuid, '| external_id:', externalId);
-              } catch (persistErr) {
-                console.error('[Checkout] ❌ Persist failed:', persistErr);
-                setError(
-                  `No se pudo registrar el vuelo en el sistema: ${persistErr instanceof Error ? persistErr.message : 'Error desconocido'}. Por favor, intenta de nuevo o selecciona otro vuelo.`
-                );
-                setLoading(false);
-                return; // ❌ STOP — don't proceed without a valid UUID
-              }
-            } else {
-              // Already a UUID (from DB)
-              resolvedDbId = flightData.id;
+        // 1) Try sessionStorage
+        try {
+          const cached = sessionStorage.getItem('selectedOfferData');
+          if (cached) {
+            const parsed = JSON.parse(cached) as OfferCheckoutData;
+            if (parsed.offer_id === offerId) {
+              offer = parsed;
             }
-
-            console.log('[Checkout] ✅ Loaded flight from sessionStorage:', flightData.airline.name, flightData.flight_number);
+            sessionStorage.removeItem('selectedOfferData');
           }
-
-          // Clear after reading
-          sessionStorage.removeItem('selectedFlightData');
+        } catch (e) {
+          console.warn('[Checkout] sessionStorage error:', e);
         }
-      } catch (e) {
-        console.warn('[Checkout] sessionStorage error:', e);
-      }
+
+        // 2) Fallback: fetch offer from DB
+        if (!offer && offerId) {
+          const { data } = await supabase
+            .from('special_offers')
+            .select('*')
+            .eq('id', offerId)
+            .single();
+
+          if (data) {
+            offer = {
+              offer_id: data.id,
+              destination: data.destination,
+              destination_img: data.destination_img,
+              offer_price: Number(data.offer_price),
+              original_price: Number(data.original_price),
+              flight_number: data.flight_number,
+              selected_date: offerDate!,
+              max_seats: data.max_seats,
+              sold_seats: data.sold_seats,
+              tags: data.tags ?? [],
+            };
+          }
+        }
+
+        if (!offer) {
+          setError('No se encontró la información de la oferta. Por favor, vuelve a seleccionar la oferta.');
+          setLoading(false);
+          return;
+        }
 
       // ✅ 2) If coming from an exclusive offer, load offer data and build synthetic flight
       if (!flightData && offerId) {
@@ -311,24 +326,45 @@ export default function CheckoutPage() {
               console.warn('[Checkout] DB lookup failed:', dbError.message);
             }
 
-            if (data) {
-              flightData = data as unknown as FlightWithDetails;
-              resolvedDbId = flightId;
-              console.log('[Checkout] ✅ Loaded flight from DB');
-            }
-          } catch (err) {
-            console.warn('[Checkout] DB query error:', err);
+            sessionStorage.removeItem('selectedFlightData');
           }
-        } else {
-          // Non-UUID and no sessionStorage data — we can't proceed
-          console.warn('[Checkout] ❌ Non-UUID flight ID without sessionStorage data:', flightId);
-          setError(
-            'No se encontró la información del vuelo. Esto puede ocurrir si recargas la página. Por favor, vuelve a buscar el vuelo.'
-          );
-          setLoading(false);
+        } catch (e) {
+          console.warn('[Checkout] sessionStorage error:', e);
+        }
+
+        if (!flightData) {
+          const isUUID = isUuidLike(flightId!);
+
+          if (isUUID) {
+            try {
+              const { data } = await supabase
+                .from('flights')
+                .select(
+                  '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)'
+                )
+                .eq('id', flightId)
+                .single();
+
+              if (data) {
+                flightData = data as unknown as FlightWithDetails;
+                resolvedDbId = flightId;
+              }
+            } catch (err) {
+              console.warn('[Checkout] DB query error:', err);
+            }
+          } else {
+            setError(
+              'No se encontró la información del vuelo. Esto puede ocurrir si recargas la página. Por favor, vuelve a buscar el vuelo.'
+            );
+            setLoading(false);
+            return;
+          }
+        }
+
+        if (!flightData || !resolvedDbId) {
+          router.push('/flights');
           return;
         }
-      }
 
       // ✅ 4) If still no data, redirect back
       if (!flightData || !resolvedDbId) {
@@ -337,10 +373,7 @@ export default function CheckoutPage() {
         return;
       }
 
-      setFlight(flightData);
-      setFlightDbId(resolvedDbId);
-      setFlightProviderId(resolvedProviderId);
-
+      // Initialize passengers for both modes
       setPassengers(
         Array.from({ length: passengerCount }, () => ({
           first_name: '',
@@ -359,7 +392,7 @@ export default function CheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flightId, offerId, user]);
 
-  if (loading || settingsLoading || !flight) {
+  if (loading || settingsLoading || !isReady) {
     return (
       <>
         <Navbar />
@@ -368,8 +401,8 @@ export default function CheckoutPage() {
             <Card className="max-w-lg text-center">
               <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-red-400" />
               <p className="text-sm text-red-700">{error}</p>
-              <Button className="mt-4" onClick={() => router.push('/flights')}>
-                Volver a buscar vuelos
+              <Button className="mt-4" onClick={() => router.push(isOfferMode ? '/offers' : '/flights')}>
+                {isOfferMode ? 'Volver a ofertas' : 'Volver a buscar vuelos'}
               </Button>
             </Card>
           ) : (
@@ -380,14 +413,13 @@ export default function CheckoutPage() {
     );
   }
 
-  // Display-only pricing (real pricing must be computed in backend at payment time)
-  const subtotal = flight.final_price * passengerCount;
+  const subtotal = pricePerPerson * passengerCount;
   const gatewayFee = calculateGatewayFee(subtotal, gateway);
   const total = Math.round((subtotal + gatewayFee) * 100) / 100;
 
   const breakdown: PriceBreakdown = {
-    base_price: flight.base_price,
-    markup_amount: flight.final_price - flight.base_price,
+    base_price: pricePerPerson,
+    markup_amount: 0,
     subtotal,
     gateway_fee: Math.round(gatewayFee * 100) / 100,
     gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
@@ -395,6 +427,12 @@ export default function CheckoutPage() {
     total,
     passengers: passengerCount,
   };
+
+  // Override for flight mode (has base + markup)
+  if (!isOfferMode && flight) {
+    breakdown.base_price = flight.base_price;
+    breakdown.markup_amount = flight.final_price - flight.base_price;
+  }
 
   function updatePassenger(index: number, field: string, value: string) {
     setPassengers((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: value } : p)));
@@ -434,79 +472,129 @@ export default function CheckoutPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!user || !flight) return;
+    if (!user) return;
 
     setError(null);
 
     if (!validatePassengers()) return;
-
-    // ✅ CRITICAL: Ensure we have a real UUID before inserting the booking
-    if (!flightDbId || !isUuidLike(flightDbId)) {
-      setError(
-        'Error interno: No se tiene un ID de vuelo válido. Por favor, vuelve a seleccionar el vuelo.'
-      );
-      return;
-    }
 
     setProcessing(true);
 
     try {
       const newBookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
-      // Create booking using the real UUID
-      const { data: booking, error: bookingErr } = await supabase
-        .from('bookings')
-        .insert({
-          booking_code: newBookingCode,
-          user_id: user.id,
-          flight_id: flightDbId, // ✅ Always a real UUID
-          flight_provider_id: flightProviderId, // ✅ Store external ID for reference
-          subtotal: breakdown.subtotal,
-          payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
-          total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
-          payment_method: gateway,
-          payment_status: 'pending',
-          booking_status: 'pending_emission',
-          currency: 'USD',
-          pricing_breakdown: breakdown,
-        })
-        .select('id')
-        .single();
+      if (isOfferMode && offerData) {
+        // === OFFER BOOKING ===
+        const { data: booking, error: bookingErr } = await supabase
+          .from('bookings')
+          .insert({
+            booking_code: newBookingCode,
+            user_id: user.id,
+            offer_id: offerData.offer_id,
+            selected_date: offerData.selected_date,
+            subtotal: breakdown.subtotal,
+            payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
+            total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
+            payment_method: gateway,
+            payment_status: 'pending',
+            booking_status: 'pending_emission',
+            currency: 'USD',
+            pricing_breakdown: breakdown,
+          })
+          .select('id')
+          .single();
 
-      if (bookingErr) {
-        console.error('[Checkout] ❌ Booking insert failed:', bookingErr.message, bookingErr.details, bookingErr.hint);
-        throw bookingErr;
+        if (bookingErr) {
+          console.error('[Checkout] Booking insert failed:', bookingErr.message, bookingErr.details, bookingErr.hint);
+          throw bookingErr;
+        }
+
+        // Insert passengers
+        for (const p of passengers) {
+          const { error: pErr } = await supabase.from('booking_passengers').insert({
+            booking_id: booking.id,
+            first_name: p.first_name.trim(),
+            last_name: p.last_name.trim(),
+            date_of_birth: p.dob,
+            nationality: p.nationality.trim().toUpperCase(),
+            passport_number: p.passport_number.trim(),
+            passport_expiry_date: p.passport_expiry,
+          });
+          if (pErr) throw pErr;
+        }
+
+        // Update sold_seats on the offer
+        await supabase
+          .from('special_offers')
+          .update({ sold_seats: offerData.sold_seats + passengerCount })
+          .eq('id', offerData.offer_id);
+
+        if (gateway === 'zelle') {
+          setBookingCode(newBookingCode);
+          setSuccess(true);
+          return;
+        }
+
+        router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
+      } else if (flight && flightDbId) {
+        // === FLIGHT BOOKING (existing logic) ===
+        if (!isUuidLike(flightDbId)) {
+          setError('Error interno: No se tiene un ID de vuelo válido.');
+          return;
+        }
+
+        const { data: booking, error: bookingErr } = await supabase
+          .from('bookings')
+          .insert({
+            booking_code: newBookingCode,
+            user_id: user.id,
+            flight_id: flightDbId,
+            flight_provider_id: flightProviderId,
+            subtotal: breakdown.subtotal,
+            payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
+            total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
+            payment_method: gateway,
+            payment_status: 'pending',
+            booking_status: 'pending_emission',
+            currency: 'USD',
+            pricing_breakdown: breakdown,
+          })
+          .select('id')
+          .single();
+
+        if (bookingErr) {
+          console.error('[Checkout] Booking insert failed:', bookingErr.message, bookingErr.details, bookingErr.hint);
+          throw bookingErr;
+        }
+
+        for (const p of passengers) {
+          const { error: pErr } = await supabase.from('booking_passengers').insert({
+            booking_id: booking.id,
+            first_name: p.first_name.trim(),
+            last_name: p.last_name.trim(),
+            date_of_birth: p.dob,
+            nationality: p.nationality.trim().toUpperCase(),
+            passport_number: p.passport_number.trim(),
+            passport_expiry_date: p.passport_expiry,
+          });
+          if (pErr) throw pErr;
+        }
+
+        await supabase
+          .from('flights')
+          .update({ available_seats: flight.available_seats - passengerCount })
+          .eq('id', flightDbId);
+
+        if (gateway === 'zelle') {
+          setBookingCode(newBookingCode);
+          setSuccess(true);
+          return;
+        }
+
+        router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
       }
-
-      // Insert passengers
-      for (const p of passengers) {
-        const { error: pErr } = await supabase.from('booking_passengers').insert({
-          booking_id: booking.id,
-          first_name: p.first_name.trim(),
-          last_name: p.last_name.trim(),
-          date_of_birth: p.dob,
-          nationality: p.nationality.trim().toUpperCase(),
-          passport_number: p.passport_number.trim(),
-          passport_expiry_date: p.passport_expiry,
-        });
-        if (pErr) throw pErr;
-      }
-
-      // Update available seats
-      await supabase
-        .from('flights')
-        .update({ available_seats: flight.available_seats - passengerCount })
-        .eq('id', flightDbId);
-
-      if (gateway === 'zelle') {
-        setBookingCode(newBookingCode);
-        setSuccess(true);
-        return;
-      }
-
-      router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
     } catch (err) {
-      console.error('[Checkout] ❌ Submit error:', err);
+      console.error('[Checkout] Submit error:', err);
       setError(err instanceof Error ? err.message : 'Error al procesar la reserva.');
     } finally {
       setProcessing(false);
@@ -539,6 +627,23 @@ export default function CheckoutPage() {
     );
   }
 
+  // Format the selected date for display
+  const displayDate = isOfferMode && offerData
+    ? new Date(offerData.selected_date + 'T12:00:00').toLocaleDateString('es', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      })
+    : flight
+      ? new Date(flight.departure_datetime).toLocaleDateString('es', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      : '';
+
   return (
     <>
       <Navbar />
@@ -555,39 +660,76 @@ export default function CheckoutPage() {
           <form onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
               <div className="space-y-6 lg:col-span-2">
+                {/* Booking summary card */}
                 <Card variant="bordered">
-                  <div className="flex items-center gap-4">
-                    <Plane className="h-8 w-8 text-brand-600" />
-                    <div className="flex-1">
-                      <p className="font-bold">
-                        {flight.airline.name} {flight.flight_number}
-                      </p>
-                      <p className="text-sm text-neutral-500">
-                        {flight.origin_airport.city} ({flight.origin_airport.iata_code}) →{' '}
-                        {flight.destination_airport.city} ({flight.destination_airport.iata_code})
-                      </p>
-                      <p className="text-xs text-neutral-400">
-                        {new Date(flight.departure_datetime).toLocaleDateString('es', {
-                          weekday: 'long',
-                          day: 'numeric',
-                          month: 'long',
-                          year: 'numeric',
-                        })}
-                      </p>
+                  {isOfferMode && offerData ? (
+                    // === OFFER SUMMARY ===
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-brand-100">
+                        {offerData.destination_img ? (
+                          <img
+                            src={offerData.destination_img}
+                            alt={offerData.destination}
+                            className="h-full w-full rounded-2xl object-cover"
+                          />
+                        ) : (
+                          <MapPin className="h-8 w-8 text-brand-600" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold">{offerData.destination}</p>
+                          <Flame className="h-4 w-4 text-orange-500" />
+                          <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                            Oferta Exclusiva
+                          </span>
+                        </div>
+                        {offerData.flight_number && (
+                          <p className="text-sm text-neutral-500">Vuelo {offerData.flight_number}</p>
+                        )}
+                        <p className="text-xs text-neutral-400 capitalize">{displayDate}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-neutral-400 line-through">${offerData.original_price.toFixed(2)}</p>
+                        <p className="text-lg font-bold text-emerald-600">${offerData.offer_price.toFixed(2)}</p>
+                        <p className="text-xs text-neutral-400">por persona</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-brand-600">${flight.final_price.toFixed(2)}</p>
-                      <p className="text-xs text-neutral-400">por persona</p>
+                  ) : flight ? (
+                    // === FLIGHT SUMMARY ===
+                    <div className="flex items-center gap-4">
+                      <Plane className="h-8 w-8 text-brand-600" />
+                      <div className="flex-1">
+                        <p className="font-bold">
+                          {flight.airline.name} {flight.flight_number}
+                        </p>
+                        <p className="text-sm text-neutral-500">
+                          {flight.origin_airport.city} ({flight.origin_airport.iata_code}) →{' '}
+                          {flight.destination_airport.city} ({flight.destination_airport.iata_code})
+                        </p>
+                        <p className="text-xs text-neutral-400 capitalize">{displayDate}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-brand-600">${flight.final_price.toFixed(2)}</p>
+                        <p className="text-xs text-neutral-400">por persona</p>
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
 
-                  {flight.available_seats < 10 && (
+                  {/* Seats warning */}
+                  {isOfferMode && offerData && (offerData.max_seats - offerData.sold_seats) < 10 && (
                     <p className="mt-3 text-xs font-semibold text-red-500">
-                      ⚠️ Solo quedan {flight.available_seats} asientos disponibles
+                      Solo quedan {offerData.max_seats - offerData.sold_seats} cupos disponibles
+                    </p>
+                  )}
+                  {!isOfferMode && flight && flight.available_seats < 10 && (
+                    <p className="mt-3 text-xs font-semibold text-red-500">
+                      Solo quedan {flight.available_seats} asientos disponibles
                     </p>
                   )}
                 </Card>
 
+                {/* Passenger forms */}
                 {passengers.map((p, i) => (
                   <Card key={i} variant="bordered">
                     <h3 className="mb-4 font-bold">
@@ -647,6 +789,7 @@ export default function CheckoutPage() {
                   </Card>
                 ))}
 
+                {/* Payment method */}
                 <Card variant="bordered">
                   <h3 className="mb-4 font-bold">Método de Pago</h3>
 
@@ -702,6 +845,7 @@ export default function CheckoutPage() {
                 </Card>
               </div>
 
+              {/* Sidebar */}
               <div className="space-y-4">
                 <PriceBreakdownCard breakdown={breakdown} gateway={gateway} />
 
@@ -716,7 +860,7 @@ export default function CheckoutPage() {
 
                 {settings.loyalty_points_per_dollar > 0 && (
                   <div className="rounded-xl bg-amber-50 px-4 py-3 text-center text-xs text-amber-700">
-                    ⭐ Ganarás{' '}
+                    Ganarás{' '}
                     <strong>{Math.floor(breakdown.subtotal * settings.loyalty_points_per_dollar)} puntos</strong> de
                     fidelidad con esta compra
                   </div>
