@@ -5,7 +5,7 @@
  */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
@@ -40,13 +40,68 @@ export default function OfferDetailPage() {
     if (params.id) load();
   }, [params.id]);
 
+  const defaultDate = useMemo(() => {
+    if (!offer?.valid_dates?.length) return null;
+    const today = new Date();
+    const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const sorted = [...offer.valid_dates].sort((a, b) => a.localeCompare(b));
+    return sorted.find((d) => new Date(d) >= todayMid) ?? sorted[0] ?? null;
+  }, [offer?.valid_dates]);
+
+  async function resolveOfferFlightId(dateStr: string): Promise<string | null> {
+    // Search the flights table for a matching exclusive-offer flight on that day.
+    // If multiple match, pick the earliest departure.
+    const start = new Date(`${dateStr}T00:00:00.000Z`).toISOString();
+    const end = new Date(`${dateStr}T23:59:59.999Z`).toISOString();
+
+    let query = supabase
+      .from('flights')
+      .select('*')
+      .eq('is_exclusive_offer', true)
+      .gte('departure_datetime', start)
+      .lte('departure_datetime', end);
+
+    if (offer?.airline_id) query = query.eq('airline_id', offer.airline_id);
+    if (offer?.flight_number) query = query.eq('flight_number', offer.flight_number);
+    if (offer?.origin_airport_id) query = query.eq('origin_airport_id', offer.origin_airport_id);
+    if (offer?.destination_airport_id) query = query.eq('destination_airport_id', offer.destination_airport_id);
+
+    const { data, error } = await query.order('departure_datetime', { ascending: true }).limit(1);
+    if (error) {
+      console.error('[OfferDetail] resolveOfferFlightId error:', error);
+      return null;
+    }
+    const flight = (data ?? [])[0] as Record<string, unknown> | undefined;
+    if (!flight?.id) return null;
+
+    // Preload for checkout (it will read this if it matches the URL flight id)
+    try {
+      sessionStorage.setItem('selectedFlightData', JSON.stringify(flight));
+    } catch (e) {
+      console.warn('[OfferDetail] sessionStorage set error:', e);
+    }
+    return String(flight.id);
+  }
+
   function handleSelectDate(date: string) {
     if (!user) {
       router.push(`/login?redirect=/offers/${params.id}`);
       return;
     }
-    // Navigate to checkout with offer details
-    router.push(`/checkout?offer=${params.id}&date=${date}`);
+    // Navigate directly to checkout with flight id
+    (async () => {
+      const flightId = await resolveOfferFlightId(date);
+      if (!flightId) {
+        alert('No se encontró un vuelo para esta oferta en esa fecha. Verifica que exista en la tabla flights (is_exclusive_offer=true) y coincida con la oferta.');
+        return;
+      }
+      router.push(`/checkout?flight=${flightId}&passengers=1`);
+    })();
+  }
+
+  function handleHeroClick() {
+    if (!defaultDate) return;
+    handleSelectDate(defaultDate);
   }
 
   if (loading) {
@@ -86,9 +141,21 @@ export default function OfferDetailPage() {
       <Navbar />
       <main className="min-h-screen bg-neutral-50 pt-[72px]">
         {/* Hero */}
-        <div className="relative bg-gradient-to-br from-brand-900 via-brand-800 to-indigo-900 py-16">
+        <div
+          className="relative bg-gradient-to-br from-brand-900 via-brand-800 to-indigo-900 py-16 cursor-pointer"
+          onClick={handleHeroClick}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') handleHeroClick();
+          }}
+        >
           <div className="mx-auto max-w-5xl px-6">
-            <Link href="/offers" className="mb-4 inline-flex items-center gap-1 text-sm text-brand-200 hover:text-white">
+            <Link
+              href="/offers"
+              onClick={(e) => e.stopPropagation()}
+              className="mb-4 inline-flex items-center gap-1 text-sm text-brand-200 hover:text-white"
+            >
               <ArrowLeft className="h-4 w-4" /> Volver a ofertas
             </Link>
             <div className="flex items-start justify-between gap-6">

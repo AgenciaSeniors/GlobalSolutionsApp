@@ -2,12 +2,15 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Flame, MapPin, Calendar } from 'lucide-react';
 import type { SpecialOffer } from '@/types/models';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import { calcDiscount, formatCurrency, formatDate } from '@/lib/utils/formatters';
+import { createClient } from '@/lib/supabase/client';
+import { useAuthContext } from '@/components/providers/AuthProvider';
 
 function tagLabel(tag: string) {
   if (tag === 'exclusive') return 'Exclusivo';
@@ -18,6 +21,10 @@ function tagLabel(tag: string) {
 }
 
 export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffer[] }) {
+  const router = useRouter();
+  const supabase = createClient();
+  const { user } = useAuthContext();
+
   const today = new Date();
   const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
@@ -91,6 +98,56 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
   }, [currentYear, currentMonth, daysInMonth, dateToOffers, todayMid]);
 
   const offersForSelected = selectedDate ? dateToOffers.get(selectedDate) ?? [] : [];
+
+  async function resolveOfferFlightId(offer: SpecialOffer, dateStr: string): Promise<string | null> {
+    const start = new Date(`${dateStr}T00:00:00.000Z`).toISOString();
+    const end = new Date(`${dateStr}T23:59:59.999Z`).toISOString();
+
+    let query = supabase
+      .from('flights')
+      .select('*')
+      .eq('is_exclusive_offer', true)
+      .gte('departure_datetime', start)
+      .lte('departure_datetime', end);
+
+    if (offer.airline_id) query = query.eq('airline_id', offer.airline_id);
+    if (offer.flight_number) query = query.eq('flight_number', offer.flight_number);
+    if (offer.origin_airport_id) query = query.eq('origin_airport_id', offer.origin_airport_id);
+    if (offer.destination_airport_id) query = query.eq('destination_airport_id', offer.destination_airport_id);
+
+    const { data, error } = await query.order('departure_datetime', { ascending: true }).limit(1);
+    if (error) {
+      console.error('[OffersCalendarExplorer] resolveOfferFlightId error:', error);
+      return null;
+    }
+
+    const flight = (data ?? [])[0] as Record<string, unknown> | undefined;
+    if (!flight?.id) return null;
+
+    try {
+      sessionStorage.setItem('selectedFlightData', JSON.stringify(flight));
+    } catch (e) {
+      console.warn('[OffersCalendarExplorer] sessionStorage set error:', e);
+    }
+    return String(flight.id);
+  }
+
+  async function goToCheckout(offer: SpecialOffer) {
+    if (!selectedDate) return;
+
+    if (!user) {
+      router.push(`/login?redirect=${encodeURIComponent('/offers')}`);
+      return;
+    }
+
+    const flightId = await resolveOfferFlightId(offer, selectedDate);
+    if (!flightId) {
+      alert('No se encontró un vuelo para esta oferta en esa fecha. Verifica que exista en flights (is_exclusive_offer=true) y coincida con la oferta.');
+      return;
+    }
+
+    router.push(`/checkout?flight=${flightId}&passengers=1`);
+  }
 
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
@@ -195,7 +252,12 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
             return (
               <Card key={o.id} variant="elevated" className="p-5">
                 <div className="flex gap-4">
-                  <div className="h-16 w-16 overflow-hidden rounded-2xl bg-neutral-100">
+                  <button
+                    type="button"
+                    onClick={() => goToCheckout(o)}
+                    className="h-16 w-16 overflow-hidden rounded-2xl bg-neutral-100 focus:outline-none"
+                    title="Ir directo al checkout"
+                  >
                     {o.destination_img ? (
                       <img
                         src={o.destination_img}
@@ -206,13 +268,18 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
                     ) : (
                       <div className="h-full w-full bg-gradient-to-br from-brand-200 to-brand-500" />
                     )}
-                  </div>
+                  </button>
 
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 font-bold text-brand-950">
+                    <button
+                      type="button"
+                      onClick={() => goToCheckout(o)}
+                      className="flex items-center gap-1.5 font-bold text-brand-950 text-left"
+                      title="Ir directo al checkout"
+                    >
                       <MapPin className="h-4 w-4 text-brand-600" />
                       <span className="truncate">{o.destination}</span>
-                    </p>
+                    </button>
 
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Badge variant="success" className="text-xs font-extrabold">
