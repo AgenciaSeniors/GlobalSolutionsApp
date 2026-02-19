@@ -5,7 +5,7 @@
  */
 'use client';
 
-import { useState, useEffect, type FormEvent, type ChangeEvent } from 'react';
+import { useState, useEffect, useMemo, type FormEvent, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { MapPin, Calendar, Users, Search } from 'lucide-react';
 import Input from '@/components/ui/Input';
@@ -13,6 +13,7 @@ import Button from '@/components/ui/Button';
 import AirportAutocomplete from '@/components/forms/AirportAutocomplete';
 import MultiLegEditor from '@/components/forms/MultiLegEditor';
 import { ROUTES } from '@/lib/constants/routes';
+import { flightSearchSchema } from '@/lib/validations/flight.schema';
 
 type TripType = 'roundtrip' | 'oneway';
 
@@ -56,6 +57,27 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
   const [useStopsMode, setUseStopsMode] = useState(false);
   const [stops, setStops] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(false);
+  const [dateError, setDateError] = useState('');
+
+  /* ── Date boundaries ─────────────────────────────── */
+  const today = useMemo(() => {
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate())
+      .toISOString()
+      .split('T')[0];
+  }, []);
+
+  const maxDate = useMemo(() => {
+    const n = new Date();
+    n.setFullYear(n.getFullYear() + 1);
+    return n.toISOString().split('T')[0];
+  }, []);
+
+  /** Minimum allowed return date = departure or today (whichever is later) */
+  const minReturn = useMemo(() => {
+    if (!form.departure || form.departure < today) return today;
+    return form.departure;
+  }, [form.departure, today]);
 
   // Populate form from initialValues on first render
   useEffect(() => {
@@ -82,7 +104,19 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
   const update =
     (field: keyof typeof form) =>
     (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+      const value = e.target.value;
+      setDateError('');
+
+      setForm((prev) => {
+        const next = { ...prev, [field]: value };
+
+        // Si cambia la fecha de ida y la vuelta queda antes, auto-corregir
+        if (field === 'departure' && next.returnDate && next.returnDate < value) {
+          next.returnDate = value;
+        }
+
+        return next;
+      });
     };
 
   const updateField = (field: keyof typeof form) => (value: string) => {
@@ -91,8 +125,25 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setDateError('');
 
     if (!form.origin || !form.destination) return;
+
+    // ── Validate with Zod schema ──────────────────────
+    const result = flightSearchSchema.safeParse({
+      origin: form.origin,
+      destination: form.destination,
+      departure_date: form.departure,
+      return_date: tripType === 'roundtrip' ? form.returnDate : undefined,
+      passengers: form.passengers,
+    });
+
+    if (!result.success) {
+      // Show the first validation error
+      const firstError = result.error.issues[0]?.message ?? 'Datos invalidos';
+      setDateError(firstError);
+      return;
+    }
 
     const payload: FlightSearchParams = {
       from: form.origin,
@@ -207,7 +258,7 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
           <label className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
             <Calendar className="h-3.5 w-3.5 text-brand-500" /> Fecha de Ida
           </label>
-          <Input type="date" value={form.departure} onChange={update('departure')} required />
+          <Input type="date" value={form.departure} onChange={update('departure')} min={today} max={maxDate} required />
         </div>
 
         {/* Return */}
@@ -220,10 +271,17 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
             type="date"
             value={form.returnDate}
             onChange={update('returnDate')}
+            min={minReturn}
+            max={maxDate}
             disabled={tripType === 'oneway'}
           />
         </div>
       </div>
+
+      {/* Date validation error */}
+      {dateError && (
+        <p className="mt-3 text-sm font-medium text-red-600">{dateError}</p>
+      )}
 
       {useStopsMode && (
         <MultiLegEditor
