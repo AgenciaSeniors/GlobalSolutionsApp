@@ -9,6 +9,8 @@ import "./globals.css";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import ToastProvider from "@/components/providers/ToastProvider";
 import ChatWidget from "@/components/features/chat/ChatWidget";
+import HomeFloatingButton from "@/components/layout/HomeFloatingButton";
+
 
 export const metadata: Metadata = {
   title: {
@@ -52,6 +54,7 @@ export default function RootLayout({
       <body className="font-sans">
         <AuthProvider>
           {children}
+          <HomeFloatingButton />
           <ChatWidget />
           <ToastProvider />
         </AuthProvider>
