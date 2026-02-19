@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx next build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx:*)",
+      "Bash(node_modules/.bin/tsc:*)",
+      "Bash(npm ls:*)",
+      "Bash(node -e:*)"
+    ]
+  }
+}
