@@ -1,3 +1,4 @@
+//src/app/(dashboard)/agent/dashboard/bookings/page.tsx
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -7,7 +8,7 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
-import { Search, Plane, Calendar, User, FileText } from 'lucide-react';
+import { Search, Plane, Calendar, User, FileText, Download, DollarSign } from 'lucide-react';
 
 type BadgeVariant =
   | 'default'
@@ -25,6 +26,7 @@ interface Booking {
   booking_status: string;
   payment_status: string;
   total_amount: number;
+  voucher_pdf_url?: string | null;
   profile?: { full_name: string; email: string } | null;
   flight?: {
     airline?: { name: string } | null;
@@ -34,13 +36,23 @@ interface Booking {
   } | null;
 }
 
+const COMMISSION_RATE = 0.05;
+
 export default function AgentBookingsPage() {
   const supabase = createClient();
   const { user } = useAuthContext();
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'pending_emission' | 'confirmed' | 'cancelled'>('all');
+  const [filter, setFilter] = useState<
+    | 'all'
+    | 'pending_emission'
+    | 'confirmed'
+    | 'emitted'
+    | 'cancellation_requested'
+    | 'cancelled'
+    | 'completed'
+  >('all');
   const [searchTerm, setSearchTerm] = useState('');
 
   const fetchBookings = useCallback(async () => {
@@ -51,7 +63,7 @@ export default function AgentBookingsPage() {
       .from('bookings')
       .select(
         `
-        id, booking_code, created_at, booking_status, payment_status, total_amount,
+        id, booking_code, created_at, booking_status, payment_status, total_amount, voucher_pdf_url,
         profile:profiles!user_id(full_name, email),
         flight:flights!flight_id(
           airline:airlines!airline_id(name),
@@ -91,7 +103,9 @@ export default function AgentBookingsPage() {
   const getStatusColor = (status: string): BadgeVariant => {
     const map: Record<string, BadgeVariant> = {
       pending_emission: 'warning',
-      confirmed: 'success',
+      confirmed: 'info',
+      emitted: 'success',
+      cancellation_requested: 'warning',
       cancelled: 'destructive',
       completed: 'default',
     };
@@ -102,6 +116,8 @@ export default function AgentBookingsPage() {
     const map: Record<string, string> = {
       pending_emission: 'Pendiente Emisión',
       confirmed: 'Confirmada',
+      emitted: 'Emitida',
+      cancellation_requested: 'Cancelación Solicitada',
       cancelled: 'Cancelada',
       completed: 'Completada',
     };
@@ -119,7 +135,17 @@ export default function AgentBookingsPage() {
           <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
             {/* Filtros */}
             <div className="flex gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
-              {(['all', 'pending_emission', 'confirmed', 'cancelled'] as const).map((f) => (
+              {(
+                [
+                  'all',
+                  'pending_emission',
+                  'confirmed',
+                  'emitted',
+                  'cancellation_requested',
+                  'cancelled',
+                  'completed',
+                ] as const
+              ).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -205,11 +231,34 @@ export default function AgentBookingsPage() {
                       <div className="font-bold text-lg text-emerald-700">
                         ${Number(booking.total_amount ?? 0).toLocaleString()}
                       </div>
+                      <div className="mt-1 flex items-center justify-end gap-2 text-xs text-gray-500">
+                        <DollarSign className="h-4 w-4 text-emerald-600" />
+                        <span>
+                          Comisión Estimada:{' '}
+                          <span className="font-semibold text-emerald-700">
+                            ${ (Number(booking.total_amount ?? 0) * COMMISSION_RATE).toFixed(2) }
+                          </span>
+                        </span>
+                      </div>
                     </div>
                   </div>
 
                   {/* Footer */}
-                  <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end">
+                  <div className="mt-4 pt-3 border-t border-gray-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                    {booking.voucher_pdf_url ? (
+                      <a
+                        href={booking.voucher_pdf_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-50 px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-100"
+                      >
+                        <Download className="h-4 w-4" />
+                        Descargar Voucher
+                      </a>
+                    ) : (
+                      <span className="text-xs text-gray-400">Voucher no disponible</span>
+                    )}
+
                     <button className="text-sm font-medium text-brand-600 hover:text-brand-800 transition">
                       Ver detalles completos →
                     </button>
