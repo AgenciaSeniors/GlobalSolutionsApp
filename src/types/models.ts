@@ -23,7 +23,20 @@ export interface Profile {
   created_at: string;
   updated_at: string;
 }
+/* ------------------------------------------------------------------ */
+/* AGENT REQUESTS                                                    */
+/* ------------------------------------------------------------------ */
 
+export type AgentRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export interface AgentRequest {
+  id: string;
+  user_id: string;
+  status: AgentRequestStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
 /* ------------------------------------------------------------------ */
 /*  FLIGHTS                                                           */
 /* ------------------------------------------------------------------ */
