@@ -26,25 +26,25 @@ export default function OfferCalendar({
   onSelectDate,
 }: OfferCalendarProps) {
   const today = new Date();
-
-  // Find the first upcoming offer date (or the earliest one if all are past)
-  const firstOfferDate = useMemo(() => {
-    if (!validDates.length) return null;
-    const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const sorted = [...validDates].sort((a, b) => a.localeCompare(b));
-    const nextUpcoming = sorted.find((d) => new Date(d + 'T12:00:00') >= todayMid);
-    return nextUpcoming ?? sorted[0] ?? null;
-  }, [validDates]);
-
-  // Initialize calendar on the month of the first offer date, not the current month
-  const initialMonth = firstOfferDate ? new Date(firstOfferDate + 'T12:00:00').getMonth() : today.getMonth();
-  const initialYear = firstOfferDate ? new Date(firstOfferDate + 'T12:00:00').getFullYear() : today.getFullYear();
-
-  const [currentMonth, setCurrentMonth] = useState(initialMonth);
-  const [currentYear, setCurrentYear] = useState(initialYear);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const offerSet = useMemo(() => new Set(validDates), [validDates]);
+
+  // Find the first future (or today) offer date to auto-navigate there
+  const firstOfferDate = useMemo(() => {
+    const future = [...validDates].sort().find((d) => d >= todayStr);
+    // If no future date, use the last available date (could be past but still relevant)
+    const target = future ?? [...validDates].sort().pop();
+    return target ? new Date(target + 'T12:00:00') : null;
+  }, [validDates, todayStr]);
+
+  const [currentMonth, setCurrentMonth] = useState(
+    firstOfferDate ? firstOfferDate.getMonth() : today.getMonth()
+  );
+  const [currentYear, setCurrentYear] = useState(
+    firstOfferDate ? firstOfferDate.getFullYear() : today.getFullYear()
+  );
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const firstDayOfWeek = new Date(currentYear, currentMonth, 1).getDay();

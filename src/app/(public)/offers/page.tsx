@@ -16,7 +16,7 @@ export default async function OffersPage() {
 
   const { data } = await supabase
     .from('special_offers')
-    .select('*')
+    .select('*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)')
     .eq('is_active', true)
     .order('created_at', { ascending: false });
 
