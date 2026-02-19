@@ -13,9 +13,6 @@ import { useAuthContext } from '@/components/providers/AuthProvider';
 import { Plane, FileText, Clock, CheckCircle, XCircle, CreditCard } from 'lucide-react';
 import type { BookingWithDetails } from '@/types/models'
 
-// ✅ NUEVO: consumir endpoint real a través del service
-import { bookingsService } from '@/services/bookings.service';
-
 interface UserBooking {
   id: string;
   booking_code: string;
@@ -53,8 +50,14 @@ export default function UserBookingsPage() {
 
     async function load() {
       try {
-        // ✅ Nuevo: viene del endpoint /api/bookings vía service
-        const data = await bookingsService.listWithDetails();
+        // ✅ CORRECCIÓN: Usamos fetch para llamar a la API en lugar del service de backend
+        const res = await fetch('/api/bookings');
+        
+        if (!res.ok) {
+          throw new Error('Error al cargar las reservas');
+        }
+
+        const { data } = await res.json();
 
         // ✅ Normalizamos para que la UI nunca crashee por passengers undefined
         const normalized: UserBooking[] = (data ?? []).map((b: BookingWithDetails ) => ({
@@ -64,7 +67,8 @@ export default function UserBookingsPage() {
         }));
 
         setBookings(normalized);
-      } catch {
+      } catch (error) {
+        console.error(error);
         // No rompemos la UI
         setBookings([]);
       } finally {
@@ -198,4 +202,3 @@ export default function UserBookingsPage() {
     </div>
   );
 }
-

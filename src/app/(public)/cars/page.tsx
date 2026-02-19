@@ -1,45 +1,52 @@
 /**
- * @fileoverview Car rentals listing page.
+ * @fileoverview Public car rentals listing with search filters.
+ * Server component that queries Supabase directly.
  * @module app/(public)/cars/page
+ * @author Dev B
  */
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import CarRentalCard from '@/components/features/cars/CarRentalCard';
-import type { CarRental } from '@/types/models';
-import { createClient } from '@/lib/supabase/server';
+import { searchCars } from '@/lib/cars/service';
+import { CAR_CATEGORIES, CATEGORY_LABELS } from '@/lib/cars/types';
+import type { CarSearchParams, CarCategory } from '@/lib/cars/types';
+import { Car, SlidersHorizontal } from 'lucide-react';
 
+export const metadata: Metadata = { title: 'Renta de Autos — Global Solutions Travel' };
 
-export const metadata: Metadata = { title: 'Renta de Autos' };
+interface Props {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
 
-/* Static seed data — replaced by Supabase query in production */
-const CARS: CarRental[] = [
-  { id: '1', brand: 'Hyundai', model: 'Accent', category: 'economy', transmission: 'automatic', passenger_capacity: 5, luggage_capacity: 2, daily_rate: 45, available_units: 3, image_url: null, features: ['A/C', 'Bluetooth', 'USB'], is_active: true },
-  { id: '2', brand: 'Toyota', model: 'RAV4', category: 'suv', transmission: 'automatic', passenger_capacity: 5, luggage_capacity: 4, daily_rate: 75, available_units: 2, image_url: null, features: ['A/C', 'GPS', '4x4', 'Bluetooth'], is_active: true },
-  { id: '3', brand: 'Kia', model: 'Picanto', category: 'compact', transmission: 'manual', passenger_capacity: 4, luggage_capacity: 1, daily_rate: 35, available_units: 5, image_url: null, features: ['A/C', 'Radio FM'], is_active: true },
-];
+export default async function CarsPage({ searchParams }: Props) {
+  const sp = await searchParams;
 
-export  default async function CarsPage() {
-  const supabase = await createClient();
-const { data, error } = await supabase
-  .from('car_rentals')
-  .select('id, brand, model, category, transmission, passenger_capacity, luggage_capacity, daily_rate, available_units, image_url, features, is_active')
-  .eq('is_active', true)
-  .order('daily_rate', { ascending: true });
+  const filters: CarSearchParams = {};
+  if (sp.category && CAR_CATEGORIES.includes(sp.category as CarCategory)) {
+    filters.category = sp.category as CarCategory;
+  }
+  if (sp.transmission === 'manual' || sp.transmission === 'automatic') {
+    filters.transmission = sp.transmission;
+  }
+  if (sp.minPrice) filters.minPrice = Number(sp.minPrice);
+  if (sp.maxPrice) filters.maxPrice = Number(sp.maxPrice);
+  if (sp.minSeats) filters.minSeats = Number(sp.minSeats);
+  if (sp.ac === 'true') filters.ac = true;
 
-const cars = (data ?? []).map((row: any) => ({
-  ...row,
-  daily_rate: Number(row.daily_rate ?? 0),
-  features: Array.isArray(row.features) ? row.features : [],
-}));
+  const cars = await searchCars(filters);
+
+  const hasFilters = Object.keys(filters).length > 0;
 
   return (
     <>
       <Navbar />
       <main className="pt-[72px]">
-        <section className="bg-white py-20">
+        <section className="bg-white py-16">
           <div className="mx-auto max-w-7xl px-6">
-            <div className="mb-12 text-center">
+            {/* Header */}
+            <div className="mb-10 text-center">
               <span className="text-sm font-bold uppercase tracking-widest text-brand-500">
                 Renta de Autos
               </span>
@@ -50,18 +57,114 @@ const cars = (data ?? []).map((row: any) => ({
                 Vehículos confiables con seguro incluido y asistencia en carretera 24/7
               </p>
             </div>
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-             {error ? (
-  <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-    No se pudieron cargar los autos desde la base de datos: {error.message}
-  </p>
-) : null}
 
-{cars.map((car) => (
-  <CarRentalCard key={car.id} car={car} />
-))}
+            {/* Filters bar */}
+            <div className="mb-8 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+              <form className="flex flex-wrap items-end gap-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-neutral-700">
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Filtros
+                </div>
 
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-500">Categoría</label>
+                  <select
+                    name="category"
+                    defaultValue={filters.category ?? ''}
+                    className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Todas</option>
+                    {CAR_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-500">Transmisión</label>
+                  <select
+                    name="transmission"
+                    defaultValue={filters.transmission ?? ''}
+                    className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Todas</option>
+                    <option value="automatic">Automático</option>
+                    <option value="manual">Manual</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-500">Precio máx/día</label>
+                  <input
+                    name="maxPrice"
+                    type="number"
+                    min={0}
+                    defaultValue={filters.maxPrice ?? ''}
+                    placeholder="$"
+                    className="w-24 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-500">Min. asientos</label>
+                  <select
+                    name="minSeats"
+                    defaultValue={filters.minSeats ?? ''}
+                    className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Todos</option>
+                    <option value="4">4+</option>
+                    <option value="5">5+</option>
+                    <option value="7">7+</option>
+                  </select>
+                </div>
+
+                <button
+                  type="submit"
+                  className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
+                >
+                  Filtrar
+                </button>
+
+                {hasFilters && (
+                  <Link
+                    href="/cars"
+                    className="rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                  >
+                    Limpiar
+                  </Link>
+                )}
+              </form>
             </div>
+
+            {/* Results */}
+            {cars.length === 0 ? (
+              <div className="py-20 text-center">
+                <Car className="mx-auto h-16 w-16 text-neutral-300" />
+                <p className="mt-4 text-lg font-medium text-neutral-500">
+                  No se encontraron autos{hasFilters ? ' con esos filtros' : ''}
+                </p>
+                {hasFilters && (
+                  <Link
+                    href="/cars"
+                    className="mt-3 inline-block text-sm font-semibold text-brand-600 hover:underline"
+                  >
+                    Ver todos los autos
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <>
+                <p className="mb-4 text-sm text-neutral-500">
+                  {cars.length} auto{cars.length !== 1 && 's'} disponible{cars.length !== 1 && 's'}
+                </p>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {cars.map((car) => (
+                    <CarRentalCard key={car.id} car={car} />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </section>
       </main>

@@ -1,3 +1,4 @@
+//C:\Users\Eduardo\GlobalSolutionsApp\src\app\(public)\flights\[id]/page.tsx
 /**
  * @fileoverview Flight detail page — complete technical specs.
  * Per spec §3.4: Must show airline, aircraft model, departure/arrival,
@@ -43,7 +44,7 @@ export default function FlightDetailPage() {
   async function load() {
     const { data, error } = await supabase
       .from('flights')
-      .select('*')
+      .select('*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)')
       .eq('id', params.id)
       .single();
     
@@ -57,9 +58,7 @@ export default function FlightDetailPage() {
       return;
     }
     
-    if (data) {
-      setFlight(data as unknown as FlightWithDetails);
-    }
+    if (data) setFlight(data as unknown as FlightWithDetails);
     setLoading(false);
   }
   if (params.id) load();

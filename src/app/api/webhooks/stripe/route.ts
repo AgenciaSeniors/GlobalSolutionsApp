@@ -114,6 +114,40 @@ async function updateBookingPaymentStatus(params: {
   }
 }
 
+async function markBookingRefunded(params: {
+  bookingId: string | null;
+  paymentIntentId: string;
+  refundAmount?: number | null; // cents
+}): Promise<void> {
+  const supabaseAdmin = createAdminClient();
+
+  const updatePayload: Record<string, string | number | null> = {
+    payment_status: 'refunded',
+    payment_intent_id: params.paymentIntentId,
+    payment_method: 'stripe',
+    payment_gateway: 'stripe',
+    refunded_at: new Date().toISOString(),
+  };
+
+  if (typeof params.refundAmount === 'number' && Number.isFinite(params.refundAmount)) {
+    // Store refund_amount in dollars (schema uses DECIMAL(10,2))
+    updatePayload.refund_amount = Math.round(params.refundAmount) / 100;
+  }
+
+  const q = params.bookingId
+    ? supabaseAdmin.from('bookings').update(updatePayload).eq('id', params.bookingId)
+    : supabaseAdmin
+        .from('bookings')
+        .update(updatePayload)
+        .eq('payment_intent_id', params.paymentIntentId);
+
+  const { error } = await q;
+  if (error) {
+    console.error('[Stripe Webhook] Refund DB update failed:', error.message);
+    throw new Error(`Refund DB update failed: ${error.message}`);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get('stripe-signature');
@@ -182,6 +216,43 @@ export async function POST(request: NextRequest) {
           paidAtIso: new Date().toISOString(),
         });
 
+        break;
+      }
+
+      case 'payment_intent.canceled': {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        const targetBookingId = getMetadataString(pi.metadata, 'booking_id');
+        await updateBookingPaymentStatus({
+          status: 'failed',
+          bookingId: targetBookingId,
+          paymentIntentId: pi.id,
+        });
+        break;
+      }
+
+      case 'charge.refunded': {
+        const ch = event.data.object as Stripe.Charge;
+        // Charge.payment_intent can be string | PaymentIntent | null
+        const piId =
+          typeof ch.payment_intent === 'string'
+            ? ch.payment_intent
+            : ch.payment_intent?.id ?? null;
+
+        if (!piId) {
+          console.warn('[Stripe Webhook] charge.refunded without payment_intent id');
+          break;
+        }
+
+        // Try to resolve booking_id from charge metadata (if you set it) otherwise DB fallback by payment_intent_id.
+        const targetBookingId =
+          getMetadataString((ch.metadata as Stripe.Metadata | undefined) ?? undefined, 'booking_id') ??
+          null;
+
+        await markBookingRefunded({
+          bookingId: targetBookingId,
+          paymentIntentId: piId,
+          refundAmount: typeof ch.amount_refunded === 'number' ? ch.amount_refunded : null,
+        });
         break;
       }
 

@@ -34,6 +34,8 @@ export default function AdminOffersPage() {
   // Form state
   const [destination, setDestination] = useState('');
   const [destinationImg, setDestinationImg] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [originalPrice, setOriginalPrice] = useState('');
   const [offerPrice, setOfferPrice] = useState('');
   const [validDates, setValidDates] = useState('');
@@ -41,23 +43,53 @@ export default function AdminOffersPage() {
   const [maxSeats, setMaxSeats] = useState('20');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  
+
 
   useEffect(() => { fetchOffers(); }, []);
 
-  async function fetchOffers() {
-    setLoading(true);
-    const { data } = await supabase
-      .from('special_offers')
-      .select('*')
-      .order('created_at', { ascending: false });
-    setOffers((data as SpecialOffer[]) || []);
-    setLoading(false);
+  useEffect(() => {
+  if (!imageFile) {
+    setImagePreviewUrl(null);
+    return;
   }
+
+  const url = URL.createObjectURL(imageFile);
+  setImagePreviewUrl(url);
+
+  return () => URL.revokeObjectURL(url);
+}, [imageFile]);
+
+
+  async function fetchOffers() {
+  setLoading(true);
+  setErrorMsg(null);
+
+  const { data, error } = await supabase
+    .from('special_offers')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('fetchOffers error:', error);
+    setOffers([]);
+    setErrorMsg(error.message);
+  } else {
+    setOffers((data as SpecialOffer[]) || []);
+  }
+
+  setLoading(false);
+}
+
 
   function resetForm() {
     setDestination(''); setDestinationImg(''); setOriginalPrice('');
     setOfferPrice(''); setValidDates(''); setUrgencyLabel('');
     setMaxSeats('20'); setSelectedTags([]); setEditingId(null);
+    setImageFile(null);
+    setImagePreviewUrl(null);
+
   }
 
   function editOffer(offer: SpecialOffer) {
@@ -70,17 +102,47 @@ export default function AdminOffersPage() {
     setUrgencyLabel(offer.urgency_label || '');
     setMaxSeats(offer.max_seats.toString());
     setSelectedTags(offer.tags);
+    setImageFile(null);
+    setImagePreviewUrl(null);
+    setImagePreviewUrl(null);
     setShowForm(true);
   }
+async function uploadOfferImage(file: File) {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Solo se permiten imágenes');
+  }
+
+  const ext = file.name.split('.').pop() || 'jpg';
+  const fileName = `${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+  const path = `special-offers/${fileName}`;
+
+  const { error: uploadError } = await supabase
+    .storage
+    .from('offer-images')
+    .upload(path, file, { upsert: false, contentType: file.type });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from('offer-images').getPublicUrl(path);
+  return data.publicUrl;
+}
 
   async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSaving(true);
+  e.preventDefault();
+  setSaving(true);
 
+  try {
     const dates = validDates.split(',').map(d => d.trim()).filter(Boolean);
+
+    let finalImgUrl = destinationImg;
+    if (imageFile) {
+      finalImgUrl = await uploadOfferImage(imageFile);
+      setDestinationImg(finalImgUrl); // para que el preview quede con la nueva
+    }
+
     const payload = {
       destination,
-      destination_img: destinationImg || null,
+      destination_img: finalImgUrl || null,
       original_price: parseFloat(originalPrice),
       offer_price: parseFloat(offerPrice),
       valid_dates: dates,
@@ -89,17 +151,23 @@ export default function AdminOffersPage() {
       tags: selectedTags,
     };
 
-    if (editingId) {
-      await supabase.from('special_offers').update(payload).eq('id', editingId);
-    } else {
-      await supabase.from('special_offers').insert(payload);
-    }
+    const res = editingId
+      ? await supabase.from('special_offers').update(payload).eq('id', editingId)
+      : await supabase.from('special_offers').insert(payload);
+
+    if (res.error) throw res.error;
 
     resetForm();
     setShowForm(false);
-    fetchOffers();
+    await fetchOffers();
+  } catch (err: any) {
+    console.error(err);
+    alert(err?.message || 'Error guardando la oferta');
+  } finally {
     setSaving(false);
   }
+}
+
 
   async function toggleActive(id: string, currentActive: boolean) {
     await supabase.from('special_offers').update({ is_active: !currentActive }).eq('id', id);
@@ -136,6 +204,12 @@ export default function AdminOffersPage() {
             <Button onClick={() => { resetForm(); setShowForm(true); }} className="gap-2">
               <Plus className="h-4 w-4" /> Nueva Oferta
             </Button>
+            {errorMsg && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+           {errorMsg}
+           </div>
+          )}
+
           </div>
 
           {/* Form */}
@@ -156,13 +230,26 @@ value={destination} onChange={e => setDestination(e.target.value)} placeholder="
                     />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="url_imagen_destino" className="mb-1 block text-sm font-medium text-neutral-700">
-                      URL Imagen destino
-                    </label>
-                    <Input
-value={destinationImg} onChange={e => setDestinationImg(e.target.value)} placeholder="https://..."
-                    id="url_imagen_destino"
-                    />
+                   <label htmlFor="imagen_destino" className="mb-1 block text-sm font-medium text-neutral-700">
+  Imagen destino (Supabase Storage)
+</label>
+
+<input
+  id="imagen_destino"
+  type="file"
+  accept="image/*"
+  className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
+  onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+/>
+
+{(imagePreviewUrl || destinationImg) && (
+  <img
+    src={imagePreviewUrl || destinationImg}
+    alt="preview"
+    className="mt-3 h-24 w-full rounded-xl object-cover"
+  />
+)}
+
                   </div>
                   <div className="space-y-1">
                     <label htmlFor="precio_original" className="mb-1 block text-sm font-medium text-neutral-700">

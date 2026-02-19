@@ -3,7 +3,7 @@
  * @module components/features/home/HeroSection
  */
 import Link from 'next/link';
-import { Plane, Car, ArrowRight, Shield } from 'lucide-react';
+import { Plane, Car, Shield } from 'lucide-react';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
 
@@ -17,41 +17,36 @@ const STATS = [
 export default function HeroSection() {
   return (
     <section
-      className="relative flex min-h-[80vh] items-center bg-cover bg-center pt-20"
+      className="relative isolate flex min-h-[72vh] items-center overflow-hidden bg-cover bg-center pt-24"
       style={{ backgroundImage: "url('/home/hero.png')" }}
     >
-      {/* Overlay oscuro */}
+      {/* Overlay */}
       <div className="absolute inset-0 bg-black/55" />
 
-      {/* Watermark sutil (no depende de animaciones custom) */}
-    
+      {/* Decorative blobs */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-24 top-24 h-72 w-72 rounded-full bg-brand-500/25 blur-3xl" />
+        <div className="absolute -right-24 bottom-16 h-72 w-72 rounded-full bg-emerald-400/15 blur-3xl" />
+      </div>
 
-      <div className="relative z-10 mx-auto flex w-full max-w-7xl justify-center px-6 pb-20 pt-12 lg:pt-16">
-
-
-        <div className="flex max-w-2xl flex-col items-center text-center text-white">
-
-          {/* Trust pill */}
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-[13px] font-semibold text-white backdrop-blur">
-            <Shield className="h-3.5 w-3.5" />
+      <div className="relative z-10 mx-auto flex w-full max-w-7xl justify-center px-6 pb-20">
+        <div className="flex max-w-3xl flex-col items-center text-center text-white">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur">
+            <Shield className="h-4 w-4" />
             Agencia Verificada · +5,000 viajeros satisfechos
           </span>
 
-          {/* Headline */}
-          <h1 className="mt-6 font-heading text-4xl font-extrabold leading-[1.05] tracking-tight md:text-6xl">
+          <h1 className="mt-6 font-heading text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
             Descubre el mundo con{' '}
             <span className="text-brand-200">Global Solutions Travel</span>
           </h1>
 
-          {/* Subtitle */}
-          <p className="mt-5 max-w-xl text-lg leading-relaxed text-white/85 md:text-xl">
+          <p className="mt-5 max-w-2xl text-base leading-relaxed text-white/85 sm:text-lg md:text-xl">
             Vuelos, experiencias y destinos pensados para ti. Seguridad, soporte y ofertas
             exclusivas en un solo lugar.
           </p>
 
-          {/* CTA row */}
           <div className="mt-9 flex flex-wrap justify-center gap-4">
-
             <Link href={ROUTES.FLIGHTS}>
               <Button size="lg" className="gap-2.5">
                 <Plane className="h-5 w-5" />
@@ -67,14 +62,12 @@ export default function HeroSection() {
             </Link>
           </div>
 
-          {/* Secondary CTA (branding original) */}
-          <div className="mt-4">
-          </div>
-
-          {/* Stats */}
-          <div className="mt-12 grid grid-cols-2 gap-6 sm:grid-cols-4">
+          <div className="mt-12 grid w-full grid-cols-2 gap-4 sm:grid-cols-4">
             {STATS.map((s) => (
-              <div key={s.label} className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur">
+              <div
+                key={s.label}
+                className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur transition hover:bg-white/15"
+              >
                 <div className="text-2xl font-extrabold text-white">{s.value}</div>
                 <div className="mt-1 text-sm font-medium text-white/80">{s.label}</div>
               </div>
