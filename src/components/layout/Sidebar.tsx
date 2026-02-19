@@ -7,7 +7,7 @@ import { authService } from '@/services/auth.service';
 import {
  Briefcase, LayoutDashboard, Plane, CalendarCheck, Star, Settings,
   ChevronLeft, LogOut, Newspaper, MessageSquare, Tag,
-  Users, FileText, HelpCircle, DollarSign, Trophy,
+  Users, FileText, HelpCircle, DollarSign, Trophy, Car,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 

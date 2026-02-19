@@ -1,8 +1,10 @@
+// src/app/(public)/checkout/page.tsx
 /**
  * @fileoverview Checkout page — creates booking + passengers, then redirects to /pay for real payment (Stripe/PayPal).
  * Keeps existing UI and UX while making the flow production-correct:
  * - NEVER mark bookings as paid from the frontend.
  * - Stripe/PayPal payment confirmation must happen via backend (intent/order + webhook).
+ * - External flight IDs are persisted to DB first to get a real UUID before creating booking.
  */
 
 'use client';
@@ -97,6 +99,38 @@ function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: str
   } as FlightWithDetails;
 }
 
+function isUuidLike(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+/**
+ * Persist an external flight to the DB and get a real UUID.
+ * Returns { uuid, externalId } or throws with a descriptive message.
+ */
+async function persistFlightToDb(
+  rawFlightData: Record<string, unknown>
+): Promise<{ uuid: string; externalId: string | null }> {
+  const externalId = String(rawFlightData.id ?? '');
+
+  const res = await fetch('/api/flights/persist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flight: rawFlightData }),
+  });
+
+  const json = (await res.json()) as { id?: string; error?: string };
+
+  if (!res.ok) {
+    throw new Error(json?.error ?? `Error al persistir vuelo (HTTP ${res.status})`);
+  }
+
+  if (!json?.id || !isUuidLike(json.id)) {
+    throw new Error('El servidor no devolvió un UUID válido para el vuelo.');
+  }
+
+  return { uuid: json.id, externalId: externalId || null };
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -108,6 +142,10 @@ export default function CheckoutPage() {
   const passengerCount = parseInt(searchParams.get('passengers') || '1', 10);
 
   const [flight, setFlight] = useState<FlightWithDetails | null>(null);
+  // The real UUID that will be used for the booking (may differ from flightId in URL)
+  const [flightDbId, setFlightDbId] = useState<string | null>(null);
+  // The external provider ID (e.g. "12079-2602270500--32407-0-15608-2602270740")
+  const [flightProviderId, setFlightProviderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [gateway, setGateway] = useState<Gateway>('stripe');
@@ -150,6 +188,8 @@ export default function CheckoutPage() {
 
     async function load() {
       let flightData: FlightWithDetails | null = null;
+      let resolvedDbId: string | null = null;
+      let resolvedProviderId: string | null = null;
 
       // ✅ 1) Try to load from sessionStorage first (works for ALL flight sources)
       try {
@@ -161,6 +201,29 @@ export default function CheckoutPage() {
           // Verify it matches the flight ID in the URL
           if (parsedId === flightId) {
             flightData = rawToFlightWithDetails(parsed, flightId);
+
+            // If this is an external (non-UUID) offer id, persist it to DB now and replace the id with a UUID.
+            if (!isUuidLike(flightData.id)) {
+              try {
+                const { uuid, externalId } = await persistFlightToDb(parsed);
+                resolvedDbId = uuid;
+                resolvedProviderId = externalId;
+                // Update the flightData with the DB UUID
+                flightData = { ...flightData, id: uuid };
+                console.log('[Checkout] ✅ Persisted external offer -> UUID:', uuid, '| external_id:', externalId);
+              } catch (persistErr) {
+                console.error('[Checkout] ❌ Persist failed:', persistErr);
+                setError(
+                  `No se pudo registrar el vuelo en el sistema: ${persistErr instanceof Error ? persistErr.message : 'Error desconocido'}. Por favor, intenta de nuevo o selecciona otro vuelo.`
+                );
+                setLoading(false);
+                return; // ❌ STOP — don't proceed without a valid UUID
+              }
+            } else {
+              // Already a UUID (from DB)
+              resolvedDbId = flightData.id;
+            }
+
             console.log('[Checkout] ✅ Loaded flight from sessionStorage:', flightData.airline.name, flightData.flight_number);
           }
 
@@ -173,7 +236,7 @@ export default function CheckoutPage() {
 
       // ✅ 2) If sessionStorage didn't have it, try DB (only works for real DB UUIDs)
       if (!flightData) {
-        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(flightId!);
+        const isUUID = isUuidLike(flightId!);
 
         if (isUUID) {
           try {
@@ -191,22 +254,33 @@ export default function CheckoutPage() {
 
             if (data) {
               flightData = data as unknown as FlightWithDetails;
+              resolvedDbId = flightId;
               console.log('[Checkout] ✅ Loaded flight from DB');
             }
           } catch (err) {
             console.warn('[Checkout] DB query error:', err);
           }
+        } else {
+          // Non-UUID and no sessionStorage data — we can't proceed
+          console.warn('[Checkout] ❌ Non-UUID flight ID without sessionStorage data:', flightId);
+          setError(
+            'No se encontró la información del vuelo. Esto puede ocurrir si recargas la página. Por favor, vuelve a buscar el vuelo.'
+          );
+          setLoading(false);
+          return;
         }
       }
 
       // ✅ 3) If still no data, redirect back
-      if (!flightData) {
+      if (!flightData || !resolvedDbId) {
         console.warn('[Checkout] ❌ Flight not found for id:', flightId);
         router.push('/flights');
         return;
       }
 
       setFlight(flightData);
+      setFlightDbId(resolvedDbId);
+      setFlightProviderId(resolvedProviderId);
 
       setPassengers(
         Array.from({ length: passengerCount }, () => ({
@@ -231,7 +305,17 @@ export default function CheckoutPage() {
       <>
         <Navbar />
         <div className="flex min-h-screen items-center justify-center pt-20">
-          <p className="text-neutral-500">Cargando checkout...</p>
+          {error ? (
+            <Card className="max-w-lg text-center">
+              <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-red-400" />
+              <p className="text-sm text-red-700">{error}</p>
+              <Button className="mt-4" onClick={() => router.push('/flights')}>
+                Volver a buscar vuelos
+              </Button>
+            </Card>
+          ) : (
+            <p className="text-neutral-500">Cargando checkout...</p>
+          )}
         </div>
       </>
     );
@@ -297,18 +381,27 @@ export default function CheckoutPage() {
 
     if (!validatePassengers()) return;
 
+    // ✅ CRITICAL: Ensure we have a real UUID before inserting the booking
+    if (!flightDbId || !isUuidLike(flightDbId)) {
+      setError(
+        'Error interno: No se tiene un ID de vuelo válido. Por favor, vuelve a seleccionar el vuelo.'
+      );
+      return;
+    }
+
     setProcessing(true);
 
     try {
       const newBookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
-      // Create booking (always pending until payment is confirmed by backend)
+      // Create booking using the real UUID
       const { data: booking, error: bookingErr } = await supabase
         .from('bookings')
         .insert({
           booking_code: newBookingCode,
           user_id: user.id,
-          flight_id: flight.id,
+          flight_id: flightDbId, // ✅ Always a real UUID
+          flight_provider_id: flightProviderId, // ✅ Store external ID for reference
           subtotal: breakdown.subtotal,
           payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
           total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
@@ -321,7 +414,10 @@ export default function CheckoutPage() {
         .select('id')
         .single();
 
-      if (bookingErr) throw bookingErr;
+      if (bookingErr) {
+        console.error('[Checkout] ❌ Booking insert failed:', bookingErr.message, bookingErr.details, bookingErr.hint);
+        throw bookingErr;
+      }
 
       // Insert passengers
       for (const p of passengers) {
@@ -341,7 +437,7 @@ export default function CheckoutPage() {
       await supabase
         .from('flights')
         .update({ available_seats: flight.available_seats - passengerCount })
-        .eq('id', flight.id);
+        .eq('id', flightDbId);
 
       if (gateway === 'zelle') {
         setBookingCode(newBookingCode);
@@ -351,7 +447,7 @@ export default function CheckoutPage() {
 
       router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
     } catch (err) {
-      console.error(err);
+      console.error('[Checkout] ❌ Submit error:', err);
       setError(err instanceof Error ? err.message : 'Error al procesar la reserva.');
     } finally {
       setProcessing(false);

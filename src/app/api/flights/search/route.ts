@@ -21,6 +21,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 const CACHE_TTL_MINUTES = 15;
 const CACHE_CONTROL_RESULTS = "public, s-maxage=300, stale-while-revalidate=600";
 
+// Rate limiting
+const RATE_LIMIT_MAX = 30; // max searches per window
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute window
+
 /* -------------------------------------------------- */
 /* ---- TYPES & HELPERS ----------------------------- */
 /* -------------------------------------------------- */
@@ -100,6 +104,46 @@ export async function POST(req: NextRequest) {
 
   const now = new Date();
   const nowIso = now.toISOString();
+
+  // ── Rate limiting ───────────────────────────────────
+  const clientIp =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown";
+
+  const { data: rateRow } = await supabase
+    .from("search_rate_limits")
+    .select("ip_address,last_search_at,search_count")
+    .eq("ip_address", clientIp)
+    .maybeSingle();
+
+  const lastSearchAt = safeParseDateIso(rateRow?.last_search_at);
+  const withinWindow =
+    !!lastSearchAt && now.getTime() - lastSearchAt.getTime() < RATE_LIMIT_WINDOW_MS;
+
+  if (withinWindow && (rateRow?.search_count ?? 0) >= RATE_LIMIT_MAX) {
+    return NextResponse.json(
+      { error: "Demasiadas búsquedas. Intenta de nuevo en un minuto." },
+      {
+        status: 429,
+        headers: {
+          "Cache-Control": "no-store",
+          "Retry-After": "60",
+        },
+      }
+    );
+  }
+
+  // Upsert rate limit counter (reset if outside window)
+  await supabase.from("search_rate_limits").upsert(
+    {
+      ip_address: clientIp,
+      last_search_at: nowIso,
+      search_count: withinWindow ? (rateRow?.search_count ?? 0) + 1 : 1,
+    },
+    { onConflict: "ip_address" }
+  );
+
   const cacheKey = stableStringify(body);
 
   // ── Cache lookup ──────────────────────────────────
