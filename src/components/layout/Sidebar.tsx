@@ -7,7 +7,7 @@ import { authService } from '@/services/auth.service';
 import {
   LayoutDashboard, Plane, CalendarCheck, Star, Settings,
   ChevronLeft, LogOut, Newspaper, MessageSquare, Tag,
-  Users, FileText, HelpCircle, DollarSign, Trophy,
+  Users, FileText, HelpCircle, DollarSign, Trophy, Car,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
@@ -132,6 +132,7 @@ export const ADMIN_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/admin/dashboard/bookings', label: 'Todas las Reservas', icon: CalendarCheck },
   { href: '/admin/dashboard/flights', label: 'Vuelos & Markup', icon: Plane },
   { href: '/admin/dashboard/offers', label: 'Ofertas Visuales', icon: Tag },
+  { href: '/admin/dashboard/cars', label: 'Autos', icon: Car },
   { href: '/admin/dashboard/quotations', label: 'Cotizaciones', icon: HelpCircle },
   { href: '/admin/dashboard/agents', label: 'Gestores', icon: Users },
   { href: '/admin/dashboard/news', label: 'Noticias Agentes', icon: Newspaper },

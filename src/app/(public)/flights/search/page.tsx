@@ -1,6 +1,7 @@
+//C:\Users\Eduardo\GlobalSolutionsApp\src\app\(public)\flights\search
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -51,6 +52,9 @@ export default function FlightSearchResultsPage() {
     airlines: [],
   });
 
+  // Keep a raw->mapped index so we can persist the selected flight
+  const rawResultsMapRef = useRef<Map<string, unknown>>(new Map());
+
   const from = searchParams.get('from') || '';
   const to = searchParams.get('to') || '';
   const departure = searchParams.get('departure') || '';
@@ -99,7 +103,17 @@ export default function FlightSearchResultsPage() {
   }, [activeLeg, from, to, departure, returnDate, passengerCount, search]);
 
   const flights: FlightOffer[] = useMemo(() => {
-    return Array.isArray(results) ? results.map(mapApiFlightToOffer) : [];
+    const rawArr = Array.isArray(results) ? results : [];
+    const mapped = rawArr.map(mapApiFlightToOffer);
+
+    const newMap = new Map<string, unknown>();
+    for (let i = 0; i < mapped.length; i++) {
+      const raw = rawArr[i];
+      if (raw) newMap.set(mapped[i].id, raw);
+    }
+    rawResultsMapRef.current = newMap;
+
+    return mapped;
   }, [results]);
 
   // Apply client-side filters
@@ -156,9 +170,41 @@ export default function FlightSearchResultsPage() {
                   flights={filteredFlights}
                   isLoading={isLoading}
                   error={error}
-                  onSelectFlight={(flightId) =>
-                    router.push(`/flights/${flightId}?passengers=${passengerCount}`)
-                  }
+                  onSelectFlight={async (flightId) => {
+                    // Save raw flight data to sessionStorage so checkout can use it
+                    // (the persist to DB will happen at checkout time)
+                    try {
+                      const rawFlight = rawResultsMapRef.current.get(flightId);
+                      if (rawFlight) {
+                        sessionStorage.setItem('selectedFlightData', JSON.stringify(rawFlight));
+                      }
+                    } catch (e) {
+                      console.warn('[flights/search] Could not save to sessionStorage:', e);
+                    }
+
+                    // Try to persist to get a UUID for the detail page.
+                    // If it fails, still navigate with the raw ID — checkout will handle persist.
+                    try {
+                      const raw = rawResultsMapRef.current.get(flightId);
+                      if (raw) {
+                        const res = await fetch('/api/flights/persist', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ flight: raw }),
+                        });
+                        const json = (await res.json()) as { id?: string };
+                        if (res.ok && json?.id) {
+                          router.push(`/flights/${json.id}?passengers=${passengerCount}`);
+                          return;
+                        }
+                      }
+                    } catch (e) {
+                      console.warn('[flights/search] persist failed, using raw id:', e);
+                    }
+
+                    // Fallback: navigate with raw ID, checkout will persist
+                    router.push(`/checkout?flight=${flightId}&passengers=${passengerCount}`);
+                  }}
                 />
               </div>
             </div>

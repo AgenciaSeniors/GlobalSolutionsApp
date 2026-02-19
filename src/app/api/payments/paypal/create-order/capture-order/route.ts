@@ -70,6 +70,30 @@ async function getPayPalAccessToken(): Promise<string> {
   return token;
 }
 
+function extractPayPalErrorIssue(raw: unknown): string | null {
+  // PayPal often returns: { name, message, details:[{ issue, description }] }
+  if (!isRecord(raw)) return null;
+  const details = raw.details;
+  if (Array.isArray(details) && details.length > 0 && isRecord(details[0])) {
+    const issue = details[0].issue;
+    if (typeof issue === "string" && issue.length > 0) return issue;
+  }
+  const name = raw.name;
+  if (typeof name === "string" && name.length > 0) return name;
+  return null;
+}
+
+function extractPayPalErrorMessage(raw: unknown): string | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.message === "string" && raw.message.length > 0) return raw.message;
+  const details = raw.details;
+  if (Array.isArray(details) && details.length > 0 && isRecord(details[0])) {
+    const desc = details[0].description;
+    if (typeof desc === "string" && desc.length > 0) return desc;
+  }
+  return null;
+}
+
 /* ───────────────────── Validation ───────────────────── */
 
 const BodySchema = z.object({
@@ -133,29 +157,69 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // ── 4. Capture the PayPal order ──
-    const accessToken = await getPayPalAccessToken();
+    // NOTE: PayPal idempotency is based on PayPal-Request-Id.
+    // Use a stable value so retries are safe (do NOT include Date.now()).
+    const requestId = `gs-capture-${booking_id}-${order_id}`;
 
-    const captureRes = await fetch(
-      `${paypalBaseUrl()}/v2/checkout/orders/${order_id}/capture`,
-      {
+    const doCapture = async (token: string) =>
+      fetch(`${paypalBaseUrl()}/v2/checkout/orders/${order_id}/capture`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
-          "PayPal-Request-Id": `gs-capture-${booking_id}-${Date.now()}`,
+          "PayPal-Request-Id": requestId,
         },
-      }
-    );
+      });
+
+    // First attempt
+    let accessToken = await getPayPalAccessToken();
+    let captureRes = await doCapture(accessToken);
+
+    // If token expired/invalid, refresh once and retry.
+    if (captureRes.status === 401) {
+      accessToken = await getPayPalAccessToken();
+      captureRes = await doCapture(accessToken);
+    }
 
     const captureRaw: unknown = await captureRes.json().catch(() => null);
 
     if (!captureRes.ok) {
       console.error("[PayPal Capture] API error:", captureRaw);
 
-      // Handle already-captured (idempotent)
+      const issue = extractPayPalErrorIssue(captureRaw);
+      const message =
+        extractPayPalErrorMessage(captureRaw) ??
+        (isRecord(captureRaw) && typeof captureRaw.message === "string"
+          ? captureRaw.message
+          : null) ??
+        "Failed to capture PayPal order";
+
+      // 404: order doesn't exist / wrong environment
+      if (captureRes.status === 404) {
+        return NextResponse.json(
+          { error: message, code: "ORDER_NOT_FOUND" },
+          { status: 404 }
+        );
+      }
+
+      // INSTRUMENT_DECLINED: payer must retry with another funding source.
+      if (issue === "INSTRUMENT_DECLINED") {
+        return NextResponse.json(
+          { error: message, code: "INSTRUMENT_DECLINED", action: "retry" },
+          { status: 409 }
+        );
+      }
+
+      // ORDER_NOT_APPROVED: frontend tried to capture without approval.
+      if (issue === "ORDER_NOT_APPROVED") {
+        return NextResponse.json(
+          { error: message, code: "ORDER_NOT_APPROVED" },
+          { status: 409 }
+        );
+      }
+
+      // Handle already-captured (idempotent): PayPal often returns 422.
       if (captureRes.status === 422) {
-        // Order already captured — check if the booking was already marked
-        // This can happen if the webhook arrived first
         const { data: freshBooking } = await supabaseAdmin
           .from("bookings")
           .select("payment_status")
@@ -170,11 +234,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       }
 
-      const errorDetail =
-        isRecord(captureRaw) && typeof captureRaw.message === "string"
-          ? captureRaw.message
-          : "Failed to capture PayPal order";
-      return NextResponse.json({ error: errorDetail }, { status: 502 });
+      // Generic gateway failure
+      return NextResponse.json(
+        { error: message, code: issue ?? "CAPTURE_FAILED" },
+        { status: 502 }
+      );
     }
 
     // ── 5. Parse capture response ──

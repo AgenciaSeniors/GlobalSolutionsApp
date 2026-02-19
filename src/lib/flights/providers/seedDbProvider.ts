@@ -111,9 +111,10 @@ export const seedDbProvider: FlightsProvider = {
       const destinationId = airportIdByIata.get(leg.destination);
 
       if (!originId || !destinationId) {
-        // Mantener el mismo comportamiento del endpoint: 400 "IATA inválido".
-        // El route puede decidir cómo mapear este error.
-        throw new Error(`IATA inválido en tramo ${i + 1}`);
+        // Airport not in local DB — return empty for this leg.
+        // External providers (SkyScrapper) can still search worldwide IATAs.
+        resultsByLeg.push({ legIndex: i, flights: [] });
+        continue;
       }
 
       // Date window (full day) or narrowed by time range (validated at route level)

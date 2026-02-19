@@ -21,11 +21,12 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value:
               "default-src 'self'; " +
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com https://www.paypal.com; " +
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com https://www.paypal.com https://www.sandbox.paypal.com; " +
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
               "img-src 'self' data: https: blob:; " +
               "font-src 'self' https://fonts.gstatic.com; " +
-              "connect-src 'self' https://api.stripe.com https://www.paypal.com https://*.supabase.co https://flights-sky.p.rapidapi.com;",
+              "frame-src https://js.stripe.com https://hooks.stripe.com https://www.paypal.com https://www.sandbox.paypal.com; " +
+              "connect-src 'self' https://api.stripe.com https://www.paypal.com https://www.sandbox.paypal.com https://*.supabase.co https://flights-sky.p.rapidapi.com;",
           },
         ],
       },
