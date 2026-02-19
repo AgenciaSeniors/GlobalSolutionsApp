@@ -174,6 +174,12 @@ export interface CarRentalBooking {
 /*  SPECIAL OFFERS (§3.2 Visual Engine)                               */
 /* ------------------------------------------------------------------ */
 
+export interface SpecialOfferStop {
+  city: string;
+  airport_code: string;
+  duration: string;
+}
+
 export interface SpecialOffer {
   id: string;
   destination: string;
@@ -194,6 +200,20 @@ export interface SpecialOffer {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Flight detail fields
+  departure_time: string | null;
+  arrival_time: string | null;
+  flight_duration: string | null;
+  aircraft_type: string | null;
+  cabin_class: string | null;
+  baggage_included: string | null;
+  stops: SpecialOfferStop[] | null;
+  origin_city: string | null;
+  destination_city: string | null;
+  // Joined relations (optional, populated by select with joins)
+  airline?: { id: string; iata_code: string; name: string; logo_url: string | null };
+  origin_airport?: { id: string; iata_code: string; name: string; city: string; country: string };
+  destination_airport?: { id: string; iata_code: string; name: string; city: string; country: string };
 }
 
 /* ------------------------------------------------------------------ */
