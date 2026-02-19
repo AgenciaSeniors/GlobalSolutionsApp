@@ -52,12 +52,12 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
   if (bookingErr || !booking) throw new Error(bookingErr?.message ?? 'Error creando la reserva.');
 
   // 3. Insertar Pasajeros con ENCRIPTACIÓN (Módulo 3.2 - CORREGIDO)
-  // 🔐 CAMBIO CRÍTICO: Usamos la llave maestra dedicada, NO la del service role.
+  // 🔐 SEGURIDAD: Usamos la llave maestra dedicada, NO la del service role.
   const secretKey = process.env.PASSPORT_ENCRYPTION_KEY;
 
   if (!secretKey) {
     console.error('❌ CRITICAL ERROR: PASSPORT_ENCRYPTION_KEY faltante en .env.local');
-    // Borramos la reserva huérfana para no dejar basura en la DB
+    // Rollback: Borramos la reserva huérfana para no dejar basura en la DB
     await supabase.from('bookings').delete().eq('id', booking.id);
     throw new Error('Error interno de seguridad: Llave de encriptación no configurada.');
   }
