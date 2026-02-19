@@ -26,11 +26,25 @@ export default function OfferCalendar({
   onSelectDate,
 }: OfferCalendarProps) {
   const today = new Date();
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const offerSet = useMemo(() => new Set(validDates), [validDates]);
+
+  // Find the first future (or today) offer date to auto-navigate there
+  const firstOfferDate = useMemo(() => {
+    const future = [...validDates].sort().find((d) => d >= todayStr);
+    // If no future date, use the last available date (could be past but still relevant)
+    const target = future ?? [...validDates].sort().pop();
+    return target ? new Date(target + 'T12:00:00') : null;
+  }, [validDates, todayStr]);
+
+  const [currentMonth, setCurrentMonth] = useState(
+    firstOfferDate ? firstOfferDate.getMonth() : today.getMonth()
+  );
+  const [currentYear, setCurrentYear] = useState(
+    firstOfferDate ? firstOfferDate.getFullYear() : today.getFullYear()
+  );
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const firstDayOfWeek = new Date(currentYear, currentMonth, 1).getDay();
