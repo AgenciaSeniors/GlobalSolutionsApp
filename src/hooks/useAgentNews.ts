@@ -19,11 +19,12 @@ export function useAgentNews(limit = 10) {
         const data = await getAgentNews({ limit });
         if (alive) setItems(data);
       } catch (e) {
-        console.error(e);
-        if (alive) setError("Error conectando a Supabase. Revisa tus credenciales .env");
-      } finally {
-        if (alive) setLoading(false);
-      }
+  console.error(e);
+  if (alive) {
+    setItems([]);
+    setError(null);
+  }
+}
     })();
 
     return () => {

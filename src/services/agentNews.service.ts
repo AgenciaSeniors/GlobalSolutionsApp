@@ -17,9 +17,10 @@ export async function getAgentNews(opts: GetAgentNewsOptions = {}): Promise<Agen
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (error) {
-    throw new Error(error.message);
-  }
+ if (error) {
+  console.error("[getAgentNews] Supabase error:", error);
+  return [];
+}
 
   return (data ?? []) as AgentNews[];
 }
