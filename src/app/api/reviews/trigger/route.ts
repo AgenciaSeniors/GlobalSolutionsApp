@@ -26,11 +26,11 @@ export async function POST() {
     const { data: bookings, error } = await supabaseAdmin
       .from('bookings')
       .select(`
-        id, booking_code, user_id, return_date, review_requested,
-        flight:flights(
-          destination_airport:airports!destination_airport_id(city)
+        id, booking_code, profile_id, return_date, review_requested,
+        flight:flights!bookings_flight_id_fkey(
+          destination_airport:airports!flights_destination_airport_id_fkey(city)
         ),
-        profile:profiles!user_id(full_name, email)
+        profile:profiles!bookings_user_id_fkey(full_name, email)
       `)
       .eq('booking_status', 'completed')
       .eq('return_date', yesterdayStr)

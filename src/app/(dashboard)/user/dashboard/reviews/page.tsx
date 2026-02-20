@@ -4,6 +4,14 @@
  * Loyalty points awarded for approved reviews.
  *
  * Supports both flight bookings and offer bookings.
+ *
+ * FK constraints used in PostgREST joins:
+ *   reviews_user_id_fkey     : profile_id → profiles(id)
+ *   reviews_booking_id_fkey  : booking_id → bookings(id)
+ *   bookings_flight_id_fkey  : flight_id  → flights(id)
+ *   bookings_offer_id_fkey   : offer_id   → special_offers(id)
+ *   flights_airline_id_fkey  : airline_id → airlines(id)
+ *   flights_origin_airport_id_fkey / flights_destination_airport_id_fkey
  */
 'use client';
 
@@ -77,21 +85,18 @@ function norm<T>(val: T | T[] | null | undefined): T | null {
 function routeLabel(b: { flight: FlightJoin | FlightJoin[] | null; offer: OfferJoin | OfferJoin[] | null; offer_id?: string | null }): string {
   const flight = norm(b.flight);
   const offer = norm(b.offer);
-
   if (flight) {
     const airline = flight.airline?.name ? `${flight.airline.name} · ` : '';
     const orig = flight.origin_airport?.city || '???';
     const dest = flight.destination_airport?.city || '???';
     return `${airline}${orig} → ${dest}`;
   }
-
   if (offer) {
     const airline = offer.airline?.name ? `${offer.airline.name} · ` : '';
     const orig = offer.origin_airport?.city || '';
     const dest = offer.destination_airport?.city || offer.destination || '???';
     return orig ? `${airline}${orig} → ${dest}` : `${airline}${dest}`;
   }
-
   return 'Viaje completado';
 }
 
@@ -121,22 +126,6 @@ export default function UserReviewsPage() {
     setFetchError(null);
 
     try {
-      /**
-       * FK constraints on reviews table:
-       *   reviews_user_id_fkey     : profile_id → profiles(id)
-       *   reviews_booking_id_fkey  : booking_id → bookings(id)
-       *   reviews_moderated_by_fkey: moderated_by → profiles(id)
-       *
-       * FK constraints on bookings:
-       *   bookings_flight_id_fkey  : flight_id  → flights(id)
-       *   bookings_offer_id_fkey   : offer_id   → special_offers(id)
-       *   bookings_user_id_fkey    : profile_id → profiles(id)
-       *
-       * FK constraints on flights:
-       *   flights_airline_id_fkey             : airline_id → airlines(id)
-       *   flights_origin_airport_id_fkey      : origin_airport_id → airports(id)
-       *   flights_destination_airport_id_fkey : destination_airport_id → airports(id)
-       */
       const [reviewsRes, bookingsRes] = await Promise.all([
         // My reviews with booking info
         supabase
@@ -162,7 +151,7 @@ export default function UserReviewsPage() {
           .eq('profile_id', user!.id)
           .order('created_at', { ascending: false }),
 
-        // Completed bookings that can be reviewed
+        // Completed bookings that can be reviewed — use profile_id (NOT user_id)
         supabase
           .from('bookings')
           .select(`
@@ -181,7 +170,7 @@ export default function UserReviewsPage() {
               destination_airport:airports!special_offers_destination_airport_id_fkey(iata_code, city)
             )
           `)
-          .eq('user_id', user!.id)
+          .eq('profile_id', user!.id)
           .eq('booking_status', 'completed'),
       ]);
 
@@ -238,6 +227,7 @@ export default function UserReviewsPage() {
     setSubmitting(true);
     setMessage(null);
 
+    // IMPORTANT: insert profile_id (NOT user_id) — RLS demands profile_id = auth.uid()
     const { error } = await supabase.from('reviews').insert({
       profile_id: user.id,
       booking_id: bookingId,
@@ -250,7 +240,6 @@ export default function UserReviewsPage() {
 
     if (error) {
       console.error('[UserReviews] Insert error:', error.message, error.details, error.hint);
-      // Common RLS error
       if (error.message.includes('row-level security') || error.code === '42501') {
         setMessage({ type: 'error', text: 'Solo puedes dejar reseñas de tus propios viajes completados.' });
       } else {
@@ -434,6 +423,7 @@ export default function UserReviewsPage() {
                   const displayComment = isExpanded
                     ? r.comment
                     : (r.comment.length > 180 ? r.comment.slice(0, 180) + '…' : r.comment);
+                  const booking = norm(r.booking);
 
                   const booking = norm(r.booking);
 

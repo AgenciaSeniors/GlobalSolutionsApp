@@ -285,10 +285,17 @@ export interface Review {
   moderated_by: string | null;
   moderated_at: string | null;
   created_at: string;
+  /** @deprecated Legacy column — use profile_id for ownership. */
+  user_id?: string | null;
 }
 
 export interface ReviewWithAuthor extends Review {
   profile: Pick<Profile, 'full_name' | 'avatar_url'>;
+  booking?: {
+    booking_code: string;
+    flight?: { destination_airport?: { city: string } | null } | null;
+    offer?: { destination: string } | null;
+  } | null;
 }
 
 /* ------------------------------------------------------------------ */

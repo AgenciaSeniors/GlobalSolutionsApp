@@ -111,7 +111,6 @@ export default function AdminReviewsPage() {
       : '¿Rechazar esta reseña? No se publicará.';
 
     if (!confirm(confirmMsg)) return;
-
     setActionLoading(id);
 
     try {
@@ -126,7 +125,6 @@ export default function AdminReviewsPage() {
 
       if (error) {
         console.error(`[AdminReviews] ${actionLabel} error:`, error.message, error.details, error.hint);
-
         if (error.message.includes('row-level security') || error.code === '42501') {
           alert('Solo administradores pueden moderar reseñas.');
         } else {
@@ -216,7 +214,6 @@ export default function AdminReviewsPage() {
                   {pendingCount} reseña{pendingCount !== 1 ? 's' : ''} pendiente{pendingCount !== 1 ? 's' : ''} de aprobación
                 </p>
               )}
-
               <div className="space-y-4">
                 {reviews.map(review => {
                   const cfg = statusConfig[review.status] || statusConfig.pending_approval;
@@ -250,6 +247,7 @@ export default function AdminReviewsPage() {
                             {' · '}{new Date(review.created_at).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </p>
                         </div>
+
                         {review.status === 'pending_approval' && (
                           <div className="flex gap-2 flex-shrink-0">
                             <Button
