@@ -540,6 +540,7 @@ export default function CheckoutPage() {
           .from('bookings')
           .insert({
             booking_code: newBookingCode,
+            profile_id: user.id,
             user_id: user.id,
             offer_id: offerData.offer_id,
             selected_date: offerData.selected_date,

@@ -83,7 +83,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const { data: booking, error: bookingErr } = await supabaseAdmin
       .from("bookings")
       .select(
-        "id, booking_code, profile_id, payment_status, payment_method, payment_gateway, total_amount"
+        "id, booking_code, user_id, profile_id, payment_status, payment_method, payment_gateway, total_amount"
       )
       .eq("id", booking_id)
       .single();
@@ -94,7 +94,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // ── 5. Ownership check ──
     // Client: only their own booking. Admin/agent: can operate any booking.
-    if (!isStaff && booking.profile_id !== user.id) {
+    const isOwner = booking.user_id === user.id || booking.profile_id === user.id;
+    if (!isStaff && !isOwner) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
