@@ -3,6 +3,7 @@
  *               Trust, About, Services, Reviews and CTA.
  * @module app/page
  */
+import Link from 'next/link';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import HeroSection from '@/components/features/home/HeroSection';
@@ -14,116 +15,83 @@ import HomeOffersCarousel from '@/components/features/home/HomeOffersCarousel';
 import { createClient } from '@/lib/supabase/server';
 import type { SpecialOffer } from '@/types/models';
 
-/* -- Static reviews (ok) -- */
-const REVIEWS = [
-  {
-    authorName: 'María García',
-    authorInitials: 'MG',
-    destination: 'Estambul',
-    date: 'Ene 2026',
-    rating: 5,
-    comment:
-      'Increíble experiencia. El equipo de Global Solutions fue excepcional en todo momento. Vuelos puntuales y precios inmejorables.',
-  },
-  {
-    authorName: 'Carlos Rodríguez',
-    authorInitials: 'CR',
-    destination: 'Madrid',
-    date: 'Dic 2025',
-    rating: 5,
-    comment:
-      'Tercer viaje con ellos y siempre impecable. La atención personalizada marca la diferencia. 100% recomendado.',
-  },
-  {
-    authorName: 'Ana Martínez',
-    authorInitials: 'AM',
-    destination: 'Cancún',
-    date: 'Nov 2025',
-    rating: 4,
-    comment:
-      'Muy buena experiencia. Precios competitivos y el proceso de reserva fue muy sencillo. Volveré a usar sus servicios.',
-  },
-];
+/** Build initials from a full name like "María García" → "MG" */
+function getInitials(name: string): string {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .map(w => w[0]?.toUpperCase() ?? '')
+    .slice(0, 2)
+    .join('');
+}
 
-const FALLBACK_OFFERS: SpecialOffer[] = [
-  {
-    id: 'fallback-1',
-    destination: 'Estambul, Turquía',
-    destination_img: null,
-    origin_airport_id: null,
-    destination_airport_id: null,
-    airline_id: null,
-    flight_number: null,
-    valid_dates: ['2026-03-15', '2026-03-18', '2026-03-22'],
-    original_price: 1250,
-    offer_price: 849,
-    markup_percentage: 0,
-    tags: ['exclusive', 'fire', 'few_seats'],
-    urgency_label: 'Últimos cupos esta semana',
-    max_seats: 20,
-    sold_seats: 17,
-    is_active: true,
-    created_by: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'fallback-2',
-    destination: 'Madrid, España',
-    destination_img: null,
-    origin_airport_id: null,
-    destination_airport_id: null,
-    airline_id: null,
-    flight_number: null,
-    valid_dates: ['2026-03-10', '2026-03-12', '2026-03-20'],
-    original_price: 980,
-    offer_price: 699,
-    markup_percentage: 0,
-    tags: ['exclusive', 'flash_24h'],
-    urgency_label: 'Promo Flash 24h',
-    max_seats: 20,
-    sold_seats: 10,
-    is_active: true,
-    created_by: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'fallback-3',
-    destination: 'Cancún, México',
-    destination_img: null,
-    origin_airport_id: null,
-    destination_airport_id: null,
-    airline_id: null,
-    flight_number: null,
-    valid_dates: ['2026-03-08', '2026-03-16', '2026-03-23'],
-    original_price: 450,
-    offer_price: 299,
-    markup_percentage: 0,
-    tags: ['exclusive'],
-    urgency_label: null,
-    max_seats: 20,
-    sold_seats: 6,
-    is_active: true,
-    created_by: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
+/** Extract destination from a review's joined booking (flight or offer). */
+function getDestination(review: Record<string, unknown>): string {
+  const booking = review.booking as Record<string, unknown> | null;
+  if (!booking) return 'Destino';
+
+  const flight = booking.flight as Record<string, unknown> | null;
+  const offer = booking.offer as Record<string, unknown> | null;
+
+  if (flight) {
+    const dest = flight.destination_airport as Record<string, unknown> | null;
+    if (dest?.city) return dest.city as string;
+  }
+  if (offer?.destination) return offer.destination as string;
+
+  return 'Destino';
+}
 
 export default async function HomePage() {
   const supabase = await createClient();
 
-  const { data } = await supabase
-    .from('special_offers')
-    .select('*')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .limit(8);
+  // Fetch offers and approved reviews in parallel
+  const [offersRes, reviewsRes] = await Promise.all([
+    supabase
+      .from('special_offers')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(8),
+    supabase
+      .from('reviews')
+      .select(`
+        id, rating, comment, created_at,
+        profile:profiles!reviews_user_id_fkey(full_name, avatar_url),
+        booking:bookings!reviews_booking_id_fkey(
+          booking_code,
+          flight:flights!bookings_flight_id_fkey(
+            destination_airport:airports!flights_destination_airport_id_fkey(city)
+          ),
+          offer:special_offers!bookings_offer_id_fkey(destination)
+        )
+      `)
+      .eq('status', 'approved')
+      .order('created_at', { ascending: false })
+      .limit(6),
+  ]);
 
-  const offers = ((data as SpecialOffer[]) ?? []).filter(Boolean);
-  const carouselOffers = offers.length ? offers : FALLBACK_OFFERS;
+  const offers = ((offersRes.data as SpecialOffer[]) ?? []).filter(Boolean);
 
+  // Build review cards ONLY from DB (no fake fallback)
+  const dbReviews = (reviewsRes.data ?? []) as Record<string, unknown>[];
+  const reviewCards =
+    dbReviews.length > 0
+      ? dbReviews.map(r => {
+          const profile = r.profile as { full_name?: string | null } | null;
+          const name = profile?.full_name || 'Viajero';
+          const createdAt = new Date(r.created_at as string);
+
+          return {
+            authorName: name,
+            authorInitials: getInitials(name),
+            destination: getDestination(r),
+            date: createdAt.toLocaleDateString('es', { month: 'short', year: 'numeric' }),
+            rating: r.rating as number,
+            comment: r.comment as string,
+          };
+        })
+      : [];
 
   return (
     <>
@@ -162,7 +130,15 @@ export default async function HomePage() {
             </p>
           </div>
 
-          <HomeOffersCarousel offers={carouselOffers} />
+          {offers.length === 0 ? (
+            <div className="rounded-2xl border bg-white p-8 text-center shadow-sm">
+              <p className="text-sm text-neutral-700">
+                Por ahora no hay ofertas activas. Vuelve pronto para ver promociones nuevas.
+              </p>
+            </div>
+          ) : (
+            <HomeOffersCarousel offers={offers} />
+          )}
         </div>
       </section>
 
@@ -180,12 +156,31 @@ export default async function HomePage() {
             <h2 className="mt-2 font-display text-4xl font-bold text-brand-950">
               Lo que dicen nuestros viajeros
             </h2>
+
+            {/* CTA: Ver reseñas */}
+            <div className="mt-6 flex justify-center">
+              <Link
+                href="/reviews"
+                className="inline-flex items-center justify-center rounded-xl border border-brand-200 bg-white px-5 py-2.5 text-sm font-semibold text-brand-900 shadow-sm hover:bg-neutral-50"
+              >
+                Ver reseñas
+              </Link>
+            </div>
           </div>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {REVIEWS.map((r) => (
-              <ReviewCard key={r.authorName} {...r} />
-            ))}
-          </div>
+
+          {reviewCards.length === 0 ? (
+            <div className="mx-auto max-w-2xl rounded-2xl border bg-white p-8 text-center shadow-sm">
+              <p className="text-sm text-neutral-700">
+                Aún no hay reseñas publicadas. ¡Sé el primero en dejar la tuya después de comprar!
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+              {reviewCards.slice(0, 3).map((r, i) => (
+                <ReviewCard key={`${r.authorName}-${i}`} {...r} />
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

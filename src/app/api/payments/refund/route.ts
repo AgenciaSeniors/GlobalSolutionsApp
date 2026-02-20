@@ -147,7 +147,7 @@ async function refundPayPalCapture(
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
-        "PayPal-Request-Id": `gs-refund-${captureId}-${Date.now()}`,
+        "PayPal-Request-Id": `gs-refund-${captureId}-${amountUsd.toFixed(2)}`,
       },
       body: JSON.stringify(body),
     }
@@ -334,6 +334,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       gatewayRefundId = ppResult.refundId;
+    } else if (gateway === "zelle") {
+      // Zelle refunds are manual (admin sends money back outside the system).
+      // We only update the DB to reflect the refund status.
+      gatewayRefundId = `zelle_refund_${booking_id}`;
+      console.log(`[Refund] Zelle refund for booking ${booking_id} — admin must send $${refundCalc.refund_amount.toFixed(2)} manually.`);
     } else {
       return NextResponse.json(
         { error: `Unknown payment gateway: ${gateway}` },
@@ -361,7 +366,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await supabaseAdmin
       .rpc("log_payment_event_once", {
         p_provider: gateway,
-        p_event_id: `refund_${gatewayRefundId ?? booking_id}_${Date.now()}`,
+        p_event_id: `refund_${gatewayRefundId ?? booking_id}_${reason}`,
         p_event_type: "refund.processed",
         p_booking_id: booking_id,
         p_payment_intent_id: booking.payment_intent_id,
