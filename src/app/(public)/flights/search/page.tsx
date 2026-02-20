@@ -151,7 +151,7 @@ export default function FlightSearchResultsPage() {
       <main className="pt-[72px]">
         <section className="bg-white py-12">
           <div className="mx-auto max-w-6xl px-6">
-            <FlightSearchForm initialValues={formInitialValues} />
+            <FlightSearchForm initialValues={formInitialValues} autoSubmitOnClassChange />
           </div>
         </section>
 

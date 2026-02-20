@@ -43,9 +43,16 @@ type Props = {
    * to /flights/search. Useful for same-page results + scroll.
    */
   onSearch?: (params: FlightSearchParams) => void;
+
+  /**
+   * When true, changing the cabin class will immediately trigger a new search.
+   * - If `onSearch` exists: calls onSearch(updatedParams)
+   * - Otherwise: updates the URL (router.replace)
+   */
+  autoSubmitOnClassChange?: boolean;
 };
 
-export default function FlightSearchForm({ initialValues, onSearch }: Props) {
+export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOnClassChange }: Props) {
   const router = useRouter();
   const [tripType, setTripType] = useState<TripType>('roundtrip');
   const [form, setForm] = useState({
@@ -60,6 +67,23 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
   const [legs, setLegs] = useState<StopLeg[]>([]);
   const [initialized, setInitialized] = useState(false);
   const [dateError, setDateError] = useState('');
+
+  const navigateToResults = (payload: FlightSearchParams, mode: 'push' | 'replace' = 'push') => {
+    const params = new URLSearchParams({
+      from: payload.from,
+      to: payload.to,
+      departure: payload.departure,
+      passengers: payload.passengers,
+    });
+
+    if (payload.cabinClass) params.set('cabinClass', payload.cabinClass);
+    if (payload.return) params.set('return', payload.return);
+
+    const url = `${ROUTES.FLIGHT_SEARCH}?${params.toString()}`;
+    if (mode === 'replace') router.replace(url);
+    else router.push(url);
+  };
+
 
   /* ── Date boundaries ─────────────────────────────── */
   const today = useMemo(() => {
@@ -239,8 +263,41 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
       params.set('return', payload.return);
     }
 
-    router.push(`${ROUTES.FLIGHT_SEARCH}?${params.toString()}`);
+    navigateToResults(payload, 'push');
   }
+
+  function handleCabinClassChange(e: ChangeEvent<HTMLSelectElement>) {
+    const value = e.target.value;
+    setDateError('');
+
+    setForm((prev) => ({ ...prev, cabinClass: value }));
+
+    if (!autoSubmitOnClassChange) return;
+
+    // Multidestino no está conectado al search page todavía.
+    if (tripType === 'multicity') return;
+
+    const next = { ...form, cabinClass: value };
+    if (!next.origin || !next.destination || !next.departure) return;
+    if (tripType === 'roundtrip' && !next.returnDate) return;
+
+    const payload: FlightSearchParams = {
+      from: next.origin,
+      to: next.destination,
+      departure: next.departure,
+      passengers: next.passengers,
+      cabinClass: next.cabinClass,
+    };
+
+    if (tripType === 'roundtrip' && next.returnDate) {
+      payload.return = next.returnDate;
+    }
+
+    // If we're in same-page mode, call callback; otherwise update URL params.
+    if (onSearch) onSearch(payload);
+    else navigateToResults(payload, 'replace');
+  }
+
 
   /* ── Render ───────────────────────────────────────── */
   const isRoundtrip = tripType === 'roundtrip';
@@ -412,7 +469,7 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
           </label>
           <select
             value={form.cabinClass}
-            onChange={update('cabinClass')}
+            onChange={handleCabinClassChange}
             className="h-12 w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 text-[15px] font-medium
                        focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           >

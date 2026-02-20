@@ -31,6 +31,7 @@ type SearchPayload = {
   to: string;
   departure: string;
   passengers: string;
+  cabinClass?: string;
   return?: string;
 };
 
@@ -86,6 +87,7 @@ export default function FlightsPage() {
         destination: lastSearch.to,
         departure_date: lastSearch.departure,
         passengers: passengersCount,
+        cabinClass: lastSearch.cabinClass ?? 'economy',
       });
       return;
     }
@@ -97,6 +99,7 @@ export default function FlightsPage() {
         destination: lastSearch.from,
         departure_date: lastSearch.return,
         passengers: passengersCount,
+        cabinClass: lastSearch.cabinClass ?? 'economy',
       });
     }
   }, [activeLeg, lastSearch, search]);
@@ -186,7 +189,7 @@ export default function FlightsPage() {
             </div>
 
             {/* Importante: NO navegar, solo disparar búsqueda */}
-            <FlightSearchForm onSearch={handleSearch} />
+            <FlightSearchForm onSearch={handleSearch} autoSubmitOnClassChange />
           </div>
         </section>
 
