@@ -1,6 +1,10 @@
 /**
  * @fileoverview Service layer for review queries.
  * @module services/reviews.service
+ *
+ * FK constraints on reviews table:
+ *   reviews_user_id_fkey     : profile_id → profiles(id)
+ *   reviews_booking_id_fkey  : booking_id → bookings(id)
  */
 import { createClient } from '@/lib/supabase/client';
 import type { ReviewWithAuthor } from '@/types/models';
@@ -10,7 +14,7 @@ async function listApproved(limit = 10): Promise<ReviewWithAuthor[]> {
 
   const { data, error } = await supabase
     .from('reviews')
-    .select('*, profile:profiles(full_name, avatar_url)')
+    .select('*, profile:profiles!reviews_user_id_fkey(full_name, avatar_url)')
     .eq('status', 'approved')
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -31,7 +35,9 @@ async function create(payload: {
 
   const { error } = await supabase.from('reviews').insert({
     ...payload,
-    user_id: user.id,
+    profile_id: user.id,
+    status: 'pending_approval',
+    photo_urls: [],
   });
 
   if (error) throw error;

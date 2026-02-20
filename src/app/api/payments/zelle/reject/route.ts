@@ -1,17 +1,19 @@
 export const runtime = "nodejs";
 
 /**
- * POST /api/payments/zelle/confirm
+ * POST /api/payments/zelle/reject
  *
- * Allows an admin or agent to confirm that a Zelle transfer was received.
- * This is the manual step that completes the Zelle payment flow:
+ * Allows an admin or agent to reject a pending Zelle payment.
+ * This is used when the transfer is not received / invalid proof / expired.
  *
- *  1. User selects Zelle at checkout → booking created with payment_status='pending_admin_approval'
- *  2. User transfers money via Zelle (outside the app)
- *  3. Admin/Agent verifies transfer received → calls this endpoint
- *  4. Booking updated to payment_status='paid'
+ * Requirements:
+ * - Auth: admin or agent role required
+ * - Booking must be payment_method='zelle'
+ * - Booking must be in payment_status='pending_admin_approval'
  *
- * Auth: admin or agent role required.
+ * Idempotency:
+ * - Logs event once using: provider='zelle', event_id=`reject:${booking_id}`
+ * - If event already exists, endpoint returns 200 and (optionally) repairs booking to 'failed'
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -33,6 +35,7 @@ function toJson(value: unknown): Json {
 
 const BodySchema = z.object({
   booking_id: z.string().uuid("booking_id must be a valid UUID"),
+  reason: z.string().min(1).max(500).optional(),
 });
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -46,7 +49,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 400 }
       );
     }
-    const { booking_id } = parsed.data;
+    const { booking_id, reason } = parsed.data;
 
     // ── 2. Authenticate user ──
     const supabase = await createClient();
@@ -74,7 +77,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const role = typeof profile.role === "string" ? profile.role : "";
     if (role !== "admin" && role !== "agent") {
       return NextResponse.json(
-        { error: "Only admin or agent can confirm Zelle payments" },
+        { error: "Only admin or agent can reject Zelle payments" },
         { status: 403 }
       );
     }
@@ -82,9 +85,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // ── 4. Fetch booking ──
     const { data: booking, error: bookingErr } = await supabaseAdmin
       .from("bookings")
-      .select(
-        "id, booking_code, payment_status, payment_method, total_amount, user_id"
-      )
+      .select("id, booking_code, payment_status, payment_method, total_amount")
       .eq("id", booking_id)
       .single();
 
@@ -100,12 +101,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Si ya está pagado, responde OK (idempotente)
-    if (booking.payment_status === "paid") {
+    // Si ya está failed, responde OK (idempotente)
+    if (booking.payment_status === "failed") {
       return NextResponse.json(
         {
           success: true,
-          already_confirmed: true,
+          already_rejected: true,
           booking_id,
           booking_code: booking.booking_code,
         },
@@ -113,21 +114,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Ahora el estado válido para confirmar Zelle es pending_admin_approval
+    // No rechazar si ya está paid/refunded
+    if (booking.payment_status === "paid" || booking.payment_status === "refunded") {
+      return NextResponse.json(
+        { error: `Cannot reject Zelle payment with status: ${booking.payment_status}` },
+        { status: 400 }
+      );
+    }
+
+    // Estado válido para rechazar
     if (booking.payment_status !== "pending_admin_approval") {
       return NextResponse.json(
-        { error: `Cannot confirm payment with status: ${booking.payment_status}` },
+        { error: `Cannot reject payment with status: ${booking.payment_status}` },
         { status: 400 }
       );
     }
 
     // ── 6. Idempotency gate (log event once) ──
-    const eventId = `confirm:${booking_id}`;
+    const eventId = `reject:${booking_id}`;
     const payload = toJson({
-      confirmed_by: user.id,
-      confirmed_by_role: role,
+      rejected_by: user.id,
+      rejected_by_role: role,
       booking_code: booking.booking_code,
       amount: booking.total_amount,
+      reason: reason ?? null,
       timestamp: new Date().toISOString(),
     });
 
@@ -136,7 +146,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       {
         p_provider: "zelle",
         p_event_id: eventId,
-        p_event_type: "zelle.confirm",
+        p_event_type: "zelle.reject",
         p_booking_id: booking_id,
         p_payment_intent_id: null,
         p_payload: payload,
@@ -144,34 +154,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
 
     if (logErr) {
-      console.error("[Zelle Confirm] Event log failed:", logErr.message);
+      console.error("[Zelle Reject] Event log failed:", logErr.message);
       return NextResponse.json(
         { error: "Failed to log payment event" },
         { status: 500 }
       );
     }
 
-    // Si ya existía el evento, ya fue confirmado antes.
-    // PERO: el insert del evento puede haber ocurrido en un intento previo donde el UPDATE falló.
-    // Para robustez total, si el booking aún NO está en 'paid', hacemos un "repair" idempotente.
+    // Si ya existía el evento, ya fue rechazado antes.
+    // Si por algún intento previo el UPDATE falló, reparamos.
     if (!inserted) {
-      if (booking.payment_status !== "paid") {
+      if (booking.payment_status !== "failed") {
         const { error: repairErr } = await supabaseAdmin
           .from("bookings")
           .update({
-            payment_status: "paid",
+            payment_status: "failed",
             payment_gateway: "zelle",
-            paid_at: new Date().toISOString(),
+            payment_method_detail: reason ? `admin_rejected:${reason}` : "admin_rejected",
           })
           .eq("id", booking_id)
           .eq("payment_status", "pending_admin_approval")
           .eq("payment_method", "zelle");
 
         if (repairErr) {
-          console.error(
-            "[Zelle Confirm] Repair update failed:",
-            repairErr.message
-          );
+          console.error("[Zelle Reject] Repair update failed:", repairErr.message);
           return NextResponse.json(
             { error: "Event exists but booking could not be repaired" },
             { status: 500 }
@@ -181,7 +187,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json(
           {
             success: true,
-            already_confirmed: true,
+            already_rejected: true,
             repaired: true,
             booking_id,
             booking_code: booking.booking_code,
@@ -193,7 +199,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         {
           success: true,
-          already_confirmed: true,
+          already_rejected: true,
           booking_id,
           booking_code: booking.booking_code,
         },
@@ -201,40 +207,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // ── 7. Update booking to paid (atomic) ──
+    // ── 7. Update booking to failed (atomic) ──
     const { error: updErr } = await supabaseAdmin
       .from("bookings")
       .update({
-        payment_status: "paid",
+        payment_status: "failed",
         payment_gateway: "zelle",
-        paid_at: new Date().toISOString(),
+        payment_method_detail: reason ? `admin_rejected:${reason}` : "admin_rejected",
       })
       .eq("id", booking_id)
       .eq("payment_status", "pending_admin_approval")
-      .eq("payment_method", "zelle"); // extra safety
+      .eq("payment_method", "zelle");
 
     if (updErr) {
-      console.error("[Zelle Confirm] DB update failed:", updErr.message);
-      // OJO: el evento ya quedó registrado; esto indica carrera/estado cambiado.
+      console.error("[Zelle Reject] DB update failed:", updErr.message);
       return NextResponse.json(
         { error: "Failed to update booking after logging event" },
         { status: 500 }
       );
     }
 
-    // ── 8. Return success ──
     return NextResponse.json(
       {
         success: true,
         booking_id,
         booking_code: booking.booking_code,
-        confirmed_by: user.id,
+        rejected_by: user.id,
       },
       { status: 200 }
     );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    console.error("[Zelle Confirm] Unexpected error:", msg);
+    console.error("[Zelle Reject] Unexpected error:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
