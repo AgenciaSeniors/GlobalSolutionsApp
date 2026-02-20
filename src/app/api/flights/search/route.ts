@@ -1,4 +1,4 @@
-//src\app\api\flights\search\route.ts
+//src/app/api/flights/search/route.ts
 /**
  * POST /api/flights/search
  *
@@ -8,7 +8,7 @@
  * - Otherwise: creates a session and returns { sessionId, status:"pending"/"refreshing", results?: stale }
  *
  * Phase 2 polling lives in:
- *   src/app/api/flights/search/[sessionId]/route.ts
+ * src/app/api/flights/search/[sessionId]/route.ts
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -102,6 +102,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // --- Aseguramos que la clase viaje en el request para que se guarde en la sesión ---
+  const validBody = {
+    ...body as Record<string, unknown>,
+    cabinClass: isRecord(body) && typeof body.cabinClass === 'string' ? body.cabinClass : 'economy'
+  };
+
   const now = new Date();
   const nowIso = now.toISOString();
 
@@ -144,7 +150,7 @@ export async function POST(req: NextRequest) {
     { onConflict: "ip_address" }
   );
 
-  const cacheKey = stableStringify(body);
+  const cacheKey = stableStringify(validBody);
 
   // ── Cache lookup ──────────────────────────────────
   const { data: cacheRow } = await supabase
@@ -183,7 +189,7 @@ export async function POST(req: NextRequest) {
     .from("flight_search_sessions")
     .insert({
       cache_key: cacheKey,
-      request: body,
+      request: validBody, // <--- AQUÍ ESTABA EL ERROR: Cambiado de 'body' a 'validBody'
       status,
       source: staleResults.length ? "cache" : "live",
       providers_used: staleResults.length ? extractProvidersUsed(staleResults) : null,

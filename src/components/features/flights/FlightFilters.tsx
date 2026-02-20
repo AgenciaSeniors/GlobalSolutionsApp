@@ -14,7 +14,7 @@ interface FlightFiltersProps {
 
 const DEFAULT_FILTERS: FilterState = {
   stops: [],
-  priceRange: { min: 0, max: 2000 },
+  priceRange: { min: 0, max: 0 },
   airlines: [],
 };
 

@@ -11,6 +11,7 @@ export type Flight = {
 export type ProviderSearchRequest = {
   legs: FlightLeg[];
   passengers: number;
+  cabinClass?: string;
   filters?: FlightSearchFilters;
 };
 
