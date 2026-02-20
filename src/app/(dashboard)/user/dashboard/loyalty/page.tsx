@@ -9,9 +9,10 @@ import { useAuthContext } from '@/components/providers/AuthProvider';
 import { loyaltyService, type LoyaltyBalance } from '@/services/loyalty.service';
 import type { LoyaltyTransaction } from '@/types/models';
 import {
-  Sparkles, Trophy, TrendingUp, TrendingDown,
+  Sparkles, Trophy, TrendingDown,
   Star, Plane, Gift, ArrowUp, ArrowDown,
 } from 'lucide-react';
+
 
 export default function UserLoyaltyPage() {
   const { user } = useAuthContext();
@@ -117,52 +118,28 @@ export default function UserLoyaltyPage() {
                 <div className="absolute -right-5 bottom-0 h-24 w-24 rounded-full bg-white/5" />
               </Card>
 
-              {/* Stats Row */}
-              <div className="grid grid-cols-3 gap-4">
-                <Card className="p-4 border border-emerald-100 bg-emerald-50/30 text-center">
-                  <TrendingUp className="h-5 w-5 text-emerald-600 mx-auto mb-1" />
-                  <p className="text-xl font-bold text-emerald-700">{(balance?.totalEarned ?? 0).toLocaleString()}</p>
-                  <p className="text-xs text-gray-500">Total ganados</p>
-                </Card>
-                <Card className="p-4 border border-red-100 bg-red-50/30 text-center">
-                  <TrendingDown className="h-5 w-5 text-red-500 mx-auto mb-1" />
-                  <p className="text-xl font-bold text-red-600">{(balance?.totalRedeemed ?? 0).toLocaleString()}</p>
-                  <p className="text-xs text-gray-500">Canjeados</p>
-                </Card>
-                <Card className="p-4 border border-blue-100 bg-blue-50/30 text-center">
-                  <Sparkles className="h-5 w-5 text-blue-600 mx-auto mb-1" />
-                  <p className="text-xl font-bold text-blue-700">{balance?.transactionCount ?? 0}</p>
-                  <p className="text-xs text-gray-500">Transacciones</p>
-                </Card>
-              </div>
 
               {/* How to Earn */}
               <Card variant="bordered" className="border-amber-200 bg-amber-50/20">
                 <h3 className="font-bold text-amber-800 flex items-center gap-2 mb-3">
                   <Sparkles className="h-5 w-5" /> ¿Cómo ganar puntos?
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex items-center gap-3 rounded-lg bg-white p-3 border border-amber-100">
                     <Plane className="h-5 w-5 text-blue-500 flex-shrink-0" />
                     <div>
                       <p className="font-semibold text-sm text-gray-800">Viaja</p>
-                      <p className="text-xs text-gray-500">1 punto por cada $1 gastado</p>
+                      <p className="text-xs text-gray-500">1 punto por cada $5 gastados</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 rounded-lg bg-white p-3 border border-amber-100">
                     <Star className="h-5 w-5 text-amber-500 flex-shrink-0" />
                     <div>
                       <p className="font-semibold text-sm text-gray-800">Escribe reseñas</p>
-                      <p className="text-xs text-gray-500">50 pts texto, 100 pts con fotos</p>
+                      <p className="text-xs text-gray-500">25 pts texto, 50 pts con fotos</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 rounded-lg bg-white p-3 border border-amber-100">
-                    <Gift className="h-5 w-5 text-purple-500 flex-shrink-0" />
-                    <div>
-                      <p className="font-semibold text-sm text-gray-800">Promociones</p>
-                      <p className="text-xs text-gray-500">Puntos extra en campañas</p>
-                    </div>
-                  </div>
+        
                 </div>
               </Card>
 

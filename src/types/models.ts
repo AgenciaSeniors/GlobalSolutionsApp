@@ -297,6 +297,7 @@ export interface AgentTicket {
   created_by: string;
   assigned_to: string | null;
   subject: string;
+  description?: string | null; // ✅ NUEVO
   category: TicketCategory;
   priority: TicketPriority;
   status: TicketStatus;
@@ -305,8 +306,8 @@ export interface AgentTicket {
 }
 
 export interface AgentTicketWithDetails extends AgentTicket {
-  creator?: Pick<Profile, 'full_name' | 'email' | 'role'>;
-  assignee?: Pick<Profile, 'full_name' | 'email' | 'role'>;
+  creator?: Pick<Profile, 'full_name' | 'email' | 'role' | 'agent_code'>;  // ✅
+  assignee?: Pick<Profile, 'full_name' | 'email' | 'role' | 'agent_code'>; // ✅
   messages?: TicketMessage[];
 }
 
