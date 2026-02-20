@@ -28,28 +28,39 @@ export default function AdminReviewsPage() {
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending_approval' | 'approved' | 'rejected'>('pending_approval');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => { fetchReviews(); }, [filter]);
 
   async function fetchReviews() {
     setLoading(true);
+    // Use FK constraint names to disambiguate joins:
+    // - reviews_user_id_fkey: profile_id -> profiles (author)
+    // - reviews_booking_id_fkey: booking_id -> bookings
     let query = supabase
       .from('reviews')
-      .select('id, rating, title, comment, photo_urls, status, created_at, profile:profiles!user_id(full_name, email), booking:bookings!booking_id(booking_code)')
+      .select(`
+        id, rating, title, comment, photo_urls, status, created_at,
+        profile:profiles!reviews_user_id_fkey(full_name, email),
+        booking:bookings!reviews_booking_id_fkey(booking_code)
+      `)
       .order('created_at', { ascending: false });
 
     if (filter !== 'all') {
       query = query.eq('status', filter);
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) console.error('Error fetching reviews:', error.message);
     setReviews((data as unknown as ReviewItem[]) || []);
     setLoading(false);
   }
 
   async function updateStatus(id: string, status: 'approved' | 'rejected') {
-    // The DB trigger auto_award_review_points fires on status change to 'approved'
-    await supabase
+    if (!confirm(`¿Seguro que deseas ${status === 'approved' ? 'aprobar' : 'rechazar'} esta reseña?`)) return;
+    setActionLoading(id);
+
+    const { error } = await supabase
       .from('reviews')
       .update({
         status,
@@ -58,6 +69,10 @@ export default function AdminReviewsPage() {
       })
       .eq('id', id);
 
+    if (error) {
+      alert('Error al moderar: ' + error.message);
+    }
+    setActionLoading(null);
     fetchReviews();
   }
 
@@ -117,6 +132,7 @@ export default function AdminReviewsPage() {
               {reviews.map(review => {
                 const cfg = statusConfig[review.status] || statusConfig.pending_approval;
                 const hasPhotos = review.photo_urls && review.photo_urls.length > 0;
+                const isActioning = actionLoading === review.id;
                 return (
                   <Card key={review.id} variant="bordered">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -140,10 +156,21 @@ export default function AdminReviewsPage() {
                       </div>
                       {review.status === 'pending_approval' && (
                         <div className="flex gap-2 flex-shrink-0">
-                          <Button size="sm" onClick={() => updateStatus(review.id, 'approved')} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
+                          <Button
+                            size="sm"
+                            onClick={() => updateStatus(review.id, 'approved')}
+                            isLoading={isActioning}
+                            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                          >
                             <CheckCircle className="h-4 w-4" /> Aprobar
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => updateStatus(review.id, 'rejected')} className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => updateStatus(review.id, 'rejected')}
+                            isLoading={isActioning}
+                            className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50"
+                          >
                             <XCircle className="h-4 w-4" /> Rechazar
                           </Button>
                         </div>

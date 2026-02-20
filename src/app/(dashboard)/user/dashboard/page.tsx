@@ -76,7 +76,7 @@ export default function UserDashboardPage() {
             .eq('id', user.id)
             .single(),
 
-          supabase.from('reviews').select('id').eq('user_id', user.id),
+          supabase.from('reviews').select('id').eq('profile_id', user.id),
 
           supabase
             .from('bookings')

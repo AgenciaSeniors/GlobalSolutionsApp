@@ -2,6 +2,14 @@
  * @fileoverview User Reviews — View my reviews + write new ones for completed trips.
  * Per spec §7.2: Reviews are verified (only completed bookings), require moderation.
  * Loyalty points awarded for approved reviews.
+ *
+ * IMPORTANT: All PostgREST joins use FK constraint names to avoid ambiguity.
+ * - reviews -> profiles: reviews_user_id_fkey (profile_id column)
+ * - reviews -> bookings: reviews_booking_id_fkey
+ * - bookings -> flights: bookings_flight_id_fkey
+ * - bookings -> offers: bookings_offer_id_fkey
+ * - flights -> airlines: flights_airline_id_fkey
+ * - flights -> airports: flights_origin_airport_id_fkey / flights_destination_airport_id_fkey
  */
 'use client';
 
@@ -30,6 +38,9 @@ interface ReviewableBooking {
     origin_airport: { iata_code: string; city: string } | null;
     destination_airport: { iata_code: string; city: string } | null;
   } | null;
+  offer?: {
+    destination: string;
+  } | null;
 }
 
 interface UserReview {
@@ -47,7 +58,22 @@ interface UserReview {
       origin_airport: { iata_code: string; city: string } | null;
       destination_airport: { iata_code: string; city: string } | null;
     } | null;
+    offer?: {
+      destination: string;
+    } | null;
   } | null;
+}
+
+/** Helper: extract a display route string from a booking (flight or offer). */
+function bookingRoute(b?: {
+  flight?: { origin_airport?: { city: string } | null; destination_airport?: { city: string } | null } | null;
+  offer?: { destination: string } | null;
+} | null): string {
+  if (b?.flight?.origin_airport?.city && b?.flight?.destination_airport?.city) {
+    return `${b.flight.origin_airport.city} → ${b.flight.destination_airport.city}`;
+  }
+  if (b?.offer?.destination) return b.offer.destination;
+  return '';
 }
 
 export default function UserReviewsPage() {
@@ -74,33 +100,38 @@ export default function UserReviewsPage() {
     setLoading(true);
 
     const [reviewsRes, bookingsRes] = await Promise.all([
+      // My reviews — join through FK constraint names
       supabase
         .from('reviews')
         .select(`
           id, booking_id, rating, title, comment, status, created_at,
-          booking:bookings!booking_id(
+          booking:bookings!reviews_booking_id_fkey(
             booking_code,
-            flight:flights!flight_id(
-              airline:airlines!airline_id(name),
-              origin_airport:airports!origin_airport_id(iata_code, city),
-              destination_airport:airports!destination_airport_id(iata_code, city)
-            )
+            flight:flights!bookings_flight_id_fkey(
+              airline:airlines!flights_airline_id_fkey(name),
+              origin_airport:airports!flights_origin_airport_id_fkey(iata_code, city),
+              destination_airport:airports!flights_destination_airport_id_fkey(iata_code, city)
+            ),
+            offer:special_offers!bookings_offer_id_fkey(destination)
           )
         `)
-        .eq('user_id', user!.id)
+        .eq('profile_id', user!.id)
         .order('created_at', { ascending: false }),
+
+      // Completed bookings (flight-based AND offer-based) — use profile_id
       supabase
         .from('bookings')
         .select(`
           id, booking_code, total_amount, created_at,
-          flight:flights!flight_id(
+          flight:flights!bookings_flight_id_fkey(
             flight_number,
-            airline:airlines!airline_id(name),
-            origin_airport:airports!origin_airport_id(iata_code, city),
-            destination_airport:airports!destination_airport_id(iata_code, city)
-          )
+            airline:airlines!flights_airline_id_fkey(name),
+            origin_airport:airports!flights_origin_airport_id_fkey(iata_code, city),
+            destination_airport:airports!flights_destination_airport_id_fkey(iata_code, city)
+          ),
+          offer:special_offers!bookings_offer_id_fkey(destination)
         `)
-        .eq('user_id', user!.id)
+        .eq('profile_id', user!.id)
         .eq('booking_status', 'completed'),
     ]);
 
@@ -122,8 +153,9 @@ export default function UserReviewsPage() {
     setSubmitting(true);
     setMessage(null);
 
+    // IMPORTANT: insert profile_id (NOT user_id) — RLS demands profile_id = auth.uid()
     const { error } = await supabase.from('reviews').insert({
-      user_id: user.id,
+      profile_id: user.id,
       booking_id: bookingId,
       rating,
       title: title.trim() || null,
@@ -221,7 +253,7 @@ export default function UserReviewsPage() {
                           <p className="font-semibold text-sm">{b.booking_code}</p>
                           <p className="text-xs text-neutral-500 truncate">
                             {b.flight?.airline?.name && `${b.flight.airline.name} · `}
-                            {b.flight?.origin_airport?.city} → {b.flight?.destination_airport?.city}
+                            {bookingRoute(b)}
                           </p>
                         </div>
                       </div>
@@ -292,6 +324,7 @@ export default function UserReviewsPage() {
                   const displayComment = isExpanded
                     ? r.comment
                     : (r.comment.length > 180 ? r.comment.slice(0, 180) + '…' : r.comment);
+                  const route = bookingRoute(r.booking);
 
                   return (
                     <Card key={r.id} variant="bordered">
@@ -307,7 +340,7 @@ export default function UserReviewsPage() {
                           <p className="text-sm text-neutral-600 mt-1">{displayComment}</p>
                           <p className="text-xs text-neutral-400 mt-2">
                             {r.booking?.booking_code && `Reserva ${r.booking.booking_code} · `}
-                            {r.booking?.flight?.origin_airport?.city} → {r.booking?.flight?.destination_airport?.city}
+                            {route}
                             {' · '}{new Date(r.created_at).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </p>
                         </div>

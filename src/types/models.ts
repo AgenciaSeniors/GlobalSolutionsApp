@@ -274,18 +274,27 @@ export type ReviewStatus = 'pending_approval' | 'approved' | 'rejected';
 
 export interface Review {
   id: string;
-  user_id: string;
+  profile_id: string;
   booking_id: string;
   rating: number;
   title: string | null;
   comment: string;
   photo_urls: string[];
   status: ReviewStatus;
+  moderated_by: string | null;
+  moderated_at: string | null;
   created_at: string;
+  /** @deprecated Legacy column — use profile_id for ownership. */
+  user_id?: string | null;
 }
 
 export interface ReviewWithAuthor extends Review {
   profile: Pick<Profile, 'full_name' | 'avatar_url'>;
+  booking?: {
+    booking_code: string;
+    flight?: { destination_airport?: { city: string } | null } | null;
+    offer?: { destination: string } | null;
+  } | null;
 }
 
 /* ------------------------------------------------------------------ */
