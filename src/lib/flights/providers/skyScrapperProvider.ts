@@ -755,6 +755,7 @@ async function searchOneLeg(
   leg: { origin: string; destination: string; departure_date: string },
   legIndex: number,
   passengers: number,
+  cabinClass: string,
   providerErrors: string[],
   externalSignal?: AbortSignal
 ): Promise<Flight[]> {
@@ -774,6 +775,7 @@ async function searchOneLeg(
       leg,
       legIndex,
       passengers,
+      cabinClass,
       legController.signal
     );
   } catch (err: unknown) {
@@ -804,6 +806,7 @@ async function searchOneLegInternal(
   leg: { origin: string; destination: string; departure_date: string },
   legIndex: number,
   passengers: number,
+  cabinClass: string,
   signal?: AbortSignal
 ): Promise<Flight[]> {
   const t0 = Date.now();
@@ -825,11 +828,12 @@ async function searchOneLegInternal(
     toEntityId,
     departDate: date,
     adults: String(passengers),
+    cabinClass: cabinClass || "economy",
     market: "US",
     locale: "en-US",
     currency: "USD",
   });
-
+console.log(`[DEBUG] Llamando a SkyScrapper con clase: ${qs.get('cabinClass')} para la ruta ${leg.origin}-${leg.destination}`);
   const initialJson = await client.get(
     `/flights/search-one-way?${qs.toString()}`,
     SEARCH_ONE_WAY_TIMEOUT_MS,
@@ -884,6 +888,7 @@ export const skyScrapperProvider: FlightsProvider = {
         leg,
         legIndex,
         req.passengers ?? 1,
+        req.cabinClass || "economy",
         providerErrors,
         opts?.signal
       )

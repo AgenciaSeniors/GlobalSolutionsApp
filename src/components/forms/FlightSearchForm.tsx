@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo, type FormEvent, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { MapPin, Calendar, Users, Search, ArrowRightLeft, Plane } from 'lucide-react';
+import { MapPin, Calendar, Users, Search, ArrowRightLeft, Plane, Armchair } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import AirportAutocomplete from '@/components/forms/AirportAutocomplete';
@@ -22,6 +22,7 @@ type FlightSearchParams = {
   to: string;
   departure: string;
   passengers: string;
+  cabinClass?: string;
   return?: string;
 };
 
@@ -31,6 +32,7 @@ type InitialValues = {
   departure?: string;
   returnDate?: string;
   passengers?: string;
+  cabinClass?: string;
 };
 
 type Props = {
@@ -52,6 +54,7 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
     departure: '',
     returnDate: '',
     passengers: '1',
+    cabinClass: 'economy',
   });
 
   const [legs, setLegs] = useState<StopLeg[]>([]);
@@ -88,6 +91,7 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
       departure: initialValues.departure || '',
       returnDate: initialValues.returnDate || '',
       passengers: initialValues.passengers || '1',
+      cabinClass: initialValues.cabinClass || 'economy',
     });
 
     if (!initialValues.returnDate) {
@@ -206,6 +210,7 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
       to: form.destination,
       departure: form.departure,
       passengers: form.passengers,
+      cabinClass: form.cabinClass,
     };
 
     if (tripType === 'roundtrip' && form.returnDate) {
@@ -223,6 +228,12 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
       departure: payload.departure,
       passengers: payload.passengers,
     });
+
+   
+    if (payload.cabinClass) {
+      params.set('cabinClass', payload.cabinClass);
+    }
+    // ---------------------------------
 
     if (payload.return) {
       params.set('return', payload.return);
@@ -392,6 +403,23 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
                 {n} pasajero{n > 1 ? 's' : ''}
               </option>
             ))}
+          </select>
+        </div>
+        {/* <-- NUEVO: Selector de Clase --> */}
+        <div className="w-full sm:w-48">
+          <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
+            <Armchair className="h-3.5 w-3.5 text-brand-500" /> Clase
+          </label>
+          <select
+            value={form.cabinClass}
+            onChange={update('cabinClass')}
+            className="h-12 w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 text-[15px] font-medium
+                       focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+          >
+            <option value="economy">Económica</option>
+            <option value="premium_economy">Premium Económica</option>
+            <option value="business">Ejecutiva</option>
+            <option value="first">Primera</option>
           </select>
         </div>
 

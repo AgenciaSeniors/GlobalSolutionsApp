@@ -31,6 +31,7 @@ export type FlightSearchRequest = {
   legs: FlightLeg[];
   passengers: PassengerCounts;
   filters?: FlightSearchFilters;
+  cabinClass?: 'economy' | 'premium_economy' | 'business' | 'first';
 };
 
 // 5) Respuesta (mínima y compatible con el checklist)

@@ -52,8 +52,9 @@ export type FlightSearchParams =
       departure_date: string;
       return_date?: string;
       passengers: number;
+       cabinClass?: string;
       filters?: FlightSearchFilters;
-      cabinClass?: string;
+     
     };
 
 /* ------------------------------------------------------------------ */

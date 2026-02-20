@@ -32,6 +32,7 @@ interface LegacySearchParams {
   return_date?: string;
   passengers?: number;
   filters?: FlightSearchFilters;
+  cabinClass?: string;
 }
 
 /* -------------------------------------------------- */
@@ -71,6 +72,7 @@ function buildSearchBody(params: FlightSearchParams): {
   legs: FlightLeg[];
   passengers: number;
   filters?: FlightSearchFilters;
+  cabinClass?: string;
 } {
   // New format
   if ('legs' in params && Array.isArray(params.legs) && params.legs.length > 0) {
@@ -78,6 +80,7 @@ function buildSearchBody(params: FlightSearchParams): {
       legs: FlightLeg[];
       passengers: number;
       filters?: FlightSearchFilters;
+      cabinClass?: string;
     };
 
     return {
@@ -88,6 +91,7 @@ function buildSearchBody(params: FlightSearchParams): {
       })),
       passengers: multiLegParams.passengers,
       filters: normalizeFilters(multiLegParams.filters),
+      cabinClass: multiLegParams.cabinClass,
     };
   }
 
@@ -109,7 +113,7 @@ function buildSearchBody(params: FlightSearchParams): {
     });
   }
 
-  return { legs, passengers, filters: normalizeFilters(legacy.filters) };
+  return { legs, passengers, filters: normalizeFilters(legacy.filters), cabinClass: legacy.cabinClass };
 }
 
 /* -------------------------------------------------- */
