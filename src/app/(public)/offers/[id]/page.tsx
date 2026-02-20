@@ -78,7 +78,7 @@ export default function OfferDetailPage() {
       router.push(`/login?redirect=/offers/${params.id}`);
       return;
     }
-    router.push(`/checkout?offer=${params.id}&date=${date}`);
+    router.push(`/checkout?offer=${params.id}&date=${date}&passengers=1`);
   }
 
   function handleHeroClick() {
