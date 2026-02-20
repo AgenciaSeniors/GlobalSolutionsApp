@@ -32,12 +32,11 @@ import {
   AlertTriangle,
   MapPin,
   Flame,
-  Clock,
   CircleDot,
-  ArrowRight,
   Armchair,
   Luggage,
 } from 'lucide-react';
+import Image from 'next/image';
 
 const FormField = ({
   label,
@@ -254,7 +253,7 @@ export default function CheckoutPage() {
           // (sessionStorage may have stale data or missing flight details)
           try {
             sessionStorage.removeItem('selectedOfferData');
-          } catch (_e) { /* ignore */ }
+          } catch { /* ignore */ }
 
           if (offerId) {
             const { data } = await supabase
@@ -503,7 +502,24 @@ export default function CheckoutPage() {
     }
     return true;
   }
+  async function requestZelle(bookingId: string) {
+  const res = await fetch('/api/payments/zelle/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      booking_id: bookingId,
+      note: 'Checkout: user selected Zelle',
+    }),
+  });
 
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(data?.error || 'Failed to request Zelle');
+  }
+
+  return data as { success: boolean; already_requested?: boolean; repaired?: boolean };
+}
   // --- Submit ---
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -565,6 +581,7 @@ export default function CheckoutPage() {
           .eq('id', offerData.offer_id);
 
         if (gateway === 'zelle') {
+          await requestZelle(booking.id);
           setBookingCode(newBookingCode);
           setSuccess(true);
           return;
@@ -621,10 +638,11 @@ export default function CheckoutPage() {
           .eq('id', flightDbId);
 
         if (gateway === 'zelle') {
-          setBookingCode(newBookingCode);
-          setSuccess(true);
-          return;
-        }
+            await requestZelle(booking.id);
+            setBookingCode(newBookingCode);
+            setSuccess(true);
+            return;
+          }
 
         router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
       }
@@ -704,12 +722,14 @@ export default function CheckoutPage() {
                     <div className="space-y-4">
                       {/* Header row: image + destination + price */}
                       <div className="flex items-center gap-4">
-                        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-brand-100 overflow-hidden">
+                        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-brand-100 overflow-hidden relative">
                           {offerData.destination_img ? (
-                            <img
+                            <Image
                               src={offerData.destination_img}
                               alt={offerData.destination}
-                              className="h-full w-full object-cover"
+                              fill
+                              sizes="64px"
+                              className="object-cover"
                             />
                           ) : (
                             <MapPin className="h-8 w-8 text-brand-600" />

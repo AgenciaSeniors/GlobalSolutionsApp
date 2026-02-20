@@ -425,6 +425,8 @@ export default function UserReviewsPage() {
                     : (r.comment.length > 180 ? r.comment.slice(0, 180) + '…' : r.comment);
                   const booking = norm(r.booking);
 
+                  const booking = norm(r.booking);
+
                   return (
                     <Card key={r.id} variant="bordered">
                       <div className="flex items-start justify-between gap-4">
