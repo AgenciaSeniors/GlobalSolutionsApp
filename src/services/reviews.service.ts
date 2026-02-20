@@ -2,6 +2,10 @@
  * @fileoverview Service layer for review queries.
  * Uses FK constraint names for PostgREST joins to avoid ambiguity.
  * @module services/reviews.service
+ *
+ * FK constraints on reviews table:
+ *   reviews_user_id_fkey     : profile_id → profiles(id)
+ *   reviews_booking_id_fkey  : booking_id → bookings(id)
  */
 import { createClient } from '@/lib/supabase/client';
 import type { ReviewWithAuthor } from '@/types/models';
@@ -53,6 +57,7 @@ async function create(payload: {
   const { error } = await supabase.from('reviews').insert({
     ...payload,
     profile_id: user.id,
+    status: 'pending_approval',
     photo_urls: [],
   });
 
