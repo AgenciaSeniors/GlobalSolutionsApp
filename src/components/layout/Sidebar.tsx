@@ -5,15 +5,17 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { authService } from '@/services/auth.service';
 import {
- Briefcase, LayoutDashboard, Plane, CalendarCheck, Star, Settings,
+  Briefcase, LayoutDashboard, Plane, CalendarCheck, Star, Settings,
   ChevronLeft, LogOut, Newspaper, MessageSquare, Tag,
   Users, FileText, HelpCircle, DollarSign, Trophy, Car,
+  Route,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
 interface SidebarLink {
   href: string;
   label: string;
+  description?: string;
   icon: React.ElementType;
 }
 
@@ -73,25 +75,35 @@ export default function Sidebar({ links }: SidebarProps) {
 
       {/* Nav links */}
       <nav className="flex-1 space-y-1 p-3 overflow-y-auto">
-        {links.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href;
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
-                active
-                  ? 'bg-coral/10 text-coral'
-                  : 'text-neutral-600 hover:bg-neutral-50 hover:text-coral',
-              )}
-              title={collapsed ? label : undefined}
-            >
-              <Icon className="h-5 w-5 flex-shrink-0" />
-              {!collapsed && <span>{label}</span>}
-            </Link>
-          );
-        })}
+        {links.map(({ href, label, description, icon: Icon }) => {
+  const active = pathname === href;
+  return (
+    <Link
+      key={href}
+      href={href}
+      className={cn(
+        'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+        active
+          ? 'bg-coral/10 text-coral'
+          : 'text-neutral-600 hover:bg-neutral-50 hover:text-coral',
+      )}
+      title={collapsed ? (description ? `${label} — ${description}` : label) : undefined}
+    >
+      <Icon className="h-5 w-5 flex-shrink-0" />
+
+      {!collapsed && (
+        <div className="min-w-0">
+          <div className="leading-tight">{label}</div>
+          {description && (
+            <div className="text-xs font-normal text-neutral-400 leading-snug">
+              {description}
+            </div>
+          )}
+        </div>
+      )}
+    </Link>
+  );
+})}
       </nav>
 
       {/* Bottom actions */}
@@ -111,7 +123,7 @@ export default function Sidebar({ links }: SidebarProps) {
 /** Pre-configured link sets for each role. */
 export const USER_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/user/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/user/dashboard/create-route', label: 'Crear Ruta', icon: DollarSign },
+  { href: '/user/dashboard/create-route', label: 'Crear Ruta', icon: Route},
   { href: '/user/dashboard/bookings', label: 'Mis Reservas', icon: CalendarCheck },
   { href: '/user/dashboard/reviews', label: 'Mis Reseñas', icon: Star },
   { href: '/user/dashboard/loyalty', label: 'Mis Puntos', icon: Trophy },
@@ -121,11 +133,8 @@ export const USER_SIDEBAR_LINKS: SidebarLink[] = [
 
 export const AGENT_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/agent/dashboard', label: 'Dashboard', icon: LayoutDashboard },
- { href: '/agent/dashboard/create-route', label: 'Crear Ruta', icon: DollarSign },
   { href: '/agent/dashboard/bookings', label: 'Reservas Asignadas', icon: CalendarCheck },
-  { href: '/agent/dashboard/commissions', label: 'Mis Comisiones', icon: DollarSign },
   { href: '/agent/dashboard/news', label: 'Muro de Noticias', icon: Newspaper },
-  { href: '/agent/dashboard/tickets', label: 'Tickets Internos', icon: MessageSquare },
   { href: '/agent/dashboard/settings', label: 'Configuración', icon: Settings },
 ];
 
