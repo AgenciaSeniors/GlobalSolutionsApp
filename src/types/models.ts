@@ -275,7 +275,6 @@ export type ReviewStatus = 'pending_approval' | 'approved' | 'rejected';
 export interface Review {
   id: string;
   profile_id: string;
-  user_id: string | null;
   booking_id: string;
   rating: number;
   title: string | null;
