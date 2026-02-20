@@ -27,7 +27,6 @@ export const ROUTES = {
 
   AGENT_DASHBOARD: '/agent/dashboard',
   AGENT_NEWS: '/agent/dashboard/news',
-  AGENT_TICKETS: '/agent/dashboard/tickets',
 
   ADMIN_DASHBOARD: '/admin/dashboard',
   ADMIN_BOOKINGS: '/admin/dashboard/bookings',

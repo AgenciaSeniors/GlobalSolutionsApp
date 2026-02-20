@@ -14,6 +14,7 @@ import Input from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
 import { Plus, Pin, Trash2, Megaphone } from 'lucide-react';
 import type { AgentNews } from '@/types/models';
+import { toast } from 'sonner';
 
 export default function AdminNewsPage() {
   const supabase = createClient();
@@ -42,18 +43,27 @@ export default function AdminNewsPage() {
     fetchNews(); 
   }, [fetchNews]);
 
-  async function handlePublish() {
-    if (!title.trim() || !content.trim()) return;
-    await supabase.from('agent_news').insert({
-      title: title.trim(),
-      content: content.trim(),
-      category,
-      is_pinned: isPinned,
-    });
-    setEditing(false);
-    setTitle(''); setContent('');
-    fetchNews();
+ async function handlePublish() {
+  if (!title.trim() || !content.trim()) return;
+
+  const { error } = await supabase.from('agent_news').insert({
+    title: title.trim(),
+    content: content.trim(),
+    category,
+    is_pinned: isPinned,
+  });
+
+  if (error) {
+    console.error('agent_news insert error:', error);
+    alert(`No se pudo publicar: ${error.message}`);
+    return;
   }
+
+  setEditing(false);
+  setTitle('');
+  setContent('');
+  fetchNews();
+}
 
   async function deleteNews(id: string) {
     if (confirm('¿Eliminar esta noticia?')) {

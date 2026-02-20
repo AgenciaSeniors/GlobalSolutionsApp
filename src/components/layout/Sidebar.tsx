@@ -146,7 +146,6 @@ export const ADMIN_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/admin/dashboard/offers', label: 'Ofertas Visuales', icon: Tag },
   { href: '/admin/dashboard/agents', label: 'Gestores', icon: Users },
   { href: '/admin/dashboard/news', label: 'Noticias Agentes', icon: Newspaper },
-  { href: '/admin/dashboard/tickets', label: 'Tickets Soporte', icon: MessageSquare },
   { href: '/admin/dashboard/reviews', label: 'Moderar Reseñas', icon: Star },
   { href: '/admin/dashboard/settings', label: 'Configuración', icon: Settings },
 ];
