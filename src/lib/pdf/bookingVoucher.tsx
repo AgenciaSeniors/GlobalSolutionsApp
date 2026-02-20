@@ -1,7 +1,7 @@
+// src/lib/pdf/bookingVoucher.tsx
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 
-// Estilos Premium Global Solutions - Identidad Visual Oficial
 const styles = StyleSheet.create({
   page: { padding: 30, fontFamily: 'Helvetica', fontSize: 10, color: '#333333' },
   
@@ -29,12 +29,10 @@ const styles = StyleSheet.create({
     borderLeft: '4px solid #FF4757' 
   },
   
-  // Tablas
   table: { width: '100%', marginBottom: 20 },
   tableHeader: { flexDirection: 'row', backgroundColor: '#0F2545', padding: 6, fontWeight: 'bold', fontSize: 8, color: '#ffffff' },
   tableRow: { flexDirection: 'row', borderBottom: '1px solid #e2e8f0', padding: 6, fontSize: 8, color: '#333333' },
   
-  // Columnas Vuelos
   colAirline: { width: '14%' },
   colTime: { width: '17%' },
   colDateInfo: { width: '15%' },
@@ -43,17 +41,15 @@ const styles = StyleSheet.create({
   colClass: { width: '10%' },
   colStatus: { width: '10%' },
 
-  // Columnas Pasajeros
-  colPaxName: { width: '30%' },
-  colPassport: { width: '15%' },
-  colBaggage: { width: '15%' },
+  // 🔧 FIX: Redistribuimos el ancho de las columnas de pasajeros sin el pasaporte
+  colPaxName: { width: '40%' },
+  colBaggage: { width: '20%' },
   colPNR: { width: '20%' },
   colTicket: { width: '20%' },
 
   footer: { marginTop: 'auto', paddingTop: 10, borderTop: '2px solid #FF4757', fontSize: 8, color: '#666666', textAlign: 'justify' }
 });
 
-// ESTRUCTURAS DE DATOS
 export interface FlightSegment {
   airline: string;
   flightNumber: string;
@@ -68,7 +64,7 @@ export interface FlightSegment {
 
 export interface Passenger {
   fullName: string;
-  passport: string;
+  // 🔧 FIX: Eliminamos 'passport' de la interfaz
   baggage: string;
   pnr: string;
   ticketNumber: string;
@@ -78,16 +74,14 @@ export interface BookingVoucherProps {
   invoiceId: string;
   issueDate: string;
   outboundFlights: FlightSegment[]; 
-  returnFlights?: FlightSegment[]; // <-- NUEVO: Vuelos de regreso (Opcional)
+  returnFlights?: FlightSegment[];
   passengers: Passenger[];
 }
 
-// EL COMPONENTE PDF
 export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFlights, passengers }: BookingVoucherProps) => (
   <Document>
     <Page size="A4" style={styles.page}>
       
-      {/* CABECERA */}
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           <Image src="/brand/logo.png" style={styles.logoImage} />
@@ -100,12 +94,10 @@ export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFl
         </View>
       </View>
 
-      {/* 👤 PASAJEROS */}
       <Text style={styles.sectionTitle}>INFORMACIÓN DE PASAJEROS</Text>
       <View style={styles.table}>
         <View style={styles.tableHeader}>
           <Text style={styles.colPaxName}>PASAJERO</Text>
-          <Text style={styles.colPassport}>PASAPORTE</Text>
           <Text style={styles.colBaggage}>EQUIPAJE</Text>
           <Text style={styles.colPNR}>LOCALIZADOR</Text>
           <Text style={styles.colTicket}>NÚMERO TICKET</Text>
@@ -113,7 +105,6 @@ export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFl
         {passengers.map((pax, index) => (
           <View key={`pax-${index}`} style={styles.tableRow}>
             <Text style={[styles.colPaxName, { fontWeight: 'bold' }]}>{pax.fullName}</Text>
-            <Text style={styles.colPassport}>{pax.passport}</Text>
             <Text style={styles.colBaggage}>{pax.baggage}</Text>
             <Text style={[styles.colPNR, { fontWeight: 'bold', color: '#0F2545' }]}>{pax.pnr}</Text>
             <Text style={styles.colTicket}>{pax.ticketNumber}</Text>
@@ -121,7 +112,6 @@ export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFl
         ))}
       </View>
 
-      {/* ✈️ VUELOS DE IDA */}
       <Text style={styles.sectionTitle}>ITINERARIO DE VUELOS - IDA</Text>
       <View style={styles.table}>
         <View style={styles.tableHeader}>
@@ -156,7 +146,6 @@ export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFl
         ))}
       </View>
 
-      {/* 🛬 VUELOS DE REGRESO (Solo se muestra si existen datos) */}
       {returnFlights && returnFlights.length > 0 && (
         <>
           <Text style={styles.sectionTitle}>ITINERARIO DE VUELOS - REGRESO</Text>
@@ -195,7 +184,6 @@ export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFl
         </>
       )}
 
-      {/* FOOTER */}
       <View style={styles.footer}>
         <Text style={{ fontWeight: 'bold', marginBottom: 4, color: '#0F2545' }}>Políticas y Condiciones</Text>
         <Text>1. Boletos No Reembolsables, No Transferibles.</Text>

@@ -5,7 +5,6 @@ import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { PDFDownloadLink, pdf } from '@react-pdf/renderer'; 
 import { BookingVoucher } from '@/lib/pdf/bookingVoucher';
-// 🔧 AQUÍ ESTÁ EL FIX: Importamos el cliente exacto que usa tu AuthProvider
 import { createClient } from '@/lib/supabase/client';
 import type { FlightSegment, Passenger } from '@/lib/pdf/bookingVoucher';
 
@@ -15,10 +14,8 @@ const DynamicPDFWrapper = dynamic(
 );
 
 export default function PDFGeneratorPage() {
-  // 🔧 Inicializamos el cliente oficial que hereda tu sesión
   const [supabase] = useState(() => createClient());
 
-  // Control para evitar el error de SSR en Next.js con el botón de descarga
   const [isClient, setIsClient] = useState(false);
   useEffect(() => {
     setIsClient(true);
@@ -32,7 +29,7 @@ export default function PDFGeneratorPage() {
 
   // ESTADOS DE TABLAS
   const [passengers, setPassengers] = useState<Passenger[]>([
-    { fullName: 'HECTOR GARCIA', passport: 'P223751', baggage: '1x23kg', pnr: 'ABCDEF', ticketNumber: '123456789' }
+    { fullName: 'HECTOR GARCIA', baggage: '1x23kg', pnr: 'ABCDEF', ticketNumber: '123456789' }
   ]);
 
   const [flights, setFlights] = useState<FlightSegment[]>([
@@ -52,7 +49,7 @@ export default function PDFGeneratorPage() {
     targetArray[index] = { ...targetArray[index], [field]: value.toUpperCase() };
     isReturn ? setReturnFlights(targetArray) : setFlights(targetArray);
   };
-  const addPassenger = () => setPassengers([...passengers, { fullName: '', passport: '', baggage: '1x23kg', pnr: '', ticketNumber: '' }]);
+  const addPassenger = () => setPassengers([...passengers, { fullName: '', baggage: '1x23kg', pnr: '', ticketNumber: '' }]);
   const removePassenger = (index: number) => setPassengers(passengers.filter((_, i) => i !== index));
   const addFlight = (isReturn: boolean = false) => {
     const newFlight = { airline: '', flightNumber: '', date: '', origin: '', destination: '', departure: '', arrival: '', cabinClass: 'Económica', status: 'HK' };
@@ -85,6 +82,7 @@ export default function PDFGeneratorPage() {
       
       const blob = await pdf(doc).toBlob();
 
+      // 1. Subida a Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('vouchers')
         .upload(fileName, blob, { contentType: 'application/pdf' });
@@ -95,6 +93,7 @@ export default function PDFGeneratorPage() {
         .from('vouchers')
         .getPublicUrl(fileName);
 
+      // 2. Registro en Base de Datos
       const { error: dbError } = await supabase
         .from('vouchers')
         .insert([{
@@ -110,7 +109,28 @@ export default function PDFGeneratorPage() {
 
       if (dbError) throw new Error("Error en base de datos: " + dbError.message);
 
-      alert(`✅ ¡Boleto emitido exitosamente!\n\nEl PDF ya está en la nube y registrado para enviar a:\n${clientEmail}`);
+      // 3. Notificación por Correo
+      const mailRes = await fetch('/api/dev/emit-voucher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: clientEmail,
+          clientName: passengers[0]?.fullName || 'Cliente',
+          invoiceId: invoiceId,
+          pdfUrl: publicUrl,
+          passengers: passengers,
+          flights: flights
+        })
+      });
+
+      const mailData = await mailRes.json();
+
+      if (!mailRes.ok) {
+        alert(`✅ Boleto guardado, pero el correo falló: ${mailData.error}`);
+      } else {
+        alert(`✅ ¡Boleto emitido y notificado exitosamente a ${clientEmail}!`);
+      }
+
       window.open(publicUrl, '_blank');
 
     } catch (err: any) {
@@ -130,7 +150,6 @@ export default function PDFGeneratorPage() {
         <div className="flex-grow">
           <h1 className="text-xl font-bold text-[#0F2545] mb-4 border-b-2 border-[#FF4757] pb-2">Panel de Emisión de Voucher</h1>
           
-          {/* DATOS GENERALES */}
           <div className="mb-6 bg-slate-50 p-3 rounded-lg border border-slate-200">
             <h2 className="text-sm font-bold text-slate-700 mb-2">📄 Datos del Servicio</h2>
             <div className="grid grid-cols-2 gap-3">
@@ -143,7 +162,6 @@ export default function PDFGeneratorPage() {
             </div>
           </div>
 
-          {/* PASAJEROS */}
           <div className="mb-6">
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-sm font-bold text-slate-700">👤 Pasajeros</h2>
@@ -154,14 +172,13 @@ export default function PDFGeneratorPage() {
                 <button onClick={() => removePassenger(index)} className="absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold text-xs">✕</button>
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <div className="col-span-2"><label className="block text-[10px] font-bold text-slate-500">NOMBRE COMPLETO</label><input type="text" value={pax.fullName} onChange={(e) => updatePassenger(index, 'fullName', e.target.value)} className={inputClass} /></div>
-                  <div><label className="block text-[10px] font-bold text-slate-500">PASAPORTE</label><input type="text" value={pax.passport} onChange={(e) => updatePassenger(index, 'passport', e.target.value)} className={inputClass} /></div>
                   <div><label className="block text-[10px] font-bold text-slate-500">LOCALIZADOR (PNR)</label><input type="text" value={pax.pnr} onChange={(e) => updatePassenger(index, 'pnr', e.target.value)} className={inputClass} /></div>
+                  <div><label className="block text-[10px] font-bold text-slate-500">NÚMERO DE TICKET</label><input type="text" value={pax.ticketNumber} onChange={(e) => updatePassenger(index, 'ticketNumber', e.target.value)} className={inputClass} /></div>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* VUELOS DE IDA */}
           <div className="mb-6">
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-sm font-bold text-slate-700">✈️ Itinerario de Ida</h2>
@@ -185,7 +202,6 @@ export default function PDFGeneratorPage() {
             ))}
           </div>
 
-          {/* VUELOS DE REGRESO */}
           <div className="mb-6">
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-sm font-bold text-slate-700">🛬 Itinerario de Regreso</h2>
@@ -210,7 +226,6 @@ export default function PDFGeneratorPage() {
           </div>
         </div>
 
-        {/* BOTÓN DE ACCIÓN ÚNICO */}
         <div className="mt-6 pt-4 border-t border-slate-200">
           <button 
             onClick={handleEmit}
@@ -237,7 +252,6 @@ export default function PDFGeneratorPage() {
         </div>
       </div>
 
-      {/* PANEL DERECHO */}
       <div className="w-1/2 lg:w-3/5 bg-slate-800 rounded-xl shadow-lg overflow-hidden border-4 border-slate-700">
         <DynamicPDFWrapper 
           invoiceId={invoiceId}
