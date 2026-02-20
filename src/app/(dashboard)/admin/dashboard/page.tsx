@@ -39,7 +39,6 @@ interface DashboardStats {
   activeFlights: number;
   pendingReviews: number;
   pendingQuotations: number;
-  openTickets: number;
 }
 
 interface RecentBooking {
@@ -78,7 +77,6 @@ export default function AdminDashboardPage() {
       flightsRes,
       reviewsRes,
       quotationsRes,
-      ticketsRes,
       recentRes,
     ] = await Promise.all([
       supabase.from('bookings').select('id', { count: 'exact', head: true }),
@@ -89,7 +87,6 @@ export default function AdminDashboardPage() {
       supabase.from('flights').select('id', { count: 'exact', head: true }),
       supabase.from('reviews').select('id', { count: 'exact', head: true }).eq('status', 'pending_approval'),
       supabase.from('quotation_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('agent_tickets').select('id', { count: 'exact', head: true }).eq('status', 'open'),
       supabase.from('bookings').select(`
         id, booking_code, booking_status, payment_status, total_amount, created_at,
         profile:profiles!user_id(full_name),
@@ -118,7 +115,6 @@ export default function AdminDashboardPage() {
       activeFlights: flightsRes.count || 0,
       pendingReviews: reviewsRes.count || 0,
       pendingQuotations: quotationsRes.count || 0,
-      openTickets: ticketsRes.count || 0,
     });
 
     setRecentBookings((recentRes.data as unknown as RecentBooking[]) || []);
@@ -285,7 +281,6 @@ export default function AdminDashboardPage() {
                 { label: 'Gestionar Vuelos & Markup', desc: 'Precios y disponibilidad', icon: TrendingUp, href: '/admin/dashboard/flights', color: 'text-emerald-600 bg-emerald-50' },
                 { label: 'Moderar Reseñas', desc: `${stats.pendingReviews} por aprobar`, icon: Star, href: '/admin/dashboard/reviews', color: 'text-amber-600 bg-amber-50' },
                 { label: 'Publicar Noticia', desc: 'Muro de gestores', icon: Megaphone, href: '/admin/dashboard/news', color: 'text-blue-600 bg-blue-50' },
-                { label: 'Responder Tickets', desc: `${stats.openTickets} abiertos`, icon: MessageSquare, href: '/admin/dashboard/tickets', color: 'text-violet-600 bg-violet-50' },
               ].map(({ label, desc, icon: Icon, href, color }) => (
                 <Link key={href} href={href}>
                   <Card variant="bordered" className="flex items-center gap-3 transition-all hover:-translate-y-0.5 hover:shadow-sm">

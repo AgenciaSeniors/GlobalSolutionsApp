@@ -4,18 +4,15 @@
  */
 'use client';
 
-import { useEffect, useState } from 'react';
 import Sidebar, { AGENT_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
-import { createClient } from '@/lib/supabase/client';
 import { Pin, Megaphone } from 'lucide-react';
-import type { AgentNews } from '@/types/models';
+import { useAgentNews } from '@/hooks/useAgentNews';
 
 export default function AgentNewsPage() {
-  const supabase = createClient();
-  const [news, setNews] = useState<AgentNews[]>([]);
-  const [loading, setLoading] = useState(true);
+  // ✅ Hook SIEMPRE dentro del componente
+  const { items: news, loading, error } = useAgentNews(50);
 
   const catColors: Record<string, string> = {
     update: 'bg-blue-100 text-blue-700',
@@ -23,30 +20,18 @@ export default function AgentNewsPage() {
     alert: 'bg-red-100 text-red-700',
   };
 
-  useEffect(() => {
-    async function fetchNews() {
-      setLoading(true);
-      const { data } = await supabase
-        .from('agent_news')
-        .select('*')
-        .order('is_pinned', { ascending: false })
-        .order('created_at', { ascending: false });
-      
-      setNews((data as AgentNews[]) || []);
-      setLoading(false);
-    }
-
-    fetchNews();
-    // FIX: Added 'supabase' to the dependency array
-  }, [supabase]);
-
   return (
     <div className="flex min-h-screen">
       <Sidebar links={AGENT_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Noticias" subtitle="Actualizaciones y comunicados importantes" />
         <div className="p-8">
-          
+          {error && (
+            <p className="text-red-600 text-sm mb-3">
+              Error cargando noticias: {error}
+            </p>
+          )}
+
           {loading ? (
             <p className="text-neutral-500">Cargando noticias...</p>
           ) : news.length === 0 ? (
@@ -59,10 +44,10 @@ export default function AgentNewsPage() {
             </Card>
           ) : (
             <div className="space-y-4 max-w-4xl">
-              {news.map(n => (
-                <Card 
-                  key={n.id} 
-                  variant="bordered" 
+              {news.map((n) => (
+                <Card
+                  key={n.id}
+                  variant="bordered"
                   className={n.is_pinned ? 'border-l-4 border-l-amber-400 shadow-sm bg-amber-50/10' : ''}
                 >
                   <div className="flex flex-col gap-2">
@@ -70,13 +55,18 @@ export default function AgentNewsPage() {
                       <div className="flex items-center gap-2">
                         {n.is_pinned && <Pin className="h-4 w-4 text-amber-500 fill-amber-500" />}
                         {n.category && (
-                          <span className={`rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wider ${catColors[n.category] || 'bg-gray-100 text-gray-700'}`}>
+                          <span
+                            className={`rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wider ${
+                              catColors[n.category] || 'bg-gray-100 text-gray-700'
+                            }`}
+                          >
                             {n.category}
                           </span>
                         )}
                         <span className="text-xs text-neutral-400">
-                          {new Date(n.created_at).toLocaleDateString('es', { 
-                            day: 'numeric', month: 'long' 
+                          {new Date(n.created_at).toLocaleDateString('es', {
+                            day: 'numeric',
+                            month: 'long',
                           })}
                         </span>
                       </div>
