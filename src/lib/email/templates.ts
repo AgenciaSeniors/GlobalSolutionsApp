@@ -400,10 +400,6 @@ export function welcomeEmail(data: WelcomeEmailData): string {
 /* TEMPLATE: Password Reset (Global Solutions Branding)              */
 /* ================================================================== */
 
-/* ================================================================== */
-/* TEMPLATE: Password Reset (Global Solutions Branding)              */
-/* ================================================================== */
-
 export interface PasswordResetData {
   resetLink: string;
 }
@@ -441,6 +437,44 @@ export function passwordResetEmail(data: PasswordResetData): string {
           Si no intentaste recuperar tu contraseña, puedes ignorar este correo de forma segura. Tu cuenta está protegida y tu contraseña actual seguirá funcionando.
         </p>
       </div>
+    </div>
+  `);
+}
+
+/* ================================================================== */
+/* TEMPLATE: Payment Processing (Expectation Management)             */
+/* ================================================================== */
+
+export interface PaymentProcessingData {
+  clientName: string;
+  bookingCode: string;
+}
+
+export function paymentProcessingEmail(data: PaymentProcessingData): string {
+  return baseLayout(`
+    <div style="background:linear-gradient(135deg,#0F2545,#1e3a8a);padding:32px 24px;text-align:center;">
+      <p style="margin:0;font-size:40px;">💳</p>
+      <h2 style="margin:8px 0;color:#ffffff;font-size:22px;">¡Pago Confirmado!</h2>
+      <p style="margin:0;color:rgba(255,255,255,0.85);font-size:14px;">Hemos recibido tu pago exitosamente</p>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 16px;color:#334155;font-size:15px;">Hola <strong>${data.clientName}</strong>,</p>
+      <p style="margin:0 0 24px;color:#64748b;font-size:14px;line-height:1.6;">
+        Queremos confirmarte que el pago de tu reserva <strong>${data.bookingCode}</strong> ha sido procesado correctamente por nuestro sistema.
+      </p>
+
+      <div style="margin:24px 0;padding:20px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:8px;">
+        <h3 style="margin:0 0 8px;color:#b45309;font-size:15px;">⏳ ¿Qué sucede ahora?</h3>
+        <p style="margin:0;color:#78350f;font-size:14px;line-height:1.5;">
+          Tu reserva ha pasado a nuestro <strong>Centro de Emisiones</strong>. Nuestro equipo de agentes está emitiendo tu boleto electrónico oficial con la aerolínea. 
+          <br/><br/>
+          Te enviaremos tu Voucher PDF a este mismo correo en un plazo de <strong>24 a 48 horas</strong>.
+        </p>
+      </div>
+
+      <p style="margin:0;color:#475569;font-size:14px;line-height:1.6;">
+        Agradecemos tu confianza en Global Solutions Travel. Si tienes alguna duda urgente, puedes revisar el estado de tu viaje en tu panel de usuario.
+      </p>
     </div>
   `);
 }
