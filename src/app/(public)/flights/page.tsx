@@ -38,7 +38,7 @@ type SearchPayload = {
 export default function FlightsPage() {
   const router = useRouter();
 
-  const { results, isLoading, error, search } = useFlightSearch();
+  const { results, isLoading, error, search, clearCache } = useFlightSearch();
 
   const [lastSearch, setLastSearch] = useState<SearchPayload | null>(null);
 
@@ -160,6 +160,8 @@ export default function FlightsPage() {
 
   // Handler: lo llama el FlightSearchForm (sin navegar)
   const handleSearch = (params: SearchPayload) => {
+    // Limpiar cache de búsquedas completadas para permitir re-buscar
+    clearCache();
     setLastSearch(params);
     setActiveLeg(0);
 
