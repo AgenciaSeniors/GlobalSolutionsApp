@@ -134,6 +134,7 @@ export function useFlightSearch(): UseFlightSearchResult {
 
         if (controller.signal.aborted) {
           console.log(`[useFlightSearch] ABORTED after POST: ${key}`);
+          setIsLoading(false);
           return;
         }
 
@@ -166,6 +167,7 @@ export function useFlightSearch(): UseFlightSearchResult {
 
           if (controller.signal.aborted) {
             console.log(`[useFlightSearch] ABORTED during poll: ${key}`);
+            setIsLoading(false);
             return;
           }
 
@@ -190,6 +192,7 @@ export function useFlightSearch(): UseFlightSearchResult {
       } catch (e: unknown) {
         if (controller.signal.aborted) {
           console.log(`[useFlightSearch] ABORTED (catch): ${key}`);
+          setIsLoading(false);
           return;
         }
 

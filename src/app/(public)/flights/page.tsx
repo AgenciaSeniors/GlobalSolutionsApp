@@ -5,7 +5,7 @@
  * @module app/(public)/flights/page
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -39,8 +39,20 @@ export default function FlightsPage() {
   const router = useRouter();
 
   const { results, isLoading, error, search, clearCache } = useFlightSearch();
+  console.log(`[FlightsPage RENDER] isLoading=${isLoading} results=${results?.length ?? 0} error=${String(error)}`);
 
   const [lastSearch, setLastSearch] = useState<SearchPayload | null>(null);
+
+  // Re-lanzar búsqueda si el componente remonta (StrictMode dev double-mount)
+  // con lastSearch pendiente y sin resultados ni carga activa.
+  useEffect(() => {
+    const params = lastSearchRef.current;
+    if (!params || isLoadingRef.current || resultsRef.current.length > 0) return;
+    console.log('[FlightsPage] Remount recovery: re-running search for', params.from, '→', params.to);
+    runSearch(params, activeLegRef.current);
+  // Intencionalmente [] — solo queremos que corra en el mount, no en cada render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Tabs (ida / regreso)
   const [activeLeg, setActiveLeg] = useState(0);
@@ -54,6 +66,16 @@ export default function FlightsPage() {
 
   // Map to keep raw results indexed by their mapped ID for sessionStorage
   const rawResultsMapRef = useRef<Map<string, unknown>>(new Map());
+
+  // Ref mirrors for use inside effects without adding them as deps
+  const lastSearchRef = useRef<SearchPayload | null>(null);
+  const activeLegRef = useRef<number>(0);
+  const isLoadingRef = useRef<boolean>(false);
+  const resultsRef = useRef<typeof results>([]);
+  lastSearchRef.current = lastSearch;
+  activeLegRef.current = activeLeg;
+  isLoadingRef.current = isLoading;
+  resultsRef.current = results;
 
   // Construye legs para los tabs Ida/Regreso
   const legs = useMemo(() => {

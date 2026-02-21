@@ -17,6 +17,7 @@ export default function FlightResultsList({
   onSelectFlight,
   onRetry,
 }: FlightResultsListProps) {
+  console.log(`[FlightResultsList] isLoading=${isLoading} flights=${flights?.length ?? 0} error=${String(error)}`);
 
   // 1. Estado de Carga
   if (isLoading) {
