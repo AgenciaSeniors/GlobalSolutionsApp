@@ -20,6 +20,8 @@ export type UseFlightSearchResult = {
   isLoading: boolean;
   error: string | null;
   search: (params: FlightSearchParams) => Promise<void>;
+  /** Clears the completed-keys cache so the same search can be re-triggered */
+  clearCache: () => void;
 };
 
 /* ------------------------------------------------------------------ */
@@ -195,6 +197,10 @@ export function useFlightSearch(): UseFlightSearchResult {
     [],
   );
 
+  const clearCache = useCallback(() => {
+    completedKeysRef.current.clear();
+  }, []);
+
   // ── Cleanup: abort on unmount (StrictMode) ──
   // Note: we do NOT clear completedKeysRef here, so remounts
   // after StrictMode don't re-trigger finished searches.
@@ -208,5 +214,5 @@ export function useFlightSearch(): UseFlightSearchResult {
     };
   }, []);
 
-  return { results, isLoading, error, search };
+  return { results, isLoading, error, search, clearCache };
 }
