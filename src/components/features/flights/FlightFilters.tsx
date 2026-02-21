@@ -16,7 +16,7 @@ interface FlightFiltersProps {
 
 const DEFAULT_FILTERS: FilterState = {
   stops: [],
-  priceRange: { min: 0, max: 0 },
+  priceRange: { min: 0, max: Number.MAX_SAFE_INTEGER },
   airlines: [],
 };
 
@@ -37,13 +37,21 @@ export default function FlightFilters({ onFilterChange, availableAirlines = [] }
   };
 
   const handlePriceChange = (key: 'min' | 'max', raw: string) => {
-    const n = Number(raw);
-    const newPriceRange = { ...filters.priceRange, [key]: Number.isFinite(n) ? n : 0 };
-    const newFilters = { ...filters, priceRange: newPriceRange };
+  let value: number;
 
-    setFilters(newFilters);
-    onFilterChange(newFilters);
-  };
+  if (raw === '') {
+    value = key === 'max' ? Number.MAX_SAFE_INTEGER : 0;
+  } else {
+    const n = Number(raw);
+    value = Number.isFinite(n) ? n : 0;
+  }
+
+  const newPriceRange = { ...filters.priceRange, [key]: value };
+  const newFilters = { ...filters, priceRange: newPriceRange };
+
+  setFilters(newFilters);
+  onFilterChange(newFilters);
+};
 
   const clearAll = () => {
     setFilters(DEFAULT_FILTERS);
@@ -113,11 +121,11 @@ export default function FlightFilters({ onFilterChange, availableAirlines = [] }
               />
             </div>
             <div className="w-1/2">
-              <label className="text-xs text-gray-400">Max (0 = sin límite)</label>
+              <label className="text-xs text-gray-400">Max</label>
               <Input
                 type="number"
                 placeholder="Sin límite"
-                value={filters.priceRange.max || ''}
+                value={filters.priceRange.max === Number.MAX_SAFE_INTEGER ? '' : filters.priceRange.max}
                 onChange={(e) => handlePriceChange('max', e.target.value)}
                 className="h-8 text-sm"
               />

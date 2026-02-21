@@ -48,7 +48,7 @@ export default function FlightSearchResultsPage() {
 
   const [filters, setFilters] = useState<FilterState>({
     stops: [],
-    priceRange: { min: 0, max: 0 },
+    priceRange: { min: 0, max: Number.MAX_SAFE_INTEGER },
     airlines: [],
   });
 

@@ -217,13 +217,14 @@ export function useFlightSearch(): UseFlightSearchResult {
   // remounts (StrictMode double-mount in dev, or real navigation) the
   // search will re-run properly instead of being skipped.
   useEffect(() => {
+    const completedKeys = completedKeysRef.current;
     return () => {
       if (abortRef.current) {
         abortRef.current.abort();
         abortRef.current = null;
       }
       activeKeyRef.current = null;
-      completedKeysRef.current.clear();
+      completedKeys.clear();
     };
   }, []);
 
