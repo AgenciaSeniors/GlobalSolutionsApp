@@ -40,12 +40,18 @@ function toUiSegment(seg: DuffelSegment, offerId: string, i: number): FlightSegm
 function skySegmentToUi(s: SkySegment, offerId: string, i: number): FlightSegment {
   const logo = s.airline_logo_url ?? gstaticLogo(s.airline_code);
   const dur = s.duration_minutes > 0 ? formatDurationFromMinutes(s.duration_minutes) : s.departure && s.arrival ? formatDurationFromDates(s.departure, s.arrival) : "—";
-  return { id: `${offerId}-seg-${i + 1}`, origin: s.origin_iata, destination: s.destination_iata, departureTime: s.departure, arrivalTime: s.arrival, flightNumber: s.flight_number || "—", duration: dur, airline: { id: s.airline_code || "UNKNOWN", name: s.airline_name, code: s.airline_code, logoUrl: logo } };
+  return { id: `${offerId}-seg-${i + 1}`, origin: s.origin_iata, destination: s.destination_iata, originName: s.origin_name, destinationName: s.destination_name, departureTime: s.departure, arrivalTime: s.arrival, flightNumber: s.flight_number || "—", duration: dur, airline: { id: s.airline_code || "UNKNOWN", name: s.airline_name, code: s.airline_code, logoUrl: logo } };
 }
 
-export function mapApiFlightToOffer(input: unknown): FlightOffer {
+export function mapApiFlightToOffer(
+  input: unknown,
+  context?: { tripType?: 'oneway' | 'roundtrip' | 'multicity' },
+): FlightOffer {
   const f: InputFlight = isRecord(input) ? (input as InputFlight) : {};
-  const offerId = String(f.id ?? f.offerId ?? crypto.randomUUID());
+  const rawId = f.id ?? f.offerId;
+  const offerId = rawId
+    ? String(rawId)
+    : `flight-${f.origin_iata ?? f.origin ?? ''}-${f.destination_iata ?? f.destination ?? ''}-${f.departure_datetime ?? f.departureTime ?? ''}-${String(f.final_price ?? f.price ?? 0)}`.replace(/\s+/g, '');
 
   const skySegs: SkySegment[] = Array.isArray(f.sky_segments) ? f.sky_segments : [];
   const rawSegs: DuffelSegment[] = f.raw?.slices?.[0]?.segments ?? [];
@@ -63,8 +69,12 @@ export function mapApiFlightToOffer(input: unknown): FlightOffer {
   const airlineLogo = f.airline?.logo_url ?? gstaticLogo(airlineCode);
   const flightNumber = f.flight_number ?? f.flightNumber ?? "—";
 
-  const stopsNumberFromApi = Number.isFinite(Number(f.stops_count)) ? Number(f.stops_count) : null;
-  const placeholderCount = stopsDb.length > 0 ? stopsDb.length + 1 : stopsNumberFromApi != null ? Math.max(1, stopsNumberFromApi + 1) : 1;
+  const stopsNumberFromApi = (f.stops_count != null && Number.isFinite(Number(f.stops_count))) ? Number(f.stops_count) : null;
+  const placeholderCount = stopsDb.length > 0
+    ? stopsDb.length + 1
+    : stopsNumberFromApi != null
+      ? stopsNumberFromApi + 1  // 0 escalas → 1 segmento (directo), 1 escala → 2 segmentos, etc.
+      : 1;
 
   let segments: FlightSegment[];
 
@@ -87,7 +97,7 @@ export function mapApiFlightToOffer(input: unknown): FlightOffer {
 
   return {
     id: offerId, price: Number(f.final_price ?? f.price ?? 0), currency: String(f.currency ?? "USD"),
-    segments, totalDuration, type: "oneway",
+    segments, totalDuration, type: context?.tripType ?? "oneway",
     airline_code: airlineCode || undefined, stops_count: Math.max(0, segments.length - 1),
     stops: Array.isArray(f.stops) ? f.stops.map((s) => ({ airport: s.airport ?? "", duration_minutes: s.duration_minutes ?? 0 })) : undefined,
     is_exclusive_offer: Boolean(f.is_exclusive_offer), provider: String(f.provider ?? f.offerSource ?? ""),

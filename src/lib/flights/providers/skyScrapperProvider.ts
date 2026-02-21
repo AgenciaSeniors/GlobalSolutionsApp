@@ -833,7 +833,7 @@ async function searchOneLegInternal(
     locale: "en-US",
     currency: "USD",
   });
-console.log(`[DEBUG] Llamando a SkyScrapper con clase: ${qs.get('cabinClass')} para la ruta ${leg.origin}-${leg.destination}`);
+  console.log(`[SkyScrapper] Leg ${legIndex}: searching ${leg.origin}→${leg.destination} | class=${qs.get('cabinClass')} | pax=${passengers}`);
   const initialJson = await client.get(
     `/flights/search-one-way?${qs.toString()}`,
     SEARCH_ONE_WAY_TIMEOUT_MS,

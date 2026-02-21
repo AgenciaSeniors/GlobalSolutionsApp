@@ -25,6 +25,8 @@ type Props = {
   /** Codes to exclude from results (e.g. already-selected airport) */
   excludeCodes?: string[];
   className?: string;
+  /** Unique identifier for testing */
+  testId?: string;
 };
 
 export default function AirportAutocomplete({
@@ -35,6 +37,7 @@ export default function AirportAutocomplete({
   disabled,
   excludeCodes = [],
   className,
+  testId,
 }: Props) {
   const [inputValue, setInputValue] = useState('');
   const [options, setOptions] = useState<AirportOption[]>([]);
@@ -197,8 +200,10 @@ export default function AirportAutocomplete({
   }
 
   function handleFocus() {
-    // Re-open if we have cached options and user is actively typing
-    if (options.length > 0 && inputValue.length >= 2 && !resolvedCode) {
+    if (resolvedCode) {
+      // Re-fetch suggestions when user focuses a confirmed selection so they can change it
+      void fetchSuggestions(inputValue);
+    } else if (options.length > 0 && inputValue.length >= 2) {
       setIsOpen(true);
     }
   }
@@ -208,8 +213,7 @@ export default function AirportAutocomplete({
       <input
         ref={inputRef}
         type="text"
-        // 🧪 MEJORA PARA TESTING: Identificador único
-        data-testid={placeholder?.toLowerCase().includes('origen') ? 'origin-input' : 'destination-input'}
+        data-testid={testId}
         value={inputValue}
         onChange={(e) => handleInputChange(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -220,16 +224,27 @@ export default function AirportAutocomplete({
         autoComplete="off"
         className={
           className ??
-          `w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 py-3 text-[15px]
-           focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20`
+          `w-full rounded-xl border-2 bg-neutral-50 px-4 py-3 text-[15px]
+           focus:outline-none focus:ring-2 focus:ring-brand-500/20
+           ${resolvedCode
+             ? 'border-brand-400 focus:border-brand-500'
+             : 'border-neutral-200 focus:border-brand-500'
+           }`
         }
       />
+
+      {/* Badge: airport confirmed indicator */}
+      {resolvedCode && (
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-brand-100 px-1.5 py-0.5 text-[11px] font-bold text-brand-700">
+          {resolvedCode}
+        </span>
+      )}
 
       {/* Hidden input to hold the actual IATA code for form validation */}
       <input type="hidden" value={value} />
 
-      {/* Loading indicator */}
-      {isLoading && (
+      {/* Loading indicator — shown only when no resolvedCode badge is visible */}
+      {isLoading && !resolvedCode && (
         <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
         </div>

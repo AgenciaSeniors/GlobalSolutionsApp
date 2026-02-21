@@ -120,8 +120,14 @@ function getDestinationIata(f: Flight): string {
   return getAirportCode(rec["destination_airport"]) ?? "NDEST";
 }
 
+function normalizePrice(f: Flight): string {
+  const rec = f as unknown as Record<string, unknown>;
+  const p = Number(rec["final_price"] ?? rec["price"] ?? 0);
+  return Number.isFinite(p) ? String(Math.round(p)) : "0";
+}
+
 export function flightDedupeKey(f: Flight): string {
-  return `${normalizeAirlineCode(f)}|${normalizeFlightNumber(f)}|${getOriginIata(f)}|${getDestinationIata(f)}|${normalizeDepartureDatetime(f)}`;
+  return `${normalizeAirlineCode(f)}|${normalizeFlightNumber(f)}|${getOriginIata(f)}|${getDestinationIata(f)}|${normalizeDepartureDatetime(f)}|${normalizePrice(f)}`;
 }
 
 /* -------------------------------------------------- */

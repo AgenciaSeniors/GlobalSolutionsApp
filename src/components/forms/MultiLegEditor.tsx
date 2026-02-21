@@ -22,15 +22,17 @@ type Props = {
   today: string;
   /** Max allowed date YYYY-MM-DD */
   maxDate: string;
+  /** Destination from the main form — auto-fills origin of the first additional leg */
+  mainDestination?: string;
 };
 
 /* ── Component ───────────────────────────────────── */
 
-export default function MultiLegEditor({ legs, onChange, departureDate, today, maxDate }: Props) {
+export default function MultiLegEditor({ legs, onChange, departureDate, today, maxDate, mainDestination }: Props) {
   function addLeg() {
-    // Pre-fill origin of new leg with destination of last leg
     const lastLeg = legs[legs.length - 1];
-    const newOrigin = lastLeg?.destination || '';
+    // For the first additional leg, fall back to mainDestination (the main form's destination)
+    const newOrigin = lastLeg?.destination || mainDestination || '';
     onChange([...legs, { origin: newOrigin, destination: '', date: '' }]);
   }
 

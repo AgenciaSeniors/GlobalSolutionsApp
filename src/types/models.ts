@@ -401,6 +401,8 @@ export interface FlightSegment {
   id: string;
   origin: string;
   destination: string;
+  originName?: string;
+  destinationName?: string;
   departureTime: string;
   arrivalTime: string;
   airline: UiAirline;

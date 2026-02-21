@@ -76,9 +76,11 @@ export default function FlightStopsDetails({ segments, isOpen }: FlightStopsDeta
                         <p className="text-lg font-bold text-neutral-900">
                           {formatTime(segment.departureTime)}
                         </p>
-                        <p className="text-sm text-neutral-600">
-                          {segment.origin} · {formatDate(segment.departureTime)}
-                        </p>
+                        <p className="text-sm font-semibold text-neutral-700">{segment.origin}</p>
+                        {segment.originName && (
+                          <p className="text-xs text-neutral-500">{segment.originName}</p>
+                        )}
+                        <p className="text-xs text-neutral-400">{formatDate(segment.departureTime)}</p>
                       </div>
 
                       {/* Duración */}
@@ -98,9 +100,11 @@ export default function FlightStopsDetails({ segments, isOpen }: FlightStopsDeta
                         <p className="text-lg font-bold text-neutral-900">
                           {formatTime(segment.arrivalTime)}
                         </p>
-                        <p className="text-sm text-neutral-600">
-                          {segment.destination} · {formatDate(segment.arrivalTime)}
-                        </p>
+                        <p className="text-sm font-semibold text-neutral-700">{segment.destination}</p>
+                        {segment.destinationName && (
+                          <p className="text-xs text-neutral-500">{segment.destinationName}</p>
+                        )}
+                        <p className="text-xs text-neutral-400">{formatDate(segment.arrivalTime)}</p>
                       </div>
                     </div>
                   </div>
@@ -114,7 +118,10 @@ export default function FlightStopsDetails({ segments, isOpen }: FlightStopsDeta
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-amber-700">
-                        Escala en {segment.destination}
+                        Escala en {segment.destinationName ?? segment.destination}
+                        {segment.destinationName && (
+                          <span className="ml-1 font-normal text-amber-600">({segment.destination})</span>
+                        )}
                       </p>
                       <p className="text-xs text-neutral-600">
                         Tiempo de espera: {layoverDuration}

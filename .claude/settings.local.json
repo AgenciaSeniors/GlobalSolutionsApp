@@ -12,7 +12,15 @@
       "Bash(grep:*)",
       "Bash(npm run build:*)",
       "Bash(ls:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(git rev-list:*)",
+      "Bash(git fetch:*)",
+      "Bash(dir:*)",
+      "Bash(node_modules.bintsc:*)",
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(python3:*)",
+      "Bash(xxd:*)",
+      "Bash(git add:*)"
     ]
   }
 }
