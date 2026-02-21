@@ -390,6 +390,7 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
             placeholder="Ciudad o codigo IATA"
             required
             excludeCodes={form.destination ? [form.destination] : []}
+            testId="origin-input"
           />
         </div>
 
@@ -418,6 +419,7 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
             placeholder="Ciudad o codigo IATA"
             required
             excludeCodes={form.origin ? [form.origin] : []}
+            testId="destination-input"
           />
         </div>
       </div>
@@ -485,6 +487,7 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
           departureDate={form.departure}
           today={today}
           maxDate={maxDate}
+          mainDestination={form.destination}
         />
       )}
 
