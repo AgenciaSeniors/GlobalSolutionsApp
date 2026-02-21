@@ -227,8 +227,13 @@ export default function CheckoutPage() {
       ? (offerData?.offer_price ?? 0)
       : (flight?.final_price ?? 0);
 
+  // BUG 3b FIX: for multicity, both arrays must be filled and in sync
   const isReady = !loading && !settingsLoading && (
-    isMulticityMode ? multicityLegs.length > 0 : isOfferMode ? !!offerData : !!flight
+    isMulticityMode
+      ? multicityLegs.length > 0 && multicityFlightIds.length === multicityLegs.length
+      : isOfferMode
+        ? !!offerData
+        : !!flight
   );
 
   // --- Data loading ---
@@ -858,6 +863,7 @@ export default function CheckoutPage() {
   }
 
   // --- Display date ---
+  // BUG 3a FIX: add multicity branch so displayDate is never empty when flight=null
   const displayDate = isOfferMode && offerData
     ? new Date(offerData.selected_date + 'T12:00:00').toLocaleDateString('es', {
         weekday: 'long',
@@ -865,14 +871,16 @@ export default function CheckoutPage() {
         month: 'long',
         year: 'numeric',
       })
-    : flight
-      ? new Date(flight.departure_datetime).toLocaleDateString('es', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        })
-      : '';
+    : isMulticityMode && multicityLegs.length > 0
+      ? multicityLegs[0].legMeta.date
+      : flight
+        ? new Date(flight.departure_datetime).toLocaleDateString('es', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })
+        : '';
 
   // --- Main checkout UI ---
   return (

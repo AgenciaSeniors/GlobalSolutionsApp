@@ -31,6 +31,14 @@ export default function MulticityItinerarySummary({
 
   const sorted = [...selectedLegs].sort((a, b) => a.legIndex - b.legIndex);
 
+  // BUG 2 FIX: derive pending indices by diffing all possible indices vs selected ones.
+  // The old formula (selectedLegs.length + i) assumed selected legs are always contiguous
+  // from the start, which breaks when e.g. legs 0 and 2 are selected but 1 is missing.
+  const selectedIndices = new Set(sorted.map((l) => l.legIndex));
+  const pendingIndices = Array.from({ length: totalLegs }, (_, i) => i).filter(
+    (i) => !selectedIndices.has(i),
+  );
+
   return (
     <div className="mt-6 rounded-2xl border border-blue-200 bg-white shadow-lg overflow-hidden">
       {/* Header */}
@@ -97,23 +105,20 @@ export default function MulticityItinerarySummary({
           </div>
         ))}
 
-        {/* Pending legs placeholder */}
-        {Array.from({ length: totalLegs - selectedLegs.length }, (_, i) => {
-          const pendingIndex = totalLegs - (totalLegs - selectedLegs.length) + i;
-          return (
-            <div
-              key={`pending-${pendingIndex}`}
-              className="flex items-center gap-4 px-6 py-4 opacity-40"
-            >
-              <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                {pendingIndex + 1}
-              </div>
-              <span className="text-sm text-gray-400 italic">
-                Pendiente de selección
-              </span>
+        {/* Pending legs placeholder — shows exactly which legs are still missing */}
+        {pendingIndices.map((pendingIndex) => (
+          <div
+            key={`pending-${pendingIndex}`}
+            className="flex items-center gap-4 px-6 py-4 opacity-40"
+          >
+            <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 text-xs font-bold flex items-center justify-center flex-shrink-0">
+              {pendingIndex + 1}
             </div>
-          );
-        })}
+            <span className="text-sm text-gray-400 italic">
+              Pendiente de selección
+            </span>
+          </div>
+        ))}
       </div>
 
       {/* Footer */}

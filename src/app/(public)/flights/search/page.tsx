@@ -93,8 +93,14 @@ export default function FlightSearchResultsPage() {
     selectedLegs,
     selectLeg,
     clearLeg,
-    isLegSelected,
+    clearSelection,
   } = useMulticitySelection(isMulticity ? legs.length : 0);
+
+  // BUG 5: Clear selection whenever the multicity legs change (new search)
+  useEffect(() => {
+    if (isMulticity) clearSelection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legsParam]);
 
   // Pre-fill the search form with URL params
   const formInitialValues = useMemo(
@@ -207,6 +213,12 @@ export default function FlightSearchResultsPage() {
     const rawObj = raw as Record<string, unknown>;
     const airlineObj = (rawObj.airline ?? {}) as Record<string, unknown>;
 
+    // BUG 1 FIX: capture already-selected indices BEFORE calling selectLeg,
+    // because setSelectedLegs is async — reading selectedLegs after selectLeg
+    // returns still gives the OLD array (stale state).
+    const alreadySelected = new Set(selectedLegs.map((s) => s.legIndex));
+    alreadySelected.add(activeLeg); // include the leg we are selecting right now
+
     selectLeg(
       activeLeg,
       raw,
@@ -218,9 +230,9 @@ export default function FlightSearchResultsPage() {
       legs[activeLeg] ?? { origin: '', destination: '', date: '' },
     );
 
-    // Auto-advance to the next unselected leg
+    // Auto-advance to the next unselected leg using pre-computed set (no stale reads)
     for (let i = 0; i < legs.length; i++) {
-      if (i !== activeLeg && !isLegSelected(i)) {
+      if (!alreadySelected.has(i)) {
         setActiveLeg(i);
         break;
       }
