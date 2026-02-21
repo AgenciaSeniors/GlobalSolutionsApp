@@ -43,7 +43,10 @@ function skySegmentToUi(s: SkySegment, offerId: string, i: number): FlightSegmen
   return { id: `${offerId}-seg-${i + 1}`, origin: s.origin_iata, destination: s.destination_iata, departureTime: s.departure, arrivalTime: s.arrival, flightNumber: s.flight_number || "—", duration: dur, airline: { id: s.airline_code || "UNKNOWN", name: s.airline_name, code: s.airline_code, logoUrl: logo } };
 }
 
-export function mapApiFlightToOffer(input: unknown): FlightOffer {
+export function mapApiFlightToOffer(
+  input: unknown,
+  context?: { tripType?: 'oneway' | 'roundtrip' | 'multicity' },
+): FlightOffer {
   const f: InputFlight = isRecord(input) ? (input as InputFlight) : {};
   const offerId = String(f.id ?? f.offerId ?? crypto.randomUUID());
 
@@ -87,7 +90,7 @@ export function mapApiFlightToOffer(input: unknown): FlightOffer {
 
   return {
     id: offerId, price: Number(f.final_price ?? f.price ?? 0), currency: String(f.currency ?? "USD"),
-    segments, totalDuration, type: "oneway",
+    segments, totalDuration, type: context?.tripType ?? "oneway",
     airline_code: airlineCode || undefined, stops_count: Math.max(0, segments.length - 1),
     stops: Array.isArray(f.stops) ? f.stops.map((s) => ({ airport: s.airport ?? "", duration_minutes: s.duration_minutes ?? 0 })) : undefined,
     is_exclusive_offer: Boolean(f.is_exclusive_offer), provider: String(f.provider ?? f.offerSource ?? ""),

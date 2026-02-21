@@ -43,6 +43,7 @@ export type FlightSearchParams =
   | {
       legs: FlightLeg[];
       passengers: number;
+      cabinClass?: string;
       filters?: FlightSearchFilters;
     }
   | {

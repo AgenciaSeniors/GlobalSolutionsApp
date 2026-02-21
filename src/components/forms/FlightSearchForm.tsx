@@ -33,6 +33,8 @@ type InitialValues = {
   returnDate?: string;
   passengers?: string;
   cabinClass?: string;
+  tripType?: TripType;
+  legs?: Array<{ origin: string; destination: string; date: string }>;
 };
 
 type Props = {
@@ -118,7 +120,16 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
       cabinClass: initialValues.cabinClass || 'economy',
     });
 
-    if (!initialValues.returnDate) {
+    if (initialValues.tripType === 'multicity') {
+      setTripType('multicity');
+      // legs[0] is the main leg (already in origin/destination/departure),
+      // additional legs start from index 1
+      if (initialValues.legs && initialValues.legs.length > 1) {
+        setLegs(initialValues.legs.slice(1));
+      } else {
+        setLegs([{ origin: '', destination: '', date: '' }]);
+      }
+    } else if (!initialValues.returnDate) {
       setTripType('oneway');
     } else {
       setTripType('roundtrip');
@@ -214,7 +225,38 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
       }
     }
 
-    // Validate main form with Zod schema
+    // ── Multicity: serialize all legs into URL and navigate ──
+    if (tripType === 'multicity') {
+      if (!form.departure) {
+        setDateError('Selecciona una fecha de ida');
+        return;
+      }
+
+      // Build full legs array: main leg + additional legs from editor
+      const allLegs = [
+        { origin: form.origin, destination: form.destination, date: form.departure },
+        ...legs,
+      ];
+
+      const legsParam = allLegs
+        .map((l) => `${l.origin}-${l.destination}-${l.date}`)
+        .join(',');
+
+      const params = new URLSearchParams({
+        from: form.origin,
+        to: form.destination,
+        departure: form.departure,
+        passengers: form.passengers,
+        tripType: 'multicity',
+        legs: legsParam,
+      });
+      if (form.cabinClass) params.set('cabinClass', form.cabinClass);
+
+      router.push(`${ROUTES.FLIGHT_SEARCH}?${params.toString()}`);
+      return;
+    }
+
+    // ── Roundtrip / Oneway: validate with Zod and navigate ──
     const result = flightSearchSchema.safeParse({
       origin: form.origin,
       destination: form.destination,
@@ -246,23 +288,6 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
       return;
     }
 
-    const params = new URLSearchParams({
-      from: payload.from,
-      to: payload.to,
-      departure: payload.departure,
-      passengers: payload.passengers,
-    });
-
-   
-    if (payload.cabinClass) {
-      params.set('cabinClass', payload.cabinClass);
-    }
-    // ---------------------------------
-
-    if (payload.return) {
-      params.set('return', payload.return);
-    }
-
     navigateToResults(payload, 'push');
   }
 
@@ -274,11 +299,32 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
 
     if (!autoSubmitOnClassChange) return;
 
-    // Multidestino no está conectado al search page todavía.
-    if (tripType === 'multicity') return;
-
     const next = { ...form, cabinClass: value };
     if (!next.origin || !next.destination || !next.departure) return;
+
+    // ── Multicity: rebuild URL with all legs + new cabinClass ──
+    if (tripType === 'multicity') {
+      const allLegs = [
+        { origin: next.origin, destination: next.destination, date: next.departure },
+        ...legs,
+      ];
+      if (allLegs.some((l) => !l.origin || !l.destination || !l.date)) return;
+
+      const legsParam = allLegs.map((l) => `${l.origin}-${l.destination}-${l.date}`).join(',');
+      const params = new URLSearchParams({
+        from: next.origin,
+        to: next.destination,
+        departure: next.departure,
+        passengers: next.passengers,
+        tripType: 'multicity',
+        legs: legsParam,
+        cabinClass: value,
+      });
+      router.replace(`${ROUTES.FLIGHT_SEARCH}?${params.toString()}`);
+      return;
+    }
+
+    // ── Roundtrip / Oneway ──
     if (tripType === 'roundtrip' && !next.returnDate) return;
 
     const payload: FlightSearchParams = {
@@ -293,7 +339,6 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
       payload.return = next.returnDate;
     }
 
-    // If we're in same-page mode, call callback; otherwise update URL params.
     if (onSearch) onSearch(payload);
     else navigateToResults(payload, 'replace');
   }

@@ -108,7 +108,7 @@ export default function FlightsPage() {
   // Also build a raw results map indexed by the mapped ID
   const flights: FlightOffer[] = useMemo(() => {
     const rawArr = results ?? [];
-    const mapped = rawArr.map(mapApiFlightToOffer);
+    const mapped = rawArr.map((f) => mapApiFlightToOffer(f));
 
     // Build a map: mappedId -> raw result data
     const newMap = new Map<string, unknown>();

@@ -15,8 +15,11 @@ import { flightsService } from '@/services/flights.service';
  *     aren't re-triggered by StrictMode remounts or effect re-runs
  */
 
+type ResultsByLeg = Array<{ legIndex: number; flights: FlightWithDetails[] }>;
+
 export type UseFlightSearchResult = {
   results: FlightWithDetails[];
+  resultsByLeg: ResultsByLeg;
   isLoading: boolean;
   error: string | null;
   search: (params: FlightSearchParams) => Promise<void>;
@@ -64,8 +67,6 @@ function stableRequestKey(params: FlightSearchParams): string {
 /*  Extract flights from the API response shape                       */
 /* ------------------------------------------------------------------ */
 
-type ResultsByLeg = Array<{ legIndex: number; flights: FlightWithDetails[] }>;
-
 function extractFlights(results: ResultsByLeg | undefined): FlightWithDetails[] {
   if (!Array.isArray(results) || results.length === 0) return [];
   const firstLeg = results[0];
@@ -79,6 +80,7 @@ function extractFlights(results: ResultsByLeg | undefined): FlightWithDetails[] 
 
 export function useFlightSearch(): UseFlightSearchResult {
   const [results, setResults] = useState<FlightWithDetails[]>([]);
+  const [resultsByLeg, setResultsByLeg] = useState<ResultsByLeg>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,7 +139,9 @@ export function useFlightSearch(): UseFlightSearchResult {
           `[useFlightSearch] POST response: sessionId=${started?.sessionId}, status=${started?.status}`
         );
 
-        const initialFlights = extractFlights(started?.results as ResultsByLeg);
+        const allInitialResults = (started?.results ?? []) as ResultsByLeg;
+        setResultsByLeg(allInitialResults);
+        const initialFlights = extractFlights(allInitialResults);
         if (initialFlights.length > 0) {
           setResults(initialFlights);
           console.log(
@@ -163,7 +167,9 @@ export function useFlightSearch(): UseFlightSearchResult {
             return;
           }
 
-          const finalFlights = extractFlights(final?.results as ResultsByLeg);
+          const allFinalResults = (final?.results ?? []) as ResultsByLeg;
+          setResultsByLeg(allFinalResults);
+          const finalFlights = extractFlights(allFinalResults);
           console.log(
             `[useFlightSearch] Poll complete: ${finalFlights.length} flights, status=${final?.status}`
           );
@@ -188,6 +194,7 @@ export function useFlightSearch(): UseFlightSearchResult {
         console.error(`[useFlightSearch] ERROR: ${msg}`);
         setError(msg);
         setResults([]);
+        setResultsByLeg([]);
         setIsLoading(false);
         activeKeyRef.current = null;
       }
@@ -208,5 +215,5 @@ export function useFlightSearch(): UseFlightSearchResult {
     };
   }, []);
 
-  return { results, isLoading, error, search };
+  return { results, resultsByLeg, isLoading, error, search };
 }

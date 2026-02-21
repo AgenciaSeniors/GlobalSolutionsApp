@@ -2,12 +2,13 @@
 import { Plane } from 'lucide-react';
 
 interface FlightLegTabsProps {
-  legs: { origin: string; destination: string; date: string }[]; 
-  activeLeg: number; 
+  legs: { origin: string; destination: string; date: string }[];
+  activeLeg: number;
   onLegChange: (index: number) => void;
+  tripType?: 'oneway' | 'roundtrip' | 'multicity';
 }
 
-export default function FlightLegTabs({ legs, activeLeg, onLegChange }: FlightLegTabsProps) {
+export default function FlightLegTabs({ legs, activeLeg, onLegChange, tripType }: FlightLegTabsProps) {
   return (
     <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
       {legs.map((leg, index) => {
@@ -23,7 +24,11 @@ export default function FlightLegTabs({ legs, activeLeg, onLegChange }: FlightLe
             </div>
             <div className="text-left">
               <p className={`text-xs uppercase tracking-wider ${isActive ? 'text-gray-300' : 'text-gray-400'}`}>
-                {index === 0 ? 'Vuelo de Ida' : 'Vuelo de Regreso'}
+                {tripType === 'multicity'
+                  ? `Tramo ${index + 1}`
+                  : index === 0
+                    ? 'Vuelo de Ida'
+                    : 'Vuelo de Regreso'}
               </p>
               <div className="flex items-center gap-2 font-bold text-sm">
                 <span>{leg.origin}</span>
