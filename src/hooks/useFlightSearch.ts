@@ -173,7 +173,8 @@ export function useFlightSearch(): UseFlightSearchResult {
           setResultsByLeg(allFinalResults);
           const finalFlights = extractFlights(allFinalResults);
           console.log(
-            `[useFlightSearch] Poll complete: ${finalFlights.length} flights, status=${final?.status}`
+            `[useFlightSearch] Poll complete: ${finalFlights.length} flights, status=${final?.status}`,
+            allFinalResults.map(l => ({ legIndex: l.legIndex, count: l.flights?.length ?? 0 }))
           );
           setResults(finalFlights);
         } else if (status === 'complete') {
@@ -208,9 +209,10 @@ export function useFlightSearch(): UseFlightSearchResult {
     completedKeysRef.current.clear();
   }, []);
 
-  // ── Cleanup: abort on unmount (StrictMode) ──
-  // Note: we do NOT clear completedKeysRef here, so remounts
-  // after StrictMode don't re-trigger finished searches.
+  // ── Cleanup: abort on unmount ──
+  // We also clear completedKeysRef on unmount so that if the component
+  // remounts (StrictMode double-mount in dev, or real navigation) the
+  // search will re-run properly instead of being skipped.
   useEffect(() => {
     return () => {
       if (abortRef.current) {
@@ -218,6 +220,7 @@ export function useFlightSearch(): UseFlightSearchResult {
         abortRef.current = null;
       }
       activeKeyRef.current = null;
+      completedKeysRef.current.clear();
     };
   }, []);
 

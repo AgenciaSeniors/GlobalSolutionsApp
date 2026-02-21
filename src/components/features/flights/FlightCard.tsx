@@ -11,8 +11,9 @@ interface FlightCardProps {
 }
 
 function formatTime(value: string): string {
+  if (!value) return '—';
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
+  if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -20,22 +21,23 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
   const segments = flight.segments ?? [];
   const firstSegment = segments[0];
   const lastSegment = segments[segments.length - 1];
-  if (!firstSegment || !lastSegment) return null;
 
-  const airlineName = firstSegment.airline?.name ?? 'Aerolínea';
-  const airlineCode = firstSegment.airline?.code ?? '';
-  const flightNumber = firstSegment.flightNumber ?? '';
-  const originCode = firstSegment.origin ?? '';
-  const destinationCode = lastSegment.destination ?? '';
+  const airlineName = firstSegment?.airline?.name ?? 'Aerolínea';
+  const airlineCode = firstSegment?.airline?.code ?? '';
+  const flightNumber = firstSegment?.flightNumber ?? '';
+  const originCode = firstSegment?.origin ?? '';
+  const destinationCode = lastSegment?.destination ?? '';
 
-  const departureTime = formatTime(firstSegment.departureTime);
-  const arrivalTime = formatTime(lastSegment.arrivalTime);
+  const departureTime = formatTime(firstSegment?.departureTime ?? '');
+  const arrivalTime = formatTime(lastSegment?.arrivalTime ?? '');
 
   const isDirect = segments.length <= 1;
   const stopsCount = Math.max(0, segments.length - 1);
   const stopsLabel = isDirect ? 'Directo' : `${stopsCount} Escala${stopsCount === 1 ? '' : 's'}`;
 
-  const logoUrl = firstSegment.airline?.logoUrl ?? '';
+  const logoUrl = firstSegment?.airline?.logoUrl ?? '';
+
+  // ── All hooks BEFORE any conditional return (Rules of Hooks) ──
   const [canShowLogo, setCanShowLogo] = useState(Boolean(logoUrl));
   useEffect(() => setCanShowLogo(Boolean(logoUrl)), [logoUrl]);
 
@@ -56,6 +58,9 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
     const short = list.slice(0, 2).join(', ');
     return list.length > 2 ? `${short}…` : short;
   }, [stopAirports]);
+
+  // ── Guard AFTER all hooks ──
+  if (!firstSegment || !lastSegment) return null;
 
   return (
     <article className="group rounded-2xl border-2 border-transparent bg-white p-4 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:border-brand-200 hover:shadow-lg hover:shadow-brand-600/[0.06] sm:p-6">

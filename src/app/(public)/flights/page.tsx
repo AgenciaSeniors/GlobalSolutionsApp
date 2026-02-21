@@ -108,7 +108,9 @@ export default function FlightsPage() {
   // Also build a raw results map indexed by the mapped ID
   const flights: FlightOffer[] = useMemo(() => {
     const rawArr = results ?? [];
+    console.log(`[FlightsPage] mapper input: ${rawArr.length} raw flights`);
     const mapped = rawArr.map((f) => mapApiFlightToOffer(f));
+    console.log(`[FlightsPage] mapper output: ${mapped.length} FlightOffers`, mapped.map(f => ({ id: f.id, price: f.price, segs: f.segments.length })));
 
     // Build a map: mappedId -> raw result data
     const newMap = new Map<string, unknown>();
@@ -135,7 +137,7 @@ export default function FlightsPage() {
 
   // ✅ Aplicar filtros (UI local) — ahora sí funciona porque segments.length refleja escalas reales
   const filteredFlights = useMemo(() => {
-    return flights.filter((flight) => {
+    const result = flights.filter((flight) => {
       // Precio — max: 0 significa sin límite superior
       const minPrice = filters.priceRange.min ?? 0;
       const maxPrice = filters.priceRange.max;
@@ -169,6 +171,8 @@ export default function FlightsPage() {
 
       return true;
     });
+    console.log(`[FlightsPage] filteredFlights: ${result.length} / ${flights.length} (filters: minPrice=${filters.priceRange.min} maxPrice=${filters.priceRange.max} airlines=${JSON.stringify(filters.airlines)} stops=${JSON.stringify(filters.stops)})`);
+    return result;
   }, [flights, filters]);
 
   // Handler: lo llama el FlightSearchForm (sin navegar)
