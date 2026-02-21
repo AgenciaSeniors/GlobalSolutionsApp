@@ -6,7 +6,13 @@
       "Bash(npx:*)",
       "Bash(node_modules/.bin/tsc:*)",
       "Bash(npm ls:*)",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(grep:*)",
+      "Bash(npm run build:*)",
+      "Bash(ls:*)",
+      "Bash(findstr:*)"
     ]
   }
 }

@@ -48,7 +48,7 @@ export default function FlightSearchResultsPage() {
 
   const [filters, setFilters] = useState<FilterState>({
     stops: [],
-    priceRange: { min: 0, max: 2000 },
+    priceRange: { min: 0, max: 0 },
     airlines: [],
   });
 
@@ -59,6 +59,7 @@ export default function FlightSearchResultsPage() {
   const to = searchParams.get('to') || '';
   const departure = searchParams.get('departure') || '';
   const returnDate = searchParams.get('return') || '';
+  const cabinClass = searchParams.get('cabinClass') || 'economy';
 
   // Pre-fill the search form with URL params
   const formInitialValues = useMemo(
@@ -68,8 +69,9 @@ export default function FlightSearchResultsPage() {
       departure,
       returnDate,
       passengers: String(passengerCount),
+      cabinClass,
     }),
-    [from, to, departure, returnDate, passengerCount]
+    [from, to, departure, returnDate, passengerCount, cabinClass,]
   );
 
   const legs = useMemo(() => {
@@ -99,8 +101,9 @@ export default function FlightSearchResultsPage() {
       destination,
       departure_date: date,
       passengers: passengerCount,
+      cabinClass,
     });
-  }, [activeLeg, from, to, departure, returnDate, passengerCount, search]);
+  }, [activeLeg, from, to, departure, returnDate, passengerCount,cabinClass, search]);
 
   const flights: FlightOffer[] = useMemo(() => {
     const rawArr = Array.isArray(results) ? results : [];
@@ -148,7 +151,7 @@ export default function FlightSearchResultsPage() {
       <main className="pt-[72px]">
         <section className="bg-white py-12">
           <div className="mx-auto max-w-6xl px-6">
-            <FlightSearchForm initialValues={formInitialValues} />
+            <FlightSearchForm initialValues={formInitialValues} autoSubmitOnClassChange />
           </div>
         </section>
 

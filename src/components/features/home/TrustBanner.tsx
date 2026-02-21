@@ -18,7 +18,7 @@ const ITEMS = [
   {
     icon: CheckCircle,
     title: 'Garantía de Precio',
-    desc: 'Si encuentras un precio menor, te igualamos la tarifa',
+    desc: 'Te garantizamos la mejor tarifa disponible',
   },
   {
     icon: Users,

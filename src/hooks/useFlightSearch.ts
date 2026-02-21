@@ -32,6 +32,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function stableRequestKey(params: FlightSearchParams): string {
   const p: unknown = params;
+  // Extraemos la clase de manera segura (por defecto economy)
+  const cClass = isRecord(p) ? String(p.cabinClass ?? 'economy') : 'economy';
 
   if (isRecord(p) && Array.isArray(p.legs) && p.legs.length > 0) {
     const legsKey = p.legs
@@ -45,7 +47,8 @@ function stableRequestKey(params: FlightSearchParams): string {
       .join('|');
 
     const passengers = isRecord(p) ? Number(p.passengers ?? 1) : 1;
-    return `legs:${legsKey}:p${Number.isFinite(passengers) ? passengers : 1}`;
+    // Añadimos cClass a la llave para que el hook sepa que es una búsqueda diferente
+    return `legs:${legsKey}:p${Number.isFinite(passengers) ? passengers : 1}:c${cClass}`;
   }
 
   const origin = isRecord(p) ? String(p.origin ?? '').toUpperCase() : '';
@@ -53,7 +56,8 @@ function stableRequestKey(params: FlightSearchParams): string {
   const departure_date = isRecord(p) ? String(p.departure_date ?? '') : '';
   const passengers = isRecord(p) ? Number(p.passengers ?? 1) : 1;
 
-  return `${origin}-${destination}-${departure_date}-p${Number.isFinite(passengers) ? passengers : 1}`;
+  // Añadimos cClass a la llave aquí también
+  return `${origin}-${destination}-${departure_date}-p${Number.isFinite(passengers) ? passengers : 1}:c${cClass}`;
 }
 
 /* ------------------------------------------------------------------ */

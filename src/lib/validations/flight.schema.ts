@@ -36,6 +36,7 @@ export const flightSearchSchema = z
       .optional()
       .or(z.literal('')),
     passengers: z.coerce.number().int().min(1).max(9),
+    cabinClass: z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
   })
   /* origin !== destination */
   .refine((d) => d.origin !== d.destination, {

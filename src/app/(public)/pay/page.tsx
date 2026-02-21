@@ -19,7 +19,7 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import PaymentForm from "@/components/features/payments/PaymentForm";
 
-type PaymentMethod = "stripe" | "paypal";
+type PaymentMethod = "stripe" | "paypal" | "zelle";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -40,7 +40,7 @@ export default function PayPage() {
   const methodParam = searchParams.get("method");
 
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(
-    methodParam === "paypal" ? "paypal" : "stripe"
+    methodParam === "paypal" ? "paypal" : methodParam === "zelle" ? "zelle" : "stripe"
   );
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
   const [stripeLoading, setStripeLoading] = useState(false);
@@ -85,7 +85,8 @@ export default function PayPage() {
 
   useEffect(() => {
     if (methodParam === "paypal") setSelectedMethod("paypal");
-    if (methodParam === "stripe") setSelectedMethod("stripe");
+    else if (methodParam === "zelle") setSelectedMethod("zelle");
+    else if (methodParam === "stripe") setSelectedMethod("stripe");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -128,20 +129,57 @@ export default function PayPage() {
   }
 
   if (!paypalClientId && selectedMethod === "paypal") {
-  return (
-    <>
-      <Navbar />
-      <div className="mx-auto max-w-3xl p-6 pt-24">
-        <Card variant="bordered" className="p-6">
-          <p className="text-sm text-red-600">
-            Falta NEXT_PUBLIC_PAYPAL_CLIENT_ID en .env.local
-          </p>
-        </Card>
-      </div>
-      <Footer />
-    </>
-  );
-}
+    return (
+      <>
+        <Navbar />
+        <div className="mx-auto max-w-3xl p-6 pt-24">
+          <Card variant="bordered" className="p-6">
+            <p className="text-sm text-red-600">
+              Falta NEXT_PUBLIC_PAYPAL_CLIENT_ID en .env.local
+            </p>
+          </Card>
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  /* ── Zelle: show confirmation message ── */
+  if (selectedMethod === "zelle") {
+    return (
+      <>
+        <Navbar />
+        <div className="mx-auto max-w-3xl p-6 pt-24">
+          <Card variant="bordered" className="p-6 space-y-4">
+            <h1 className="text-xl font-semibold">Pago por Zelle</h1>
+            <p className="text-sm text-neutral-500">
+              Booking: <span className="font-mono">{bookingId}</span>
+            </p>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 space-y-2">
+              <p className="font-semibold">Tu reserva ha sido registrada exitosamente.</p>
+              <p>
+                Para completar el pago, realiza una transferencia por Zelle a la cuenta indicada
+                en tu correo de confirmación o contacta a nuestro equipo.
+              </p>
+              <p>
+                Una vez recibido tu pago, un administrador lo verificará y tu reserva será confirmada.
+                Recibirás una notificación cuando esto suceda.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button onClick={() => router.push("/user/dashboard/bookings")}>
+                Ver mis reservas
+              </Button>
+              <Button variant="outline" onClick={() => router.push("/")}>
+                Volver al inicio
+              </Button>
+            </div>
+          </Card>
+        </div>
+        <Footer />
+      </>
+    );
+  }
 
   return (
     <>

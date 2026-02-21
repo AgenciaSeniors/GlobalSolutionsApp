@@ -123,7 +123,7 @@ function normalizeResults(raw: unknown): ResultsByLeg {
 
 function normalizeRequest(
   raw: unknown
-): { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters } | null {
+): { legs: FlightLeg[]; passengers: number; filters?: FlightSearchFilters; cabinClass?: string } | null {
   if (!isRecord(raw)) return null;
   const legsRaw = raw.legs;
   if (!Array.isArray(legsRaw) || legsRaw.length === 0) return null;
@@ -138,11 +138,13 @@ function normalizeRequest(
   const filters = isRecord(raw.filters)
     ? (raw.filters as unknown as FlightSearchFilters)
     : undefined;
+    const cabinClass = isRecord(raw) && typeof raw.cabinClass === 'string' ? raw.cabinClass : 'economy';
 
   return {
     legs,
     passengers: Number.isFinite(passengers) ? passengers : 1,
     filters,
+    cabinClass,
   };
 }
 

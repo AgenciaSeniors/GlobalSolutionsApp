@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo, type FormEvent, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { MapPin, Calendar, Users, Search, ArrowRightLeft, Plane } from 'lucide-react';
+import { MapPin, Calendar, Users, Search, ArrowRightLeft, Plane, Armchair } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import AirportAutocomplete from '@/components/forms/AirportAutocomplete';
@@ -22,6 +22,7 @@ type FlightSearchParams = {
   to: string;
   departure: string;
   passengers: string;
+  cabinClass?: string;
   return?: string;
 };
 
@@ -31,6 +32,7 @@ type InitialValues = {
   departure?: string;
   returnDate?: string;
   passengers?: string;
+  cabinClass?: string;
 };
 
 type Props = {
@@ -41,9 +43,16 @@ type Props = {
    * to /flights/search. Useful for same-page results + scroll.
    */
   onSearch?: (params: FlightSearchParams) => void;
+
+  /**
+   * When true, changing the cabin class will immediately trigger a new search.
+   * - If `onSearch` exists: calls onSearch(updatedParams)
+   * - Otherwise: updates the URL (router.replace)
+   */
+  autoSubmitOnClassChange?: boolean;
 };
 
-export default function FlightSearchForm({ initialValues, onSearch }: Props) {
+export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOnClassChange }: Props) {
   const router = useRouter();
   const [tripType, setTripType] = useState<TripType>('roundtrip');
   const [form, setForm] = useState({
@@ -52,11 +61,29 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
     departure: '',
     returnDate: '',
     passengers: '1',
+    cabinClass: 'economy',
   });
 
   const [legs, setLegs] = useState<StopLeg[]>([]);
   const [initialized, setInitialized] = useState(false);
   const [dateError, setDateError] = useState('');
+
+  const navigateToResults = (payload: FlightSearchParams, mode: 'push' | 'replace' = 'push') => {
+    const params = new URLSearchParams({
+      from: payload.from,
+      to: payload.to,
+      departure: payload.departure,
+      passengers: payload.passengers,
+    });
+
+    if (payload.cabinClass) params.set('cabinClass', payload.cabinClass);
+    if (payload.return) params.set('return', payload.return);
+
+    const url = `${ROUTES.FLIGHT_SEARCH}?${params.toString()}`;
+    if (mode === 'replace') router.replace(url);
+    else router.push(url);
+  };
+
 
   /* ── Date boundaries ─────────────────────────────── */
   const today = useMemo(() => {
@@ -88,6 +115,7 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
       departure: initialValues.departure || '',
       returnDate: initialValues.returnDate || '',
       passengers: initialValues.passengers || '1',
+      cabinClass: initialValues.cabinClass || 'economy',
     });
 
     if (!initialValues.returnDate) {
@@ -206,6 +234,7 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
       to: form.destination,
       departure: form.departure,
       passengers: form.passengers,
+      cabinClass: form.cabinClass,
     };
 
     if (tripType === 'roundtrip' && form.returnDate) {
@@ -224,12 +253,51 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
       passengers: payload.passengers,
     });
 
+   
+    if (payload.cabinClass) {
+      params.set('cabinClass', payload.cabinClass);
+    }
+    // ---------------------------------
+
     if (payload.return) {
       params.set('return', payload.return);
     }
 
-    router.push(`${ROUTES.FLIGHT_SEARCH}?${params.toString()}`);
+    navigateToResults(payload, 'push');
   }
+
+  function handleCabinClassChange(e: ChangeEvent<HTMLSelectElement>) {
+    const value = e.target.value;
+    setDateError('');
+
+    setForm((prev) => ({ ...prev, cabinClass: value }));
+
+    if (!autoSubmitOnClassChange) return;
+
+    // Multidestino no está conectado al search page todavía.
+    if (tripType === 'multicity') return;
+
+    const next = { ...form, cabinClass: value };
+    if (!next.origin || !next.destination || !next.departure) return;
+    if (tripType === 'roundtrip' && !next.returnDate) return;
+
+    const payload: FlightSearchParams = {
+      from: next.origin,
+      to: next.destination,
+      departure: next.departure,
+      passengers: next.passengers,
+      cabinClass: next.cabinClass,
+    };
+
+    if (tripType === 'roundtrip' && next.returnDate) {
+      payload.return = next.returnDate;
+    }
+
+    // If we're in same-page mode, call callback; otherwise update URL params.
+    if (onSearch) onSearch(payload);
+    else navigateToResults(payload, 'replace');
+  }
+
 
   /* ── Render ───────────────────────────────────────── */
   const isRoundtrip = tripType === 'roundtrip';
@@ -392,6 +460,23 @@ export default function FlightSearchForm({ initialValues, onSearch }: Props) {
                 {n} pasajero{n > 1 ? 's' : ''}
               </option>
             ))}
+          </select>
+        </div>
+        {/* <-- NUEVO: Selector de Clase --> */}
+        <div className="w-full sm:w-48">
+          <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
+            <Armchair className="h-3.5 w-3.5 text-brand-500" /> Clase
+          </label>
+          <select
+            value={form.cabinClass}
+            onChange={handleCabinClassChange}
+            className="h-12 w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 text-[15px] font-medium
+                       focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+          >
+            <option value="economy">Económica</option>
+            <option value="premium_economy">Premium Económica</option>
+            <option value="business">Ejecutiva</option>
+            <option value="first">Primera</option>
           </select>
         </div>
 
