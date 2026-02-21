@@ -11,8 +11,10 @@ import FlightSearchForm from '@/components/forms/FlightSearchForm';
 import FlightLegTabs from '@/components/features/flights/FlightLegTabs';
 import FlightFilters from '@/components/features/flights/FlightFilters';
 import FlightResultsList from '@/components/features/flights/FlightResultsList';
+import MulticityItinerarySummary from '@/components/features/flights/MulticityItinerarySummary';
 
 import { useFlightSearch } from '@/hooks/useFlightSearch';
+import { useMulticitySelection } from '@/hooks/useMulticitySelection';
 import type { FlightOffer } from '@/types/models';
 import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
 
@@ -77,6 +79,23 @@ export default function FlightSearchResultsPage() {
     }).filter((l) => l.origin && l.destination && l.date);
   }, [isMulticity, legsParam]);
 
+  const legs = useMemo(() => {
+    if (isMulticity && parsedLegs.length > 0) return parsedLegs;
+
+    // Legacy: roundtrip / oneway
+    const base = [{ origin: from, destination: to, date: departure }];
+    if (returnDate) base.push({ origin: to, destination: from, date: returnDate });
+    return base.filter((l) => l.origin && l.destination && l.date);
+  }, [isMulticity, parsedLegs, from, to, departure, returnDate]);
+
+  // Multicity selection state — uses legs.length as totalLegs
+  const {
+    selectedLegs,
+    selectLeg,
+    clearLeg,
+    isLegSelected,
+  } = useMulticitySelection(isMulticity ? legs.length : 0);
+
   // Pre-fill the search form with URL params
   const formInitialValues = useMemo(
     () => ({
@@ -90,15 +109,6 @@ export default function FlightSearchResultsPage() {
     }),
     [from, to, departure, returnDate, passengerCount, cabinClass, isMulticity, parsedLegs]
   );
-
-  const legs = useMemo(() => {
-    if (isMulticity && parsedLegs.length > 0) return parsedLegs;
-
-    // Legacy: roundtrip / oneway
-    const base = [{ origin: from, destination: to, date: departure }];
-    if (returnDate) base.push({ origin: to, destination: from, date: returnDate });
-    return base.filter((l) => l.origin && l.destination && l.date);
-  }, [isMulticity, parsedLegs, from, to, departure, returnDate]);
 
   /**
    * Trigger search when URL params change.
@@ -190,6 +200,33 @@ export default function FlightSearchResultsPage() {
     });
   }, [flights, filters]);
 
+  /** Handles selecting a flight in multicity mode: saves to state and advances to next unselected leg */
+  const handleMulticitySelect = (flightId: string) => {
+    const raw = rawResultsMapRef.current.get(flightId);
+    if (!raw) return;
+    const rawObj = raw as Record<string, unknown>;
+    const airlineObj = (rawObj.airline ?? {}) as Record<string, unknown>;
+
+    selectLeg(
+      activeLeg,
+      raw,
+      {
+        price: Number(rawObj.final_price ?? rawObj.price ?? 0),
+        airline: String(airlineObj.name ?? rawObj.airline_name ?? ''),
+        flightNumber: String(rawObj.flight_number ?? ''),
+      },
+      legs[activeLeg] ?? { origin: '', destination: '', date: '' },
+    );
+
+    // Auto-advance to the next unselected leg
+    for (let i = 0; i < legs.length; i++) {
+      if (i !== activeLeg && !isLegSelected(i)) {
+        setActiveLeg(i);
+        break;
+      }
+    }
+  };
+
   return (
     <>
       <Navbar />
@@ -210,6 +247,7 @@ export default function FlightSearchResultsPage() {
                 activeLeg={activeLeg}
                 onLegChange={setActiveLeg}
                 tripType={isMulticity ? 'multicity' : (returnDate ? 'roundtrip' : 'oneway')}
+                selectedLegs={isMulticity ? selectedLegs.map((s) => s.legIndex) : undefined}
               />
             )}
 
@@ -224,8 +262,13 @@ export default function FlightSearchResultsPage() {
                   isLoading={isLoading}
                   error={error}
                   onSelectFlight={async (flightId) => {
-                    // Save raw flight data to sessionStorage so checkout can use it
-                    // (the persist to DB will happen at checkout time)
+                    // ── Multicity: confirm leg, stay on page ──────────────────
+                    if (isMulticity) {
+                      handleMulticitySelect(flightId);
+                      return;
+                    }
+
+                    // ── Legacy (oneway / roundtrip): navigate to checkout ─────
                     try {
                       const rawFlight = rawResultsMapRef.current.get(flightId);
                       if (rawFlight) {
@@ -259,6 +302,21 @@ export default function FlightSearchResultsPage() {
                     router.push(`/checkout?flight=${flightId}&passengers=${passengerCount}`);
                   }}
                 />
+
+                {/* Multicity summary — shown once at least one leg is selected */}
+                {isMulticity && selectedLegs.length > 0 && (
+                  <MulticityItinerarySummary
+                    selectedLegs={selectedLegs}
+                    totalLegs={legs.length}
+                    passengerCount={passengerCount}
+                    onContinue={() => {
+                      router.push(`/checkout?mode=multicity&passengers=${passengerCount}`);
+                    }}
+                    onClearLeg={(legIndex) => {
+                      clearLeg(legIndex);
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>
