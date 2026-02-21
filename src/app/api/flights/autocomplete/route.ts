@@ -170,18 +170,27 @@ interface AutocompleteResult {
  * Helpers
  * ───────────────────────────────────────────── */
 
+/** Strip common Spanish/Portuguese diacritics for accent-insensitive matching */
+function stripAccents(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 function findCountryCodes(query: string): string[] {
   const lower = query.toLowerCase().trim();
+  const lowerStripped = stripAccents(lower);
 
-  // Direct match
-  if (COUNTRY_NAME_TO_ISO[lower]) {
-    return COUNTRY_NAME_TO_ISO[lower];
-  }
+  // Direct match (with or without accents)
+  if (COUNTRY_NAME_TO_ISO[lower]) return COUNTRY_NAME_TO_ISO[lower];
+  if (COUNTRY_NAME_TO_ISO[lowerStripped]) return COUNTRY_NAME_TO_ISO[lowerStripped];
 
   // Partial match: check if any key starts with the query or vice versa
   const codes: string[] = [];
   for (const [name, isoCodes] of Object.entries(COUNTRY_NAME_TO_ISO)) {
-    if (name.startsWith(lower) || lower.startsWith(name)) {
+    const nameStripped = stripAccents(name);
+    if (
+      name.startsWith(lower) || lower.startsWith(name) ||
+      nameStripped.startsWith(lowerStripped) || lowerStripped.startsWith(nameStripped)
+    ) {
       codes.push(...isoCodes);
     }
   }
@@ -216,12 +225,19 @@ async function searchLocalAirports(query: string): Promise<AutocompleteResult[]>
     const supabase = await createClient();
 
     // Build OR filter for ilike matching on city, name, iata_code, country
-    const filters = [
-      `city.ilike.%${query}%`,
-      `name.ilike.%${query}%`,
-      `iata_code.ilike.%${query}%`,
-      `country.ilike.%${query}%`,
-    ];
+    // Also include accent-stripped version so "Panama" matches "Panamá", "Turquia" matches "Turquía", etc.
+    const queryStripped = stripAccents(query);
+    const terms = [...new Set([query, queryStripped])]; // dedupe if no accents in query
+
+    const filters: string[] = [];
+    for (const term of terms) {
+      filters.push(
+        `city.ilike.%${term}%`,
+        `name.ilike.%${term}%`,
+        `iata_code.ilike.%${term}%`,
+        `country.ilike.%${term}%`,
+      );
+    }
 
     // Also check if the query matches a known country name → ISO code
     const mappedCodes = findCountryCodes(query);

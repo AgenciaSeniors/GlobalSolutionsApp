@@ -215,6 +215,7 @@ export default function FlightsPage() {
                   flights={filteredFlights}
                   isLoading={isLoading}
                   error={error}
+                  onRetry={() => lastSearch && handleSearch(lastSearch)}
                   onSelectFlight={(flightId) => {
                     const passengersCount = Number(lastSearch?.passengers) || 1;
 
