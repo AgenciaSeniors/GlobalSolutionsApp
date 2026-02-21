@@ -10,7 +10,6 @@ export const ROUTES = {
   CARS: '/cars',
   OFFERS: '/offers',
   ABOUT: '/about',
-  QUOTE_REQUEST: '/quote-request',
 
   // Auth
   LOGIN: '/login',
@@ -32,6 +31,7 @@ export const ROUTES = {
   ADMIN_BOOKINGS: '/admin/dashboard/bookings',
   ADMIN_EMISSION: '/admin/dashboard/emission',
   ADMIN_FLIGHTS: '/admin/dashboard/flights',
+  ADMIN_MARKUP: '/admin/dashboard/markup',
   ADMIN_OFFERS: '/admin/dashboard/offers',
   ADMIN_AGENTS: '/admin/dashboard/agents',
   ADMIN_NEWS: '/admin/dashboard/news',

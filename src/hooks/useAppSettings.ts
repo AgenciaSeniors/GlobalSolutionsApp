@@ -32,6 +32,7 @@ export interface AppSettings {
   business_phone: string;
   business_address: string;
   currency: string;
+  agent_markup_percentage: number;
 }
 
 const DEFAULTS: AppSettings = {
@@ -53,6 +54,7 @@ const DEFAULTS: AppSettings = {
   business_phone: '+1 (305) 555-0100',
   business_address: 'Miami, FL, USA',
   currency: 'USD',
+  agent_markup_percentage: 10,
 };
 
 const STRING_KEYS = new Set([

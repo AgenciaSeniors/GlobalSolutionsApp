@@ -142,7 +142,7 @@ export const ADMIN_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/dashboard/emission', label: 'Emisión de Boletos', icon: FileText },
   { href: '/admin/dashboard/bookings', label: 'Todas las Reservas', icon: CalendarCheck },
-  { href: '/admin/dashboard/flights', label: 'Vuelos & Markup', icon: Plane },
+  { href: '/admin/dashboard/flights', label: 'Markup', icon: Plane },
   { href: '/admin/dashboard/offers', label: 'Ofertas Visuales', icon: Tag },
   { href: '/admin/dashboard/agents', label: 'Gestores', icon: Users },
   { href: '/admin/dashboard/news', label: 'Noticias Agentes', icon: Newspaper },

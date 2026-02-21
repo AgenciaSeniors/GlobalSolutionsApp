@@ -13,7 +13,6 @@ const LINK_GROUPS = [
       { label: 'Vuelos', href: ROUTES.FLIGHTS },
       { label: 'Renta de Autos', href: ROUTES.CARS },
       { label: 'Ofertas', href: ROUTES.OFFERS },
-      { label: 'Solicitar Cotización', href: ROUTES.QUOTE_REQUEST },
     ],
   },
   {
