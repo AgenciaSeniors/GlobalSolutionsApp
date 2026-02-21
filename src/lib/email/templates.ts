@@ -17,15 +17,12 @@ function baseLayout(content: string): string {
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
 <body style="margin:0;padding:0;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:${BG_COLOR};">
   <div style="max-width:600px;margin:0 auto;padding:24px 16px;">
-    <!-- Header -->
     <div style="text-align:center;padding:24px 0;">
       <h1 style="margin:0;font-size:24px;color:${BRAND_COLOR};letter-spacing:-0.5px;">✈️ ${APP_NAME}</h1>
     </div>
-    <!-- Content Card -->
     <div style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
       ${content}
     </div>
-    <!-- Footer -->
     <div style="text-align:center;padding:24px 0;color:#94a3b8;font-size:12px;">
       <p style="margin:0 0 8px;">© ${new Date().getFullYear()} ${APP_NAME}. Todos los derechos reservados.</p>
       <p style="margin:0;">
@@ -51,7 +48,7 @@ function infoRow(label: string, value: string): string {
 }
 
 /* ================================================================== */
-/*  TEMPLATE: Booking Confirmation (after payment)                    */
+/* TEMPLATE: Booking Confirmation (after payment)                    */
 /* ================================================================== */
 
 export interface BookingConfirmationData {
@@ -83,13 +80,11 @@ export function bookingConfirmationEmail(data: BookingConfirmationData): string 
         Recibirás un correo con tu PNR y voucher cuando esté listo.
       </p>
 
-      <!-- Booking Code -->
       <div style="text-align:center;margin:0 0 24px;">
         <p style="margin:0 0 4px;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Código de Reserva</p>
         <p style="margin:0;font-size:32px;font-weight:800;color:${BRAND_COLOR};letter-spacing:3px;font-family:monospace;">${data.bookingCode}</p>
       </div>
 
-      <!-- Flight Info -->
       <div style="background:#f8fafc;border-radius:12px;padding:16px;margin:0 0 20px;">
         <table style="width:100%;border-collapse:collapse;">
           ${infoRow('Vuelo', `${data.airline} ${data.flightNumber}`)}
@@ -117,7 +112,7 @@ export function bookingConfirmationEmail(data: BookingConfirmationData): string 
 }
 
 /* ================================================================== */
-/*  TEMPLATE: Emission Complete (PNR + ticket assigned)               */
+/* TEMPLATE: Emission Complete (PNR + ticket assigned)               */
 /* ================================================================== */
 
 export interface EmissionCompleteData {
@@ -155,14 +150,12 @@ export function emissionCompleteEmail(data: EmissionCompleteData): string {
         ¡Excelentes noticias! Tu boleto ha sido emitido con la aerolínea. Aquí tienes tu confirmación:
       </p>
 
-      <!-- PNR Display -->
       <div style="text-align:center;margin:0 0 24px;background:#ecfdf5;border:2px solid #86efac;border-radius:12px;padding:20px;">
         <p style="margin:0 0 4px;color:#059669;font-size:12px;text-transform:uppercase;letter-spacing:1px;">PNR / Código de Aerolínea</p>
         <p style="margin:0;font-size:36px;font-weight:800;color:#047857;letter-spacing:4px;font-family:monospace;">${data.airlinePnr}</p>
         <p style="margin:8px 0 0;color:#64748b;font-size:11px;">Guarda este código — lo necesitarás en el aeropuerto</p>
       </div>
 
-      <!-- Flight Info -->
       <div style="background:#f8fafc;border-radius:12px;padding:16px;margin:0 0 20px;">
         <table style="width:100%;border-collapse:collapse;">
           ${infoRow('Vuelo', `${data.airline} ${data.flightNumber}`)}
@@ -172,7 +165,6 @@ export function emissionCompleteEmail(data: EmissionCompleteData): string {
         </table>
       </div>
 
-      <!-- Passengers & Tickets -->
       <div style="margin:0 0 20px;">
         <p style="margin:0 0 8px;font-weight:600;color:#334155;font-size:14px;">Pasajeros & Tickets</p>
         <div style="background:#f8fafc;border-radius:12px;overflow:hidden;">
@@ -200,7 +192,7 @@ export function emissionCompleteEmail(data: EmissionCompleteData): string {
 }
 
 /* ================================================================== */
-/*  TEMPLATE: Payment Receipt                                         */
+/* TEMPLATE: Payment Receipt                                         */
 /* ================================================================== */
 
 export interface PaymentReceiptData {
@@ -243,7 +235,7 @@ export function paymentReceiptEmail(data: PaymentReceiptData): string {
 }
 
 /* ================================================================== */
-/*  TEMPLATE: Booking Cancelled                                       */
+/* TEMPLATE: Booking Cancelled                                       */
 /* ================================================================== */
 
 export interface BookingCancelledData {
@@ -274,7 +266,7 @@ export function bookingCancelledEmail(data: BookingCancelledData): string {
 }
 
 /* ================================================================== */
-/*  TEMPLATE: Refund Processed                                        */
+/* TEMPLATE: Refund Processed                                        */
 /* ================================================================== */
 
 export interface RefundEmailData {
@@ -341,9 +333,8 @@ export function refundEmail(data: RefundEmailData): string {
   `);
 }
 
-
 /* ================================================================== */
-/*  TEMPLATE: Review Request (after completed trip)                   */
+/* TEMPLATE: Review Request (after completed trip)                   */
 /* ================================================================== */
 
 export interface ReviewRequestData {
@@ -374,7 +365,7 @@ export function reviewRequestEmail(data: ReviewRequestData): string {
 }
 
 /* ================================================================== */
-/*  TEMPLATE: Welcome (after registration)                            */
+/* TEMPLATE: Welcome (after registration)                            */
 /* ================================================================== */
 
 export interface WelcomeEmailData {
@@ -401,6 +392,55 @@ export function welcomeEmail(data: WelcomeEmailData): string {
         <p style="margin:4px 0;color:#64748b;font-size:13px;">📄 Recibir vouchers y PNR por email</p>
       </div>
       ${button('Explorar Vuelos', `${APP_URL}/flights`)}
+    </div>
+  `);
+}
+
+/* ================================================================== */
+/* TEMPLATE: Password Reset (Global Solutions Branding)              */
+/* ================================================================== */
+
+/* ================================================================== */
+/* TEMPLATE: Password Reset (Global Solutions Branding)              */
+/* ================================================================== */
+
+export interface PasswordResetData {
+  resetLink: string;
+}
+
+export function passwordResetEmail(data: PasswordResetData): string {
+  return baseLayout(`
+    <div style="background:linear-gradient(135deg,${BRAND_COLOR},${BRAND_DARK});padding:32px 24px;text-align:center;">
+      <p style="margin:0;font-size:40px;">🔒</p>
+      <h2 style="margin:8px 0;color:#ffffff;font-size:22px;">Restablecer Contraseña</h2>
+    </div>
+    
+    <div style="padding:32px 24px;">
+      <p style="margin:0 0 16px;color:#334155;font-size:16px;line-height:1.5;">
+        Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en <strong>${APP_NAME}</strong>.
+      </p>
+      
+      <p style="margin:0 0 24px;color:#64748b;font-size:15px;line-height:1.5;">
+        Haz clic en el siguiente botón para crear una nueva contraseña. Este enlace es válido por 24 horas.
+      </p>
+      
+      ${button('Restablecer mi contraseña', data.resetLink)}
+      
+      <div style="margin:24px 0; word-break: break-all; text-align: center;">
+        <p style="margin:0; color:#94a3b8; font-size:12px;">O copia y pega este enlace en tu navegador:</p>
+        <a href="${data.resetLink}" style="color:${BRAND_COLOR}; font-size:12px; text-decoration:underline;">
+          ${data.resetLink}
+        </a>
+      </div>
+
+      <hr style="border:none; border-top:1px solid #e2e8f0; margin:24px 0;" />
+      
+      <div style="background:#f8fafc; padding:16px; border-radius:8px; border-left:4px solid #cbd5e1;">
+        <p style="margin:0;color:#475569;font-size:13px;line-height:1.5;">
+          <strong>¿No solicitaste este cambio?</strong><br/>
+          Si no intentaste recuperar tu contraseña, puedes ignorar este correo de forma segura. Tu cuenta está protegida y tu contraseña actual seguirá funcionando.
+        </p>
+      </div>
     </div>
   `);
 }
