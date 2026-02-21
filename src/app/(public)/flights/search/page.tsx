@@ -96,9 +96,21 @@ export default function FlightSearchResultsPage() {
     clearSelection,
   } = useMulticitySelection(isMulticity ? legs.length : 0);
 
-  // BUG 5: Clear selection whenever the multicity legs change (new search)
+  // BUG 5 FIX: Clear selection only when legsParam *changes* after initial mount.
+  // Using a ref to skip the first render and avoid clearing sessionStorage on unmount
+  // (which would wipe the data that checkout needs to read).
+  const legsParamPrevRef = useRef<string | null>(null);
   useEffect(() => {
-    if (isMulticity) clearSelection();
+    if (legsParamPrevRef.current === null) {
+      // First render — just record the initial value, don't clear
+      legsParamPrevRef.current = legsParam;
+      return;
+    }
+    if (legsParamPrevRef.current !== legsParam) {
+      // legsParam actually changed (new search) — clear selection
+      legsParamPrevRef.current = legsParam;
+      if (isMulticity) clearSelection();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legsParam]);
 

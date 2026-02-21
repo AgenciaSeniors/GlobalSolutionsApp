@@ -630,6 +630,7 @@ export default function CheckoutPage() {
           .insert({
             booking_code: newBookingCode,
             user_id: user.id,
+            profile_id: user.id,
             flight_id: null,
             trip_type: 'multicity',
             subtotal: totalSubtotal,
