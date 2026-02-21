@@ -16,14 +16,28 @@ describe('flightDedupeKey', () => {
 
     const key = flightDedupeKey(mockFlight);
 
-    // AA|1234|HAV|MAD|2026-05-01T14:30
-    expect(key).toBe('AA|1234|HAV|MAD|2026-05-01T14:30');
+    // AA|1234|HAV|MAD|2026-05-01T14:30|0
+    expect(key).toBe('AA|1234|HAV|MAD|2026-05-01T14:30|0');
   });
 
   it('Debe usar fallbacks (NAIR, NFN) si faltan datos', () => {
     const emptyFlight = {} as unknown as Flight;
     const key = flightDedupeKey(emptyFlight);
 
-   expect(key).toBe('NAIR|NFN|NORIG|NDEST|');
+    expect(key).toBe('NAIR|NFN|NORIG|NDEST||0');
+  });
+
+  it('Dos itinerarios del mismo vuelo con diferente precio deben tener llaves distintas', () => {
+    const base = {
+      airline: { iata_code: 'CM' },
+      flight_number: 'CM201',
+      origin_iata: 'PTY',
+      destination_iata: 'HAV',
+      departure_datetime: '2026-06-10T08:00:00.000Z',
+    };
+    const cheap = { ...base, final_price: 180 } as unknown as Flight;
+    const pricier = { ...base, final_price: 220 } as unknown as Flight;
+
+    expect(flightDedupeKey(cheap)).not.toBe(flightDedupeKey(pricier));
   });
 });
