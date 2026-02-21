@@ -5,7 +5,7 @@
  * @module app/(public)/flights/page
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -52,14 +52,13 @@ export default function FlightsPage() {
     airlines: [],
   });
 
-  // ✅ Map to keep raw results indexed by their mapped ID for sessionStorage
+  // Map to keep raw results indexed by their mapped ID for sessionStorage
   const rawResultsMapRef = useRef<Map<string, unknown>>(new Map());
 
-  // Construye legs a partir de la última búsqueda
+  // Construye legs para los tabs Ida/Regreso
   const legs = useMemo(() => {
     if (!lastSearch) return [];
     const base = [{ origin: lastSearch.from, destination: lastSearch.to, date: lastSearch.departure }];
-
     if (lastSearch.return) {
       base.push({
         origin: lastSearch.to,
@@ -67,58 +66,44 @@ export default function FlightsPage() {
         date: lastSearch.return,
       });
     }
-
     return base.filter((l) => l.origin && l.destination && l.date);
   }, [lastSearch]);
 
-  // Ejecutar búsqueda cuando:
-  // - se envía una nueva búsqueda
-  // - cambias de tab (ida/regreso)
-  useEffect(() => {
-    if (!lastSearch) return;
-    if (!lastSearch.from || !lastSearch.to || !lastSearch.departure) return;
+  // Helper: ejecuta la búsqueda para un leg dado
+  function runSearch(params: SearchPayload, leg: number) {
+    const passengersCount = Number(params.passengers) || 1;
 
-    const passengersCount = Number(lastSearch.passengers) || 1;
-
-    // Ida
-    if (activeLeg === 0) {
+    if (leg === 0) {
       search({
-        origin: lastSearch.from,
-        destination: lastSearch.to,
-        departure_date: lastSearch.departure,
+        origin: params.from,
+        destination: params.to,
+        departure_date: params.departure,
         passengers: passengersCount,
-        cabinClass: lastSearch.cabinClass ?? 'economy',
+        cabinClass: params.cabinClass ?? 'economy',
       });
-      return;
-    }
-
-    // Regreso (si existe)
-    if (activeLeg === 1 && lastSearch.return) {
+    } else if (leg === 1 && params.return) {
       search({
-        origin: lastSearch.to,
-        destination: lastSearch.from,
-        departure_date: lastSearch.return,
+        origin: params.to,
+        destination: params.from,
+        departure_date: params.return,
         passengers: passengersCount,
-        cabinClass: lastSearch.cabinClass ?? 'economy',
+        cabinClass: params.cabinClass ?? 'economy',
       });
     }
-  }, [activeLeg, lastSearch, search]);
+  }
 
-  // ✅ Map results -> FlightOffer para la UI usando el mapper (segmentos reales si hay escalas)
-  // Also build a raw results map indexed by the mapped ID
+  // Map results -> FlightOffer para la UI usando el mapper
   const flights: FlightOffer[] = useMemo(() => {
     const rawArr = results ?? [];
     console.log(`[FlightsPage] mapper input: ${rawArr.length} raw flights`);
     const mapped = rawArr.map((f) => mapApiFlightToOffer(f));
-    console.log(`[FlightsPage] mapper output: ${mapped.length} FlightOffers`, mapped.map(f => ({ id: f.id, price: f.price, segs: f.segments.length })));
+    console.log(`[FlightsPage] mapper output: ${mapped.length} FlightOffers`, mapped.map(f => ({ id: f.id?.slice(0, 16), price: f.price, segs: f.segments.length })));
 
     // Build a map: mappedId -> raw result data
     const newMap = new Map<string, unknown>();
     for (let i = 0; i < mapped.length; i++) {
       const raw = rawArr[i];
-      if (raw) {
-        newMap.set(mapped[i].id, raw);
-      }
+      if (raw) newMap.set(mapped[i].id, raw);
     }
     rawResultsMapRef.current = newMap;
 
@@ -135,15 +120,14 @@ export default function FlightsPage() {
     return Array.from(names).sort();
   }, [flights]);
 
-  // ✅ Aplicar filtros (UI local) — ahora sí funciona porque segments.length refleja escalas reales
+  // Aplicar filtros — max: 0 significa sin límite superior
   const filteredFlights = useMemo(() => {
     const result = flights.filter((flight) => {
-      // Precio — max: 0 significa sin límite superior
+      // Precio
       const minPrice = filters.priceRange.min ?? 0;
       const maxPrice = filters.priceRange.max;
-      const minOk = flight.price >= minPrice;
-      const maxOk = !maxPrice || flight.price <= maxPrice;
-      if (!minOk || !maxOk) return false;
+      if (flight.price < minPrice) return false;
+      if (maxPrice > 0 && flight.price > maxPrice) return false;
 
       // Aerolíneas
       if (filters.airlines.length > 0) {
@@ -154,41 +138,43 @@ export default function FlightsPage() {
 
       // Escalas
       if (filters.stops.length > 0) {
-        const segmentsCount = flight.segments?.length ?? 1;
-        const stopsCount = Math.max(0, segmentsCount - 1);
-
-        const isDirect = stopsCount === 0;
-        const is1Stop = stopsCount === 1;
-        const is2Plus = stopsCount >= 2;
-
+        const stopsCount = Math.max(0, (flight.segments?.length ?? 1) - 1);
         const ok =
-          (filters.stops.includes('direct') && isDirect) ||
-          (filters.stops.includes('1stop') && is1Stop) ||
-          (filters.stops.includes('2stops') && is2Plus);
-
+          (filters.stops.includes('direct') && stopsCount === 0) ||
+          (filters.stops.includes('1stop') && stopsCount === 1) ||
+          (filters.stops.includes('2stops') && stopsCount >= 2);
         if (!ok) return false;
       }
 
       return true;
     });
-    console.log(`[FlightsPage] filteredFlights: ${result.length} / ${flights.length} (filters: minPrice=${filters.priceRange.min} maxPrice=${filters.priceRange.max} airlines=${JSON.stringify(filters.airlines)} stops=${JSON.stringify(filters.stops)})`);
+    console.log(`[FlightsPage] filteredFlights: ${result.length} / ${flights.length} | filters: min=${filters.priceRange.min} max=${filters.priceRange.max} airlines=${JSON.stringify(filters.airlines)} stops=${JSON.stringify(filters.stops)}`);
     return result;
   }, [flights, filters]);
 
-  // Handler: lo llama el FlightSearchForm (sin navegar)
+  // Handler principal: llamado por FlightSearchForm
   const handleSearch = (params: SearchPayload) => {
-    // Limpiar cache de búsquedas completadas para permitir re-buscar
     clearCache();
     setLastSearch(params);
     setActiveLeg(0);
+    // Disparar búsqueda directamente (sin useEffect para evitar timing issues en StrictMode)
+    runSearch(params, 0);
 
-    // Scroll suave a resultados
     setTimeout(() => {
       document.getElementById('flight-results')?.scrollIntoView({
         behavior: 'smooth',
         block: 'start',
       });
     }, 80);
+  };
+
+  // Handler para cambio de tab (ida / regreso)
+  const handleLegChange = (leg: number) => {
+    setActiveLeg(leg);
+    if (lastSearch) {
+      clearCache();
+      runSearch(lastSearch, leg);
+    }
   };
 
   return (
@@ -221,7 +207,7 @@ export default function FlightsPage() {
 
             {/* Tabs Ida/Regreso */}
             {legs.length > 0 && (
-              <FlightLegTabs legs={legs} activeLeg={activeLeg} onLegChange={setActiveLeg} />
+              <FlightLegTabs legs={legs} activeLeg={activeLeg} onLegChange={handleLegChange} />
             )}
 
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
@@ -241,8 +227,6 @@ export default function FlightsPage() {
                   onSelectFlight={(flightId) => {
                     const passengersCount = Number(lastSearch?.passengers) || 1;
 
-                    // ✅ Save selected flight raw data in sessionStorage
-                    // so checkout can use it even if the ID is not a real DB UUID
                     try {
                       const rawFlight = rawResultsMapRef.current.get(flightId);
                       if (rawFlight) {
