@@ -45,10 +45,10 @@ export default function FlightsPage() {
   // Tabs (ida / regreso)
   const [activeLeg, setActiveLeg] = useState(0);
 
-  // Filtros (sidebar)
+  // Filtros (sidebar) — max: 0 significa sin límite superior
   const [filters, setFilters] = useState<FilterState>({
     stops: [],
-    priceRange: { min: 0, max: 2000 },
+    priceRange: { min: 0, max: 0 },
     airlines: [],
   });
 
@@ -123,18 +123,31 @@ export default function FlightsPage() {
     return mapped;
   }, [results]);
 
+  // Lista dinámica de aerolíneas presentes en los resultados actuales
+  const availableAirlines = useMemo(() => {
+    const names = new Set<string>();
+    for (const f of flights) {
+      const name = f.segments?.[0]?.airline?.name;
+      if (name && name !== 'Aerolínea') names.add(name);
+    }
+    return Array.from(names).sort();
+  }, [flights]);
+
   // ✅ Aplicar filtros (UI local) — ahora sí funciona porque segments.length refleja escalas reales
   const filteredFlights = useMemo(() => {
     return flights.filter((flight) => {
-      // Precio
-      const minOk = flight.price >= (filters.priceRange.min ?? 0);
-      const maxOk = flight.price <= (filters.priceRange.max ?? 999999);
+      // Precio — max: 0 significa sin límite superior
+      const minPrice = filters.priceRange.min ?? 0;
+      const maxPrice = filters.priceRange.max;
+      const minOk = flight.price >= minPrice;
+      const maxOk = !maxPrice || flight.price <= maxPrice;
       if (!minOk || !maxOk) return false;
 
       // Aerolíneas
       if (filters.airlines.length > 0) {
+        const airlineCode = flight.airline_code ?? '';
         const airlineName = flight.segments?.[0]?.airline?.name ?? '';
-        if (!filters.airlines.includes(airlineName)) return false;
+        if (!filters.airlines.includes(airlineName) && !filters.airlines.includes(airlineCode)) return false;
       }
 
       // Escalas
@@ -209,7 +222,10 @@ export default function FlightsPage() {
 
             <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
               <div className="lg:col-span-4">
-                <FlightFilters onFilterChange={setFilters} />
+                <FlightFilters
+                  onFilterChange={setFilters}
+                  availableAirlines={availableAirlines}
+                />
               </div>
 
               <div className="lg:col-span-8">
