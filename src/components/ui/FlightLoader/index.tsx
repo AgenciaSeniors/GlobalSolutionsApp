@@ -53,7 +53,7 @@ function SwooshArrow(props: React.SVGProps<SVGSVGElement>) {
           <stop offset="0.65" stopColor="#ffffff" stopOpacity="0" />
         </linearGradient>
 
-        {/* Sombra sutil (para que “asiente” como en el PNG) */}
+        {/* Sombra sutil (para que "asiente" como en el PNG) */}
         <filter id={shadowId} x="-12%" y="-12%" width="124%" height="124%">
           <feDropShadow
             dx="0"
@@ -80,10 +80,6 @@ function SwooshArrow(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-/* 👇 El resto de tu loader NO lo cambies (brand, textos, avión animado, etc.)
-   Solo asegúrate de seguir usando <SwooshArrow className={styles.swoosh} />
-*/
-
 function PlaneIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg
@@ -92,7 +88,7 @@ function PlaneIcon(props: React.SVGProps<SVGSVGElement>) {
       aria-hidden="true"
       {...props}
     >
-      {/* Silueta simple tipo “airplanemode_active” (vista superior) */}
+      {/* Silueta simple tipo "airplanemode_active" (vista superior) */}
       <path
         d="M21 16v-2l-8-5V3.5C13 2.67 12.33 2 11.5 2S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"
         fill="currentColor"
