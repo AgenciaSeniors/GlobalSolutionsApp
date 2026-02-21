@@ -11,6 +11,7 @@ export {
   refundEmail, type RefundEmailData,
   reviewRequestEmail, type ReviewRequestData,
   welcomeEmail, type WelcomeEmailData,
+  passwordResetEmail, type PasswordResetData
 } from './templates';
 
 export {
@@ -20,4 +21,5 @@ export {
   notifyBookingCancelled,
   notifyReviewRequest,
   notifyWelcome,
+  notifyPasswordReset
 } from './notifications';
