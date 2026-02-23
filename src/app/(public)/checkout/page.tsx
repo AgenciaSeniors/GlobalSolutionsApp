@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
@@ -216,8 +216,11 @@ export default function CheckoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [bookingCode, setBookingCode] = useState('');
+  const [serverBreakdown, setServerBreakdown] = useState<PriceBreakdown | null>(null);
+  const [pricingLoading, setPricingLoading] = useState(false);
 
   const hasLoadedRef = useRef(false);
+  const pricingAbortRef = useRef<AbortController | null>(null);
 
   // --- Derived values ---
   const pricePerPerson = isMulticityMode
@@ -506,6 +509,65 @@ export default function CheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flightId, offerId, isMulticityMode, user]);
 
+  // --- Server-side pricing preview (flight mode only) ---
+  const fetchPricingPreview = useCallback(async () => {
+    if (isOfferMode || !flightDbId) return;
+
+    // Only call when ALL passengers have a DOB filled
+    const allDobsFilled = passengers.length > 0 && passengers.every((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.dob));
+    if (!allDobsFilled) return;
+
+    // Abort previous in-flight request
+    if (pricingAbortRef.current) pricingAbortRef.current.abort();
+    const controller = new AbortController();
+    pricingAbortRef.current = controller;
+
+    setPricingLoading(true);
+    try {
+      const res = await fetch('/api/bookings/pricing-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flight_id: flightDbId,
+          passengers: passengers.map((p) => ({ date_of_birth: p.dob })),
+          gateway,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        setPricingLoading(false);
+        return;
+      }
+
+      const data = await res.json();
+      if (data.breakdown) {
+        setServerBreakdown({
+          base_price: data.base_price_per_person ?? 0,
+          markup_amount: data.markup_amount_per_person ?? 0,
+          subtotal: data.breakdown.subtotal ?? 0,
+          volatility_buffer: data.breakdown.volatility_buffer ?? 0,
+          gateway_fee: data.breakdown.gateway_fee ?? 0,
+          gateway_fee_pct: data.breakdown.gateway_fee_pct ?? 0,
+          gateway_fixed_fee: data.breakdown.gateway_fixed_fee ?? 0,
+          total: data.breakdown.total ?? 0,
+          passengers: data.breakdown.passengers ?? passengers.length,
+          passenger_details: data.passenger_details ?? undefined,
+        });
+      }
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      console.warn('[Checkout] Pricing preview failed:', err);
+    } finally {
+      setPricingLoading(false);
+    }
+  }, [isOfferMode, flightDbId, passengers, gateway]);
+
+  useEffect(() => {
+    const timer = setTimeout(fetchPricingPreview, 400);
+    return () => clearTimeout(timer);
+  }, [fetchPricingPreview]);
+
   // --- Loading / error screen ---
   if (!isReady) {
     return (
@@ -529,26 +591,36 @@ export default function CheckoutPage() {
   }
 
   // --- Price breakdown ---
-  const subtotal = pricePerPerson * passengerCount;
-  const gatewayFee = calculateGatewayFee(subtotal, gateway);
-  const total = Math.round((subtotal + gatewayFee) * 100) / 100;
+  // Use server breakdown when available (accurate: includes age pricing + volatility buffer).
+  // Fall back to client-side calculation while server response is pending.
+  const breakdown: PriceBreakdown = (() => {
+    if (!isOfferMode && serverBreakdown) {
+      return serverBreakdown;
+    }
 
-  const breakdown: PriceBreakdown = {
-    base_price: pricePerPerson,
-    markup_amount: 0,
-    subtotal,
-    gateway_fee: Math.round(gatewayFee * 100) / 100,
-    gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
-    gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
-    total,
-    passengers: passengerCount,
-  };
+    // Client-side fallback
+    const subtotal = pricePerPerson * passengerCount;
+    const gatewayFee = calculateGatewayFee(subtotal, gateway);
+    const total = Math.round((subtotal + gatewayFee) * 100) / 100;
 
-  // Override for flight mode (has base + markup)
-  if (!isOfferMode && flight) {
-    breakdown.base_price = flight.base_price;
-    breakdown.markup_amount = flight.final_price - flight.base_price;
-  }
+    const fallback: PriceBreakdown = {
+      base_price: pricePerPerson,
+      markup_amount: 0,
+      subtotal,
+      gateway_fee: gateway === 'zelle' ? 0 : Math.round(gatewayFee * 100) / 100,
+      gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
+      gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
+      total: gateway === 'zelle' ? subtotal : total,
+      passengers: passengerCount,
+    };
+
+    if (!isOfferMode && flight) {
+      fallback.base_price = flight.base_price;
+      fallback.markup_amount = flight.final_price - flight.base_price;
+    }
+
+    return fallback;
+  })();
 
   // --- Helpers ---
   function updatePassenger(index: number, field: string, value: string) {
@@ -728,8 +800,8 @@ export default function CheckoutPage() {
             offer_id: offerData.offer_id,
             selected_date: offerData.selected_date,
             subtotal: breakdown.subtotal,
-            payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
-            total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
+            payment_gateway_fee: breakdown.gateway_fee,
+            total_amount: breakdown.total,
             payment_method: gateway,
             payment_status: 'pending',
             booking_status: 'pending_emission',
@@ -788,8 +860,8 @@ export default function CheckoutPage() {
             flight_id: flightDbId,
             flight_provider_id: flightProviderId,
             subtotal: breakdown.subtotal,
-            payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
-            total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
+            payment_gateway_fee: breakdown.gateway_fee,
+            total_amount: breakdown.total,
             payment_method: gateway,
             payment_status: 'pending',
             booking_status: 'pending_emission',
@@ -1176,20 +1248,20 @@ export default function CheckoutPage() {
                       {
                         id: 'stripe' as const,
                         icon: CreditCard,
-                        label: 'Tarjeta (Stripe)',
-                        sub: `${settings.stripe_fee_percentage}% + $${settings.stripe_fee_fixed.toFixed(2)}`,
+                        label: 'Tarjeta de Crédito/Débito',
+                        sub: 'Visa, Mastercard, Amex',
                       },
                       {
                         id: 'paypal' as const,
                         icon: Building,
                         label: 'PayPal',
-                        sub: `${settings.paypal_fee_percentage}% + $${settings.paypal_fee_fixed.toFixed(2)}`,
+                        sub: 'Pago con cuenta PayPal',
                       },
                       {
                         id: 'zelle' as const,
                         icon: Banknote,
                         label: 'Zelle',
-                        sub: 'Sin comisión',
+                        sub: 'Transferencia directa',
                       },
                     ] as const).map((m) => (
                       <button
@@ -1265,7 +1337,7 @@ export default function CheckoutPage() {
                   className="w-full gap-2"
                 >
                   <Lock className="h-4 w-4" />
-                  {gateway === 'zelle' ? `Reservar $${breakdown.subtotal.toFixed(2)}` : `Continuar a pagar`}
+                  {gateway === 'zelle' ? `Reservar $${breakdown.total.toFixed(2)}` : `Continuar a pagar`}
                 </Button>
 
                 <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">

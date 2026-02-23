@@ -11,8 +11,10 @@
  * src/app/api/flights/search/[sessionId]/route.ts
  */
 
+import { getRoleAndMarkupPct, applyRoleMarkup } from "@/lib/flights/roleMarkup";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 /* -------------------------------------------------- */
 /* ---- CONSTANTS ----------------------------------- */
@@ -29,8 +31,6 @@ const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute window
 /* ---- TYPES & HELPERS ----------------------------- */
 /* -------------------------------------------------- */
 
-type FlightRecord = Record<string, unknown>;
-type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -75,6 +75,18 @@ function stableStringify(value: unknown): string {
     .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
     .join(",");
   return `{${body}}`;
+}
+
+type FlightRecord = Record<string, unknown>;
+type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
+
+function pickNumber(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
 }
 
 /* -------------------------------------------------- */
@@ -151,6 +163,7 @@ export async function POST(req: NextRequest) {
   );
 
   const cacheKey = stableStringify(validBody);
+  const { markupPct } = await getRoleAndMarkupPct(supabase);
 
   // ── Cache lookup ──────────────────────────────────
   const { data: cacheRow } = await supabase
@@ -165,16 +178,18 @@ export async function POST(req: NextRequest) {
   const cacheNotExpired = !!expiresAt && expiresAt.getTime() > now.getTime();
 
   if (cacheNotExpired && freshUntil && freshUntil.getTime() > now.getTime()) {
-    const results = normalizeResults(cacheRow?.response);
-    return NextResponse.json(
-      {
-        status: "complete",
-        source: "cache",
-        results,
-        providersUsed: extractProvidersUsed(results),
-      },
-      { headers: { "Cache-Control": CACHE_CONTROL_RESULTS } }
-    );
+   const resultsRaw = normalizeResults(cacheRow?.response);
+const results = applyRoleMarkup(resultsRaw, markupPct);
+
+return NextResponse.json(
+  {
+    status: "complete",
+    source: "cache",
+    results,
+    providersUsed: extractProvidersUsed(resultsRaw),
+  },
+  { headers: { "Cache-Control": "no-store" } }
+);
   }
 
   // ── Create session ─────────────────────────────────
@@ -182,7 +197,8 @@ export async function POST(req: NextRequest) {
     now.getTime() + CACHE_TTL_MINUTES * 60 * 1000
   ).toISOString();
 
-  const staleResults = cacheNotExpired ? normalizeResults(cacheRow?.response) : [];
+  const staleResultsRaw = cacheNotExpired ? normalizeResults(cacheRow?.response) : [];
+const staleResults = applyRoleMarkup(staleResultsRaw, markupPct);
   const status = staleResults.length ? "refreshing" : "pending";
 
   const { data: session, error: insertErr } = await supabase
@@ -192,8 +208,8 @@ export async function POST(req: NextRequest) {
       request: validBody, // <--- AQUÍ ESTABA EL ERROR: Cambiado de 'body' a 'validBody'
       status,
       source: staleResults.length ? "cache" : "live",
-      providers_used: staleResults.length ? extractProvidersUsed(staleResults) : null,
-      results: staleResults.length ? staleResults : null,
+      providers_used: staleResultsRaw.length ? extractProvidersUsed(staleResultsRaw) : null,
+      results: staleResultsRaw.length ? staleResultsRaw : null,
       error: null,
       worker_started_at: null,
       worker_heartbeat: null,
@@ -216,7 +232,7 @@ export async function POST(req: NextRequest) {
       status: session.status,
       source: session.source ?? (staleResults.length ? "cache" : "live"),
       results: staleResults,
-      providersUsed: session.providers_used ?? extractProvidersUsed(staleResults),
+      providersUsed: session.providers_used ?? extractProvidersUsed(staleResultsRaw),
     },
     { headers: { "Cache-Control": "no-store" } }
   );

@@ -21,7 +21,9 @@
       "Bash(python3:*)",
       "Bash(xxd:*)",
       "Bash(git add:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)"
     ]
   }
 }

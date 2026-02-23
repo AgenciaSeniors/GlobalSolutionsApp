@@ -149,11 +149,18 @@ export interface PriceBreakdown {
   base_price: number;
   markup_amount: number;
   subtotal: number;
+  volatility_buffer?: number;
   gateway_fee: number;
   gateway_fee_pct: number;
   gateway_fixed_fee: number;
   total: number;
   passengers: number;
+  passenger_details?: Array<{
+    index: number;
+    type: 'infant' | 'child' | 'adult';
+    multiplier: number;
+    price: number;
+  }>;
 }
 
 /* ------------------------------------------------------------------ */

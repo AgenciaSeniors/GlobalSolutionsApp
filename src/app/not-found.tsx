@@ -1,4 +1,6 @@
-import Link from 'next/link';
+'use client';
+
+import { useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import Card from '@/components/ui/Card';
@@ -6,6 +8,17 @@ import Button from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants/routes';
 
 export default function NotFound() {
+  const router = useRouter();
+
+  function handleBack() {
+    // Si hay historial, vuelve atrás. Si no, evita dejar al usuario “atrapado”
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push(ROUTES.HOME);
+  }
+
   return (
     <>
       <Navbar />
@@ -21,12 +34,7 @@ export default function NotFound() {
             </p>
 
             <div className="mt-7 flex flex-wrap justify-center gap-3">
-              <Link href={ROUTES.HOME}>
-                <Button>Ir al inicio</Button>
-              </Link>
-              <Link href={ROUTES.OFFERS}>
-                <Button variant="outline">Ver ofertas</Button>
-              </Link>
+              <Button onClick={handleBack}>Volver atrás</Button>
             </div>
           </Card>
         </div>

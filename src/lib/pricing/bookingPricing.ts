@@ -64,7 +64,8 @@ function assertFiniteNonNegative(name: string, value: number): void {
 export function calculateBookingTotal(
   basePrice: number,
   passengers: ReadonlyArray<PassengerInput>,
-  gateway: PaymentGateway
+  gateway: PaymentGateway,
+  gatewayFeeOverride?: FeePolicy,
 ): PriceBreakdown {
   assertFiniteNonNegative("basePrice", basePrice);
   if (passengers.length === 0) throw new Error("passengers must not be empty");
@@ -78,11 +79,13 @@ export function calculateBookingTotal(
     return sum + line;
   }, 0);
 
+  const feePolicy = gatewayFeeOverride ?? GATEWAY_FEE_POLICY[gateway];
+
   return priceEngine({
     base: { amount: passengerSubtotal, currency: "USD" },
     markup: { type: "none" },
     volatility_buffer: { type: "percentage", percentage: VOLATILITY_BUFFER_PERCENT },
-    gateway_fee: GATEWAY_FEE_POLICY[gateway],
+    gateway_fee: feePolicy,
     gateway_fee_base: "pre_fee_total",
   });
 }
