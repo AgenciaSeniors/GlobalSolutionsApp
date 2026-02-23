@@ -32,13 +32,14 @@ export default function AdminAgentsPage() {
   const [requests, setRequests] = useState<AgentRequest[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Estado para desplegar/ocultar la lista de solicitudes al dar clic en la tarjeta
+  // Visto / No visto logic
   const [showRequests, setShowRequests] = useState(false);
+  const [seenRequestIds, setSeenRequestIds] = useState<Set<string>>(new Set());
 
-  // búsqueda en tabla
+  // Búsqueda en tabla
   const [search, setSearch] = useState('');
 
-  // promover/crear agente desde email
+  // Promover/crear agente desde email
   const [promoteEmail, setPromoteEmail] = useState('');
   const [promoteCode, setPromoteCode] = useState('');
   const [promoteActive, setPromoteActive] = useState(true);
@@ -46,11 +47,20 @@ export default function AdminAgentsPage() {
   
   const [toast, setToast] = useState<ToastState>({ ok: null, error: null });
 
-  // edición rápida de agent_code por fila
+  // Edición rápida de agent_code por fila
   const [editCodeById, setEditCodeById] = useState<Record<string, string>>({});
   const [savingCodeById, setSavingCodeById] = useState<Record<string, boolean>>({});
 
+  // Cargar IDs vistos desde el storage al iniciar
   useEffect(() => {
+    const stored = localStorage.getItem('admin_seen_agent_requests');
+    if (stored) {
+      try {
+        setSeenRequestIds(new Set(JSON.parse(stored)));
+      } catch (e) {
+        console.error('Error parsing seen requests', e);
+      }
+    }
     fetchAgents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -79,7 +89,7 @@ export default function AdminAgentsPage() {
       const rows = (agentsRes.data ?? []) as Profile[];
       setAgents(rows);
 
-      // inicializa edit inputs
+      // Inicializa edit inputs
       const initial: Record<string, string> = {};
       for (const a of rows) {
         initial[a.id] = a.agent_code ?? '';
@@ -90,18 +100,24 @@ export default function AdminAgentsPage() {
     if (!requestsRes.error) {
       const pendingReqs = (requestsRes.data as unknown as AgentRequest[]) ?? [];
       setRequests(pendingReqs);
-      // Si el contador llega a 0, ocultar la lista
+      
       if (pendingReqs.length === 0) setShowRequests(false);
     }
 
     setLoading(false);
   }
 
+  // Desactivar: Realmente cambia el rol a 'client' y lo saca de la tabla
   async function toggleAgentStatus(agent: Profile) {
     setToast({ ok: null, error: null });
+    
+    const isDeactivating = agent.is_active;
+    const nextActive = !agent.is_active;
+    const nextRole: UserRole = isDeactivating ? 'client' : 'agent';
+
     const { error } = await supabase
       .from('profiles')
-      .update({ is_active: !agent.is_active })
+      .update({ is_active: nextActive, role: nextRole })
       .eq('id', agent.id);
 
     if (error) {
@@ -109,7 +125,12 @@ export default function AdminAgentsPage() {
       return;
     }
 
-    setToast({ ok: `Estado actualizado: ${agent.full_name}`, error: null });
+    if (isDeactivating) {
+      setToast({ ok: `El gestor ${agent.full_name} fue desactivado y ahora es Cliente.`, error: null });
+    } else {
+      setToast({ ok: `Gestor activado correctamente: ${agent.full_name}`, error: null });
+    }
+    
     fetchAgents();
   }
 
@@ -158,16 +179,31 @@ export default function AdminAgentsPage() {
     }
   }
 
-  // --- LÓGICA DE SOLICITUDES --- //
+  // --- LÓGICA DE SOLICITUDES PENDIENTES --- //
   
-  // Aprobar: Cambia el rol directo a agent y marca como approved
+  const handleToggleRequests = () => {
+    if (requests.length === 0) return;
+    
+    const isOpening = !showRequests;
+    setShowRequests(isOpening);
+
+    // Si abrimos la lista, guardamos localmente que ya vimos las actuales
+    if (isOpening) {
+      const newSeen = new Set(seenRequestIds);
+      requests.forEach(r => newSeen.add(r.id));
+      setSeenRequestIds(newSeen);
+      localStorage.setItem('admin_seen_agent_requests', JSON.stringify(Array.from(newSeen)));
+    }
+  };
+
+  // Aprobar solicitud
   async function handleApproveRequest(req: AgentRequest) {
     setToast({ ok: null, error: null });
     
-    // 1. Actualizar el rol en la tabla perfiles
+    // 1. Convertir a agente y activarlo en perfiles
     const { error: profileErr } = await supabase
       .from('profiles')
-      .update({ role: 'agent' })
+      .update({ role: 'agent', is_active: true })
       .eq('id', req.user_id);
       
     if (profileErr) {
@@ -175,7 +211,7 @@ export default function AdminAgentsPage() {
       return;
     }
     
-    // 2. Marcar la solicitud como aprobada
+    // 2. Marcar solicitud como aprobada
     const { error: reqErr } = await supabase
       .from('agent_requests')
       .update({ status: 'approved' })
@@ -187,19 +223,27 @@ export default function AdminAgentsPage() {
     }
 
     setToast({ 
-      ok: `¡Usuario ${req.contact_full_name} aprobado como agente! Recuerda asignarle un código en la tabla.`, 
+      ok: `¡Usuario ${req.contact_full_name} aprobado como agente!`, 
       error: null 
+    });
+
+    // Se elimina inmediatamente de la lista y se recarga la tabla
+    setRequests(prev => {
+      const updated = prev.filter(r => r.id !== req.id);
+      if (updated.length === 0) setShowRequests(false);
+      return updated;
     });
     fetchAgents();
   }
 
-  // Declinar: Marca la solicitud como rechazada
-  async function handleDeclineRequest(reqId: string) {
+  // Declinar solicitud
+  async function handleDeclineRequest(req: AgentRequest) {
     setToast({ ok: null, error: null });
+    
     const { error } = await supabase
       .from('agent_requests')
       .update({ status: 'rejected' })
-      .eq('id', reqId);
+      .eq('id', req.id);
 
     if (error) {
       setToast({ ok: null, error: 'Error al declinar solicitud' });
@@ -207,10 +251,16 @@ export default function AdminAgentsPage() {
     }
 
     setToast({ ok: 'Solicitud declinada.', error: null });
-    fetchAgents(); 
+    
+    // Se elimina inmediatamente de la lista
+    setRequests(prev => {
+      const updated = prev.filter(r => r.id !== req.id);
+      if (updated.length === 0) setShowRequests(false);
+      return updated;
+    });
   }
 
-  // Creación manual
+  // --- PROMOCION MANUAL --- //
   async function promoteToAgent() {
     setToast({ ok: null, error: null });
 
@@ -293,6 +343,19 @@ export default function AdminAgentsPage() {
   }, [agents, search]);
 
   const activeCount = agents.filter((a) => a.is_active).length;
+  
+  // Cálculo de notificaciones NO vistas
+  const unseenCount = requests.filter(r => !seenRequestIds.has(r.id)).length;
+  
+  // Ordenamos para que las NO vistas salgan siempre arriba
+  const sortedRequests = [...requests].sort((a, b) => {
+    const aSeen = seenRequestIds.has(a.id);
+    const bSeen = seenRequestIds.has(b.id);
+    if (aSeen === bSeen) {
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    }
+    return aSeen ? 1 : -1;
+  });
 
   return (
     <div className="flex min-h-screen">
@@ -305,9 +368,9 @@ export default function AdminAgentsPage() {
 
         <div className="p-8 space-y-6">
           {/* Alertas */}
-          <div className="flex items-center gap-2">
-            {toast.ok && <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-3 py-1 rounded-md w-full">{toast.ok}</span>}
-            {toast.error && <span className="text-sm font-medium text-red-600 bg-red-50 px-3 py-1 rounded-md w-full">{toast.error}</span>}
+          <div className="flex items-center gap-2 min-h-[32px]">
+            {toast.ok && <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-3 py-1 rounded-md w-full transition-all">{toast.ok}</span>}
+            {toast.error && <span className="text-sm font-medium text-red-600 bg-red-50 px-3 py-1 rounded-md w-full transition-all">{toast.error}</span>}
           </div>
 
           {/* Stats */}
@@ -342,29 +405,28 @@ export default function AdminAgentsPage() {
               </div>
             </Card>
 
-            {/* Tarjeta Botón de Solicitudes Pendientes */}
+            {/* Tarjeta de Solicitudes (Solo muestra número de no vistas) */}
             <div 
-              onClick={() => {
-                if (requests.length > 0) setShowRequests(!showRequests);
-              }}
-              className={`rounded-2xl border bg-white p-6 shadow-sm transition ${
+              onClick={handleToggleRequests}
+              className={`rounded-2xl border bg-white p-6 transition select-none ${
                 requests.length > 0 
-                  ? 'cursor-pointer hover:border-blue-300 hover:shadow-md border-blue-100 ring-2 ring-transparent hover:ring-blue-50' 
+                  ? 'cursor-pointer hover:shadow-md ' + (unseenCount > 0 ? 'border-red-300 ring-2 ring-red-50 hover:border-red-400' : 'border-neutral-200 hover:border-neutral-300')
                   : 'border-neutral-200 opacity-70'
               }`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <ClipboardList className={`h-8 w-8 ${requests.length > 0 ? 'text-blue-500' : 'text-neutral-400'}`} />
+                  <ClipboardList className={`h-8 w-8 transition-colors ${unseenCount > 0 ? 'text-red-500' : (requests.length > 0 ? 'text-neutral-500' : 'text-neutral-300')}`} />
                   <div>
                     <p className="text-sm text-neutral-500">Nuevas Solicitudes</p>
-                    <p className={`text-2xl font-bold ${requests.length > 0 ? 'text-blue-600' : 'text-neutral-600'}`}>
-                      {requests.length}
+                    {/* Si hay sin ver = Rojo Vivo. Si es 0 = Rojo Apagado/Neutro */}
+                    <p className={`text-2xl font-bold transition-colors ${unseenCount > 0 ? 'text-red-600' : 'text-red-900/40'}`}>
+                      {unseenCount > 0 ? unseenCount : 0}
                     </p>
                   </div>
                 </div>
                 {requests.length > 0 && (
-                  <span className="text-xs text-blue-500 font-medium">Ver {showRequests ? 'menos' : 'todas'}</span>
+                  <span className="text-xs text-neutral-500 font-medium">Ver {showRequests ? 'menos' : 'todas'}</span>
                 )}
               </div>
             </div>
@@ -372,32 +434,55 @@ export default function AdminAgentsPage() {
 
           {/* LISTA DESPLEGABLE DE SOLICITUDES PENDIENTES */}
           {showRequests && requests.length > 0 && (
-            <Card variant="bordered" className="border-blue-200 bg-blue-50/20 animate-in fade-in slide-in-from-top-4 duration-300">
+            <Card variant="bordered" className="border-neutral-200 bg-white shadow-md animate-in fade-in slide-in-from-top-4 duration-300">
               <h3 className="text-base font-bold text-neutral-900 mb-4 flex items-center gap-2">
-                <ClipboardList className="h-4 w-4 text-blue-600" /> Solicitudes Pendientes de Aprobación
+                <ClipboardList className="h-4 w-4 text-neutral-600" /> Solicitudes por Revisar
               </h3>
-              <div className="divide-y divide-blue-100">
-                {requests.map(req => (
-                  <div key={req.id} className="py-3 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-                    <div>
-                      <p className="font-semibold text-sm text-neutral-900">
-                        {req.contact_full_name}
-                      </p>
-                      <p className="text-xs text-neutral-600">{req.contact_email}</p>
-                      <p className="text-[11px] text-neutral-400 mt-1">
-                        Solicitado el: {new Date(req.created_at).toLocaleDateString('es')}
-                      </p>
+              <div className="space-y-3">
+                {sortedRequests.map(req => {
+                  const isUnseen = !seenRequestIds.has(req.id);
+
+                  return (
+                    <div 
+                      key={req.id} 
+                      className={`p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-4 rounded-xl transition-all duration-300 border ${
+                        isUnseen 
+                          ? 'bg-red-50/50 border-red-200 shadow-[0_0_12px_rgba(239,68,68,0.15)]' 
+                          : 'bg-neutral-50/50 border-transparent hover:border-neutral-100'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-sm text-neutral-900">
+                            {req.contact_full_name}
+                          </p>
+                          {isUnseen && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>}
+                        </div>
+                        <p className="text-xs text-neutral-600">{req.contact_email}</p>
+                        <p className="text-[11px] text-neutral-400 mt-1">
+                          Solicitado el: {new Date(req.created_at).toLocaleDateString('es')}
+                        </p>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="text-red-600 hover:bg-red-50 hover:border-red-200" 
+                          onClick={() => handleDeclineRequest(req)}
+                        >
+                          <X className="h-3.5 w-3.5 mr-1" /> Declinar
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          onClick={() => handleApproveRequest(req)}
+                        >
+                          <Check className="h-3.5 w-3.5 mr-1" /> Aprobar
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50 hover:border-red-200" onClick={() => handleDeclineRequest(req.id)}>
-                        <X className="h-3.5 w-3.5 mr-1" /> Declinar
-                      </Button>
-                      <Button size="sm" onClick={() => handleApproveRequest(req)}>
-                        <Check className="h-3.5 w-3.5 mr-1" /> Aprobar
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </Card>
           )}
@@ -483,16 +568,15 @@ export default function AdminAgentsPage() {
                       <td className="px-4 py-3 font-semibold">{agent.full_name}</td>
                       <td className="px-4 py-3 text-neutral-600">{agent.email}</td>
 
-                      {/* Código editable - Aquí se le asignará código a los recién aprobados */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <input
-                            className="w-28 rounded-lg border border-neutral-300 px-2 py-1 font-mono text-xs"
+                            className="w-28 rounded-lg border border-neutral-300 px-2 py-1 font-mono text-xs focus:ring-2 focus:ring-brand-500"
                             value={editCodeById[agent.id] ?? ''}
                             onChange={(e) =>
                               setEditCodeById((p) => ({ ...p, [agent.id]: e.target.value }))
                             }
-                            placeholder="GST123"
+                            placeholder="Ej: GST123"
                           />
                           <Button
                             size="sm"

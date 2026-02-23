@@ -13,7 +13,7 @@ import {
   reviewRequestEmail, type ReviewRequestData,
   welcomeEmail, type WelcomeEmailData,
   refundEmail, type RefundEmailData,
-
+  passwordResetEmail, type PasswordResetData
 } from './templates';
 
 /**
@@ -75,6 +75,7 @@ export async function notifyBookingCancelled(
     html: bookingCancelledEmail(data),
   });
 }
+
 /**
  * Send refund processed notification.
  * Triggered when: payment_status changes to 'refunded'
@@ -89,7 +90,6 @@ export async function notifyRefund(
     html: refundEmail(data),
   });
 }
-
 
 /**
  * Send review request after completed trip.
@@ -118,5 +118,20 @@ export async function notifyWelcome(
     to: email,
     subject: `🌍 ¡Bienvenido a Global Solutions Travel, ${data.clientName}!`,
     html: welcomeEmail(data),
+  });
+}
+
+/**
+ * Send custom password reset link via Resend.
+ * Triggered via API route when user requests a password reset.
+ */
+export async function notifyPasswordReset(
+  email: string,
+  data: PasswordResetData
+): Promise<SendEmailResult> {
+  return sendEmail({
+    to: email,
+    subject: `🔑 Restaurar contraseña — Global Solutions Travel`,
+    html: passwordResetEmail(data),
   });
 }
