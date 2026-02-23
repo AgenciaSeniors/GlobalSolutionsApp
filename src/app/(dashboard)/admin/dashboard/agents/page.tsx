@@ -32,9 +32,8 @@ export default function AdminAgentsPage() {
   const [requests, setRequests] = useState<AgentRequest[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Visto / No visto logic
+  // Mostrar/Ocultar lista de solicitudes
   const [showRequests, setShowRequests] = useState(false);
-  const [seenRequestIds, setSeenRequestIds] = useState<Set<string>>(new Set());
 
   // Búsqueda en tabla
   const [search, setSearch] = useState('');
@@ -51,42 +50,27 @@ export default function AdminAgentsPage() {
   const [editCodeById, setEditCodeById] = useState<Record<string, string>>({});
   const [savingCodeById, setSavingCodeById] = useState<Record<string, boolean>>({});
 
-  // Cargar IDs vistos desde el storage al iniciar
+  // Cargar datos iniciales
   useEffect(() => {
-    const stored = localStorage.getItem('admin_seen_agent_requests');
-    if (stored) {
-      try {
-        setSeenRequestIds(new Set(JSON.parse(stored)));
-      } catch (e) {
-        console.error('Error parsing seen requests', e);
-      }
-    }
-    fetchAgents();
+    fetchAgentsData();
+    fetchRequestsData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function fetchAgents() {
+  // Función exclusiva para cargar la tabla de Gestores
+  async function fetchAgentsData() {
     setLoading(true);
-    
-    // Peticiones en paralelo
-    const [agentsRes, requestsRes] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'agent')
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('agent_requests')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: true })
-    ]);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'agent') // Solo los que tengan rol 'agent'
+      .order('created_at', { ascending: false });
 
-    if (agentsRes.error) {
-      console.error('fetchAgents error:', agentsRes.error);
+    if (error) {
+      console.error('fetchAgentsData error:', error);
       setAgents([]);
     } else {
-      const rows = (agentsRes.data ?? []) as Profile[];
+      const rows = (data ?? []) as Profile[];
       setAgents(rows);
 
       // Inicializa edit inputs
@@ -96,18 +80,25 @@ export default function AdminAgentsPage() {
       }
       setEditCodeById(initial);
     }
-
-    if (!requestsRes.error) {
-      const pendingReqs = (requestsRes.data as unknown as AgentRequest[]) ?? [];
-      setRequests(pendingReqs);
-      
-      if (pendingReqs.length === 0) setShowRequests(false);
-    }
-
     setLoading(false);
   }
 
-  // Desactivar: Realmente cambia el rol a 'client' y lo saca de la tabla
+  // Función exclusiva para cargar las Solicitudes Pendientes
+  async function fetchRequestsData() {
+    const { data, error } = await supabase
+      .from('agent_requests')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true });
+
+    if (!error) {
+      const pendingReqs = (data as unknown as AgentRequest[]) ?? [];
+      setRequests(pendingReqs);
+      if (pendingReqs.length === 0) setShowRequests(false);
+    }
+  }
+
+  // Desactivar: Cambia el rol a 'client' y lo saca de la tabla
   async function toggleAgentStatus(agent: Profile) {
     setToast({ ok: null, error: null });
     
@@ -126,12 +117,12 @@ export default function AdminAgentsPage() {
     }
 
     if (isDeactivating) {
-      setToast({ ok: `El gestor ${agent.full_name} fue desactivado y ahora es Cliente.`, error: null });
+      setToast({ ok: `El gestor ${agent.full_name} fue desactivado y ha vuelto a ser Cliente.`, error: null });
     } else {
       setToast({ ok: `Gestor activado correctamente: ${agent.full_name}`, error: null });
     }
     
-    fetchAgents();
+    fetchAgentsData();
   }
 
   async function saveAgentCode(agentId: string) {
@@ -173,7 +164,7 @@ export default function AdminAgentsPage() {
       }
 
       setToast({ ok: `Código actualizado: ${code}`, error: null });
-      fetchAgents();
+      fetchAgentsData();
     } finally {
       setSavingCodeById((p) => ({ ...p, [agentId]: false }));
     }
@@ -182,21 +173,13 @@ export default function AdminAgentsPage() {
   // --- LÓGICA DE SOLICITUDES PENDIENTES --- //
   
   const handleToggleRequests = () => {
+    // Si no hay solicitudes pendientes, bloqueamos la acción y no abrimos nada
     if (requests.length === 0) return;
-    
-    const isOpening = !showRequests;
-    setShowRequests(isOpening);
-
-    // Si abrimos la lista, guardamos localmente que ya vimos las actuales
-    if (isOpening) {
-      const newSeen = new Set(seenRequestIds);
-      requests.forEach(r => newSeen.add(r.id));
-      setSeenRequestIds(newSeen);
-      localStorage.setItem('admin_seen_agent_requests', JSON.stringify(Array.from(newSeen)));
-    }
+    setShowRequests(!showRequests);
   };
 
   // Aprobar solicitud
+// Aprobar solicitud
   async function handleApproveRequest(req: AgentRequest) {
     setToast({ ok: null, error: null });
     
@@ -222,22 +205,42 @@ export default function AdminAgentsPage() {
       return;
     }
 
-    setToast({ 
-      ok: `¡Usuario ${req.contact_full_name} aprobado como agente!`, 
-      error: null 
-    });
+    // 🚀 NUEVO: 3. Obtener el token de sesión y disparar el correo de aprobación
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      await fetch('/api/notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          type: 'agent_approved', // Le pasamos el tipo de notificación
+          email: req.contact_email,
+          data: { name: req.contact_full_name }
+        })
+      });
+    } catch (error) {
+      console.error('Error enviando email de notificación:', error);
+      // No bloqueamos el flujo si el email falla, el usuario ya fue aprobado en DB
+    }
 
-    // Se elimina inmediatamente de la lista y se recarga la tabla
+    setToast({ ok: `¡Usuario ${req.contact_full_name} aprobado como agente y notificado!`, error: null });
+
+    // 4. Eliminar de la lista visual inmediatamente
     setRequests(prev => {
       const updated = prev.filter(r => r.id !== req.id);
-      if (updated.length === 0) setShowRequests(false);
+      if (updated.length === 0) setShowRequests(false); // Cierra si era la última
       return updated;
     });
-    fetchAgents();
+
+    // 5. Recargar tabla de agentes
+    fetchAgentsData();
   }
 
   // Declinar solicitud
-  async function handleDeclineRequest(req: AgentRequest) {
+ async function handleDeclineRequest(req: AgentRequest) {
     setToast({ ok: null, error: null });
     
     const { error } = await supabase
@@ -250,9 +253,25 @@ export default function AdminAgentsPage() {
       return;
     }
 
-    setToast({ ok: 'Solicitud declinada.', error: null });
+    // 🚀 ENVIAR CORREO DE RECHAZO
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      await fetch('/api/notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          type: 'agent_rejected', 
+          email: req.contact_email,
+          data: { name: req.contact_full_name }
+        })
+      });
+    } catch (e) { console.error(e); }
+
+    setToast({ ok: 'Solicitud declinada y usuario notificado.', error: null });
     
-    // Se elimina inmediatamente de la lista
     setRequests(prev => {
       const updated = prev.filter(r => r.id !== req.id);
       if (updated.length === 0) setShowRequests(false);
@@ -326,7 +345,7 @@ export default function AdminAgentsPage() {
       setPromoteEmail('');
       setPromoteCode('');
       setPromoteActive(true);
-      fetchAgents();
+      fetchAgentsData();
     } finally {
       setPromoteLoading(false);
     }
@@ -343,19 +362,6 @@ export default function AdminAgentsPage() {
   }, [agents, search]);
 
   const activeCount = agents.filter((a) => a.is_active).length;
-  
-  // Cálculo de notificaciones NO vistas
-  const unseenCount = requests.filter(r => !seenRequestIds.has(r.id)).length;
-  
-  // Ordenamos para que las NO vistas salgan siempre arriba
-  const sortedRequests = [...requests].sort((a, b) => {
-    const aSeen = seenRequestIds.has(a.id);
-    const bSeen = seenRequestIds.has(b.id);
-    if (aSeen === bSeen) {
-      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    }
-    return aSeen ? 1 : -1;
-  });
 
   return (
     <div className="flex min-h-screen">
@@ -405,23 +411,26 @@ export default function AdminAgentsPage() {
               </div>
             </Card>
 
-            {/* Tarjeta de Solicitudes (Solo muestra número de no vistas) */}
+            {/* Tarjeta de Solicitudes Pendientes */}
             <div 
               onClick={handleToggleRequests}
               className={`rounded-2xl border bg-white p-6 transition select-none ${
                 requests.length > 0 
-                  ? 'cursor-pointer hover:shadow-md ' + (unseenCount > 0 ? 'border-red-300 ring-2 ring-red-50 hover:border-red-400' : 'border-neutral-200 hover:border-neutral-300')
-                  : 'border-neutral-200 opacity-70'
+                  ? 'cursor-pointer hover:shadow-md border-red-300 ring-2 ring-red-50 hover:border-red-400' 
+                  : 'border-neutral-200 opacity-60 cursor-default'
               }`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <ClipboardList className={`h-8 w-8 transition-colors ${unseenCount > 0 ? 'text-red-500' : (requests.length > 0 ? 'text-neutral-500' : 'text-neutral-300')}`} />
+                  <ClipboardList className={`h-8 w-8 transition-colors ${
+                    requests.length > 0 ? 'text-red-500' : 'text-neutral-400'
+                  }`} />
                   <div>
-                    <p className="text-sm text-neutral-500">Nuevas Solicitudes</p>
-                    {/* Si hay sin ver = Rojo Vivo. Si es 0 = Rojo Apagado/Neutro */}
-                    <p className={`text-2xl font-bold transition-colors ${unseenCount > 0 ? 'text-red-600' : 'text-red-900/40'}`}>
-                      {unseenCount > 0 ? unseenCount : 0}
+                    <p className="text-sm text-neutral-500">Solicitudes Pendientes</p>
+                    <p className={`text-2xl font-bold transition-colors ${
+                      requests.length > 0 ? 'text-red-600' : 'text-neutral-400'
+                    }`}>
+                      {requests.length}
                     </p>
                   </div>
                 </div>
@@ -439,50 +448,39 @@ export default function AdminAgentsPage() {
                 <ClipboardList className="h-4 w-4 text-neutral-600" /> Solicitudes por Revisar
               </h3>
               <div className="space-y-3">
-                {sortedRequests.map(req => {
-                  const isUnseen = !seenRequestIds.has(req.id);
-
-                  return (
-                    <div 
-                      key={req.id} 
-                      className={`p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-4 rounded-xl transition-all duration-300 border ${
-                        isUnseen 
-                          ? 'bg-red-50/50 border-red-200 shadow-[0_0_12px_rgba(239,68,68,0.15)]' 
-                          : 'bg-neutral-50/50 border-transparent hover:border-neutral-100'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-sm text-neutral-900">
-                            {req.contact_full_name}
-                          </p>
-                          {isUnseen && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>}
-                        </div>
-                        <p className="text-xs text-neutral-600">{req.contact_email}</p>
-                        <p className="text-[11px] text-neutral-400 mt-1">
-                          Solicitado el: {new Date(req.created_at).toLocaleDateString('es')}
-                        </p>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          className="text-red-600 hover:bg-red-50 hover:border-red-200" 
-                          onClick={() => handleDeclineRequest(req)}
-                        >
-                          <X className="h-3.5 w-3.5 mr-1" /> Declinar
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          onClick={() => handleApproveRequest(req)}
-                        >
-                          <Check className="h-3.5 w-3.5 mr-1" /> Aprobar
-                        </Button>
-                      </div>
+                {requests.map(req => (
+                  <div 
+                    key={req.id} 
+                    className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-4 rounded-xl transition-all duration-300 border bg-neutral-50/50 hover:border-neutral-200"
+                  >
+                    <div>
+                      <p className="font-semibold text-sm text-neutral-900">
+                        {req.contact_full_name}
+                      </p>
+                      <p className="text-xs text-neutral-600">{req.contact_email}</p>
+                      <p className="text-[11px] text-neutral-400 mt-1">
+                        Solicitado el: {new Date(req.created_at).toLocaleDateString('es')}
+                      </p>
                     </div>
-                  )
-                })}
+                    
+                    <div className="flex items-center gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="text-red-600 hover:bg-red-50 hover:border-red-200" 
+                        onClick={() => handleDeclineRequest(req)}
+                      >
+                        <X className="h-3.5 w-3.5 mr-1" /> Declinar
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        onClick={() => handleApproveRequest(req)}
+                      >
+                        <Check className="h-3.5 w-3.5 mr-1" /> Aprobar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </Card>
           )}
