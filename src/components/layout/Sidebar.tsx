@@ -1,19 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { authService } from '@/services/auth.service';
+import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
- Briefcase, LayoutDashboard, Plane, CalendarCheck, Star, Settings,
+  Briefcase, LayoutDashboard, Plane, CalendarCheck, Star, Settings,
   ChevronLeft, LogOut, Newspaper, MessageSquare, Tag,
   Users, FileText, HelpCircle, DollarSign, Trophy, Car,
+  Route,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
 interface SidebarLink {
   href: string;
   label: string;
+  description?: string;
   icon: React.ElementType;
 }
 
@@ -24,8 +27,26 @@ interface SidebarProps {
 export default function Sidebar({ links }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { profile } = useAuthContext();
+  
   const [collapsed, setCollapsed] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  
+  // Estado para la notificación de agente aprobado
+  const [showAgentNotification, setShowAgentNotification] = useState(false);
+
+  useEffect(() => {
+    if (profile?.role === 'agent') {
+      const hasSeen = localStorage.getItem('has_seen_agent_welcome');
+      if (!hasSeen) setShowAgentNotification(true);
+    }
+    
+    // Escuchar cuando limpie la notificación
+    const handleSeen = () => setShowAgentNotification(false);
+    window.addEventListener('agent_welcome_seen', handleSeen);
+    
+    return () => window.removeEventListener('agent_welcome_seen', handleSeen);
+  }, [profile?.role]);
 
   const handleLogout = async () => {
     try {
@@ -73,8 +94,10 @@ export default function Sidebar({ links }: SidebarProps) {
 
       {/* Nav links */}
       <nav className="flex-1 space-y-1 p-3 overflow-y-auto">
-        {links.map(({ href, label, icon: Icon }) => {
+        {links.map(({ href, label, description, icon: Icon }) => {
           const active = pathname === href;
+          const isAgentLink = href === '/user/dashboard/become-agent';
+          
           return (
             <Link
               key={href}
@@ -85,10 +108,31 @@ export default function Sidebar({ links }: SidebarProps) {
                   ? 'bg-coral/10 text-coral'
                   : 'text-neutral-600 hover:bg-neutral-50 hover:text-coral',
               )}
-              title={collapsed ? label : undefined}
+              title={collapsed ? (description ? `${label} — ${description}` : label) : undefined}
             >
-              <Icon className="h-5 w-5 flex-shrink-0" />
-              {!collapsed && <span>{label}</span>}
+              <div className="relative">
+                <Icon className="h-5 w-5 flex-shrink-0" />
+                {collapsed && isAgentLink && showAgentNotification && (
+                  <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 rounded-full bg-red-500 border border-white"></span>
+                )}
+              </div>
+
+              {!collapsed && (
+                <div className="min-w-0 flex-1 flex justify-between items-center">
+                  <div>
+                    <div className="leading-tight">{isAgentLink && showAgentNotification ? '¡Solicitud Aprobada!' : label}</div>
+                    {description && (
+                      <div className="text-xs font-normal text-neutral-400 leading-snug mt-0.5">
+                        {description}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {isAgentLink && showAgentNotification && (
+                    <span className="flex h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse"></span>
+                  )}
+                </div>
+              )}
             </Link>
           );
         })}
@@ -111,7 +155,7 @@ export default function Sidebar({ links }: SidebarProps) {
 /** Pre-configured link sets for each role. */
 export const USER_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/user/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/user/dashboard/create-route', label: 'Crear Ruta', icon: DollarSign },
+  { href: '/user/dashboard/create-route', label: 'Crear Ruta', icon: Route},
   { href: '/user/dashboard/bookings', label: 'Mis Reservas', icon: CalendarCheck },
   { href: '/user/dashboard/reviews', label: 'Mis Reseñas', icon: Star },
   { href: '/user/dashboard/loyalty', label: 'Mis Puntos', icon: Trophy },
@@ -121,11 +165,8 @@ export const USER_SIDEBAR_LINKS: SidebarLink[] = [
 
 export const AGENT_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/agent/dashboard', label: 'Dashboard', icon: LayoutDashboard },
- { href: '/agent/dashboard/create-route', label: 'Crear Ruta', icon: DollarSign },
   { href: '/agent/dashboard/bookings', label: 'Reservas Asignadas', icon: CalendarCheck },
-  { href: '/agent/dashboard/commissions', label: 'Mis Comisiones', icon: DollarSign },
   { href: '/agent/dashboard/news', label: 'Muro de Noticias', icon: Newspaper },
-  { href: '/agent/dashboard/tickets', label: 'Tickets Internos', icon: MessageSquare },
   { href: '/agent/dashboard/settings', label: 'Configuración', icon: Settings },
 ];
 
@@ -137,7 +178,6 @@ export const ADMIN_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/admin/dashboard/offers', label: 'Ofertas Visuales', icon: Tag },
   { href: '/admin/dashboard/agents', label: 'Gestores', icon: Users },
   { href: '/admin/dashboard/news', label: 'Noticias Agentes', icon: Newspaper },
-  { href: '/admin/dashboard/tickets', label: 'Tickets Soporte', icon: MessageSquare },
   { href: '/admin/dashboard/reviews', label: 'Moderar Reseñas', icon: Star },
   { href: '/admin/dashboard/settings', label: 'Configuración', icon: Settings },
 ];

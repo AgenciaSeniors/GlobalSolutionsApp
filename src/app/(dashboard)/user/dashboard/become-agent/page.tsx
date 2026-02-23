@@ -5,21 +5,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
-import { Briefcase, Send, CheckCircle2 } from 'lucide-react';
+import { Briefcase, Send, CheckCircle2, Sparkles, ArrowRight, X } from 'lucide-react';
 
 export default function BecomeAgentPage() {
   const supabase = createClient();
+  const router = useRouter();
   
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [userId, setUserId] = useState<string | null>(null);
+  
+  // Estados de la solicitud
   const [alreadyRequested, setAlreadyRequested] = useState<boolean>(false);
+  const [isApproved, setIsApproved] = useState<boolean>(false);
+  const [isRejected, setIsRejected] = useState<boolean>(false);
   
   const [formData, setFormData] = useState({
     fullName: '',
@@ -44,23 +50,10 @@ export default function BecomeAgentPage() {
     
     setUserId(user.id);
 
-    // Revisar si ya tiene solicitud pendiente
-    const { data: existingRequest } = await supabase
-      .from('agent_requests')
-      .select('id, status')
-      .eq('user_id', user.id)
-      .eq('status', 'pending')
-      .limit(1)
-      .maybeSingle();
-
-    if (existingRequest) {
-      setAlreadyRequested(true);
-    }
-
-    // Pre-rellenar formulario con sus datos de perfil
+    // Revisar su perfil para ver si ya es agente
     const { data: profile } = await supabase
       .from('profiles')
-      .select('full_name, email')
+      .select('role, full_name, email')
       .eq('id', user.id)
       .single();
 
@@ -69,6 +62,28 @@ export default function BecomeAgentPage() {
         fullName: profile.full_name || '',
         email: profile.email || ''
       });
+
+      // Si su rol ya es agente, significa que el admin lo aprobó
+      if (profile.role === 'agent' || profile.role === 'admin') {
+        setIsApproved(true);
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Si no es agente, revisar el estado de la última solicitud
+    const { data: lastRequest } = await supabase
+      .from('agent_requests')
+      .select('status')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (lastRequest?.status === 'pending') {
+      setAlreadyRequested(true);
+    } else if (lastRequest?.status === 'rejected') {
+      setIsRejected(true);
     }
 
     setLoading(false);
@@ -95,10 +110,19 @@ export default function BecomeAgentPage() {
     } else {
       setMessage({ type: 'success', text: '¡Solicitud enviada con éxito!' });
       setAlreadyRequested(true);
+      setIsRejected(false); // Reseteamos por si estaba rechazado y volvió a enviar (aunque tu app actual bloquea esto)
     }
     
     setSubmitting(false);
   }
+
+  // Función para ir al panel de agente y limpiar la notificación
+  const handleGoToAgentDashboard = () => {
+    localStorage.setItem('has_seen_agent_welcome', 'true');
+    // Despachamos evento para que el Navbar y Sidebar apaguen el puntito rojo al instante
+    window.dispatchEvent(new Event('agent_welcome_seen'));
+    router.push('/agent/dashboard');
+  };
 
   return (
     <div className="flex min-h-screen">
@@ -106,13 +130,36 @@ export default function BecomeAgentPage() {
       
       <div className="flex-1">
         <Header
-          title="Quiero ser Gestor"
-          subtitle="Únete a nuestro equipo y comienza a gestionar vuelos y reservas"
+          title="Gestión de Gestores"
+          subtitle={isApproved ? "¡Bienvenido al equipo!" : "Únete a nuestro equipo y comienza a gestionar vuelos"}
         />
 
         <div className="p-8 max-w-2xl mx-auto">
           {loading ? (
             <p className="text-neutral-500">Cargando información...</p>
+          ) : isApproved ? (
+            <Card variant="bordered" className="text-center p-12 border-emerald-200 bg-emerald-50/50 shadow-lg shadow-emerald-100/50">
+              <div className="flex justify-center mb-6 relative">
+                <div className="absolute inset-0 bg-emerald-200 blur-2xl opacity-50 rounded-full"></div>
+                <Sparkles className="h-20 w-20 text-emerald-500 relative z-10 animate-pulse" />
+              </div>
+              <h2 className="text-3xl font-bold text-emerald-900 mb-3">¡Felicidades!</h2>
+              <p className="text-emerald-700 mb-8 text-lg">
+                Tu solicitud ha sido aprobada exitosamente. Ya tienes acceso completo a todas las herramientas de Gestor.
+              </p>
+              <Button onClick={handleGoToAgentDashboard} size="lg" className="gap-2 w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600">
+                Ir a mi Panel de Gestor <ArrowRight className="h-5 w-5" />
+              </Button>
+            </Card>
+          ) : isRejected ? (
+            <Card variant="bordered" className="text-center p-12 border-red-200 bg-red-50/30">
+              <X className="h-16 w-16 text-red-500 mx-auto mb-4" />
+              <h2 className="text-2xl font-bold text-red-900 mb-2">Solicitud no aprobada</h2>
+              <p className="text-red-700">
+                Lo sentimos, tu solicitud para ser gestor no ha sido aceptada en este momento. 
+                Puedes seguir usando la plataforma como cliente.
+              </p>
+            </Card>
           ) : alreadyRequested ? (
             <Card variant="bordered" className="text-center p-12">
               <div className="flex justify-center mb-4">

@@ -15,6 +15,8 @@ import {
   notifyBookingCancelled,
   notifyReviewRequest,
   notifyWelcome,
+  notifyAgentApproved,
+  notifyAgentRejected,
 } from '@/lib/email/notifications';
 
 const supabaseAdmin = createClient(
@@ -22,13 +24,16 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
+// AQUÍ ESTÁ LA CORRECCIÓN: Se agregó 'agent_rejected' a la lista
 type NotificationType =
   | 'booking_confirmation'
   | 'emission_complete'
   | 'payment_receipt'
   | 'booking_cancelled'
   | 'review_request'
-  | 'welcome';
+  | 'welcome'
+  | 'agent_approved'
+  | 'agent_rejected';
 
 export async function POST(request: NextRequest) {
   try {
@@ -83,6 +88,12 @@ export async function POST(request: NextRequest) {
         break;
       case 'welcome':
         result = await notifyWelcome(email, data as never);
+        break;
+      case 'agent_approved':
+        result = await notifyAgentApproved(email, data as never);
+        break;
+      case 'agent_rejected':
+        result = await notifyAgentRejected(email, data as never);
         break;
       default:
         return NextResponse.json({ error: `Unknown notification type: ${type}` }, { status: 400 });
