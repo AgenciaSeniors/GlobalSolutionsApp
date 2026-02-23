@@ -100,7 +100,7 @@ export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFl
         <View style={styles.headerDetails}>
           <Text style={styles.invoiceText}>Recibo: {invoiceId}</Text>
           <Text style={styles.brandSub}>Fecha de emisión: {issueDate}</Text>
-          <Text style={styles.statusText}>ESTADO: CONFIRMADO TICKET</Text>
+          <Text style={styles.statusText}>ESTADO: CONFIRMADO</Text>
         </View>
       </View>
 
