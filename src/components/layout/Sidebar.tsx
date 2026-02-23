@@ -9,7 +9,6 @@ import {
   Briefcase, LayoutDashboard, Plane, CalendarCheck, Star, Settings,
   ChevronLeft, LogOut, Newspaper, MessageSquare, Tag,
   Users, FileText, HelpCircle, DollarSign, Trophy, Car,
-  Route,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
@@ -155,7 +154,6 @@ export default function Sidebar({ links }: SidebarProps) {
 /** Pre-configured link sets for each role. */
 export const USER_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/user/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/user/dashboard/create-route', label: 'Crear Ruta', icon: Route},
   { href: '/user/dashboard/bookings', label: 'Mis Reservas', icon: CalendarCheck },
   { href: '/user/dashboard/reviews', label: 'Mis Reseñas', icon: Star },
   { href: '/user/dashboard/loyalty', label: 'Mis Puntos', icon: Trophy },
