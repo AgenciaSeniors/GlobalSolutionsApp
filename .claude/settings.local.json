@@ -21,9 +21,14 @@
       "Bash(python3:*)",
       "Bash(xxd:*)",
       "Bash(git add:*)",
-      "Bash(find:*)",
+      "WebFetch(domain:rapidapi.com)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nFix: cabinClass en tipo multi-leg y limpieza de cast innecesario\n\n- Agrega cabinClass al tipo FlightSearchParams \\(formato multi-leg\\)\n- Elimina cast manual en buildSearchBody \\(ahora TypeScript lo infiere\\)\n- Limpia console.log de DEBUG en skyScrapperProvider\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git merge:*)",
+      "Bash(git commit:*)",
       "Bash(git diff:*)",
+      "Bash(node_modules/.bin/vitest run:*)"
       "Bash(git show:*)"
+      "Bash(find:*)",
     ]
   }
 }
