@@ -20,7 +20,10 @@
       "Bash(./node_modules/.bin/tsc:*)",
       "Bash(python3:*)",
       "Bash(xxd:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(find:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)"
     ]
   }
 }

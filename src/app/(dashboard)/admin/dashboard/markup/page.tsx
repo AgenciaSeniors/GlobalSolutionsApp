@@ -5,11 +5,9 @@ import Sidebar, { ADMIN_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import { createClient } from '@/lib/supabase/client';
 import { useAppSettings } from '@/hooks/useAppSettings';
 
 export default function AdminMarkupPage() {
-  const supabase = createClient();
   const { settings } = useAppSettings();
 
   const [clientMarkup, setClientMarkup] = useState('');
@@ -41,23 +39,21 @@ export default function AdminMarkupPage() {
         throw new Error(`Markup gestores debe estar entre ${min}% y ${max}%.`);
       }
 
-      const now = new Date().toISOString();
-
-      const { error: e1 } = await supabase.from('app_settings').upsert({
-        key: 'default_markup_percentage',
-        value: c,
-        updated_at: now,
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          settings: [
+            { key: 'default_markup_percentage', value: c },
+            { key: 'agent_markup_percentage', value: a },
+          ],
+        }),
       });
-      if (e1) throw e1;
 
-      const { error: e2 } = await supabase.from('app_settings').upsert({
-        key: 'agent_markup_percentage',
-        value: a,
-        updated_at: now,
-      });
-      if (e2) throw e2;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'Error al guardar');
 
-      setMsg('✅ Markups guardados.');
+      setMsg('Markups guardados correctamente.');
     } catch (err: any) {
       setMsg(`❌ ${err?.message ?? 'Error al guardar'}`);
     } finally {
