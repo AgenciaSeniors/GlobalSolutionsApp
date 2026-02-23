@@ -212,6 +212,7 @@ export default function CheckoutPage() {
     }>
   >([]);
   const [processing, setProcessing] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [bookingCode, setBookingCode] = useState('');
@@ -783,6 +784,7 @@ export default function CheckoutPage() {
           .insert({
             booking_code: newBookingCode,
             user_id: user.id,
+            profile_id: user.id,
             flight_id: flightDbId,
             flight_provider_id: flightProviderId,
             subtotal: breakdown.subtotal,
@@ -1225,7 +1227,43 @@ export default function CheckoutPage() {
               <div className="space-y-4 md:col-span-2 lg:col-span-1">
                 <PriceBreakdownCard breakdown={breakdown} gateway={gateway} />
 
-                <Button type="submit" isLoading={processing} className="w-full gap-2">
+                {/* Aceptación de Términos y Política de Privacidad */}
+                <label className="flex items-start gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={acceptedTerms}
+                    onChange={e => setAcceptedTerms(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-neutral-300 accent-brand-600 cursor-pointer"
+                  />
+                  <span className="text-xs text-neutral-600 leading-relaxed">
+                    He leído y acepto los{' '}
+                    <a
+                      href="/legal/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 underline hover:text-brand-700 font-medium"
+                    >
+                      Términos y Condiciones
+                    </a>{' '}
+                    y la{' '}
+                    <a
+                      href="/legal/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 underline hover:text-brand-700 font-medium"
+                    >
+                      Política de Privacidad
+                    </a>{' '}
+                    de Global Solutions Travel.
+                  </span>
+                </label>
+
+                <Button
+                  type="submit"
+                  isLoading={processing}
+                  disabled={processing || !acceptedTerms}
+                  className="w-full gap-2"
+                >
                   <Lock className="h-4 w-4" />
                   {gateway === 'zelle' ? `Reservar $${breakdown.subtotal.toFixed(2)}` : `Continuar a pagar`}
                 </Button>
