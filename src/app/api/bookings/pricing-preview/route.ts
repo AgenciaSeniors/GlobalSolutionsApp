@@ -108,14 +108,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Per-passenger detail
     const passengerDetails = getPassengerPricingDetails(finalPrice, passengers);
 
-    // Fetch fee display values from DB for the UI
+    // Fetch fee display values for the UI (both gateways are 'mixed' type)
+    const stripePolicy = GATEWAY_FEE_POLICY.stripe as { type: 'mixed'; percentage: number; fixed_amount: number };
+    const paypalPolicy = GATEWAY_FEE_POLICY.paypal as { type: 'mixed'; percentage: number; fixed_amount: number };
     const feeDisplayPct = isZelle ? 0 : (
-      gateway === 'stripe' ? GATEWAY_FEE_POLICY.stripe.percentage :
-      GATEWAY_FEE_POLICY.paypal.percentage
+      gateway === 'stripe' ? stripePolicy.percentage : paypalPolicy.percentage
     );
     const feeDisplayFixed = isZelle ? 0 : (
-      gateway === 'stripe' ? (GATEWAY_FEE_POLICY.stripe as { fixed_amount: number }).fixed_amount :
-      (GATEWAY_FEE_POLICY.paypal as { fixed_amount: number }).fixed_amount
+      gateway === 'stripe' ? stripePolicy.fixed_amount : paypalPolicy.fixed_amount
     );
 
     return NextResponse.json({
