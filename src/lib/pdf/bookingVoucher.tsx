@@ -1,227 +1,207 @@
+// src/lib/pdf/bookingVoucher.tsx
 import React from 'react';
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image, Font } from '@react-pdf/renderer';
 
-export type VoucherPassenger = {
-  first_name: string;
-  last_name: string;
-  nationality?: string | null;
-  ticket_number?: string | null;
-};
-
-export type VoucherFlight = {
-  flight_number?: string | null;
-  departure_datetime?: string | null;
-  arrival_datetime?: string | null;
-  aircraft_type?: string | null;
-  airline?: { name?: string | null; iata_code?: string | null } | null;
-  origin_airport?: { iata_code?: string | null; city?: string | null; name?: string | null } | null;
-  destination_airport?: { iata_code?: string | null; city?: string | null; name?: string | null } | null;
-};
-
-export type VoucherProfile = {
-  full_name?: string | null;
-  email?: string | null;
-};
-
-export type VoucherBooking = {
-  booking_code: string;
-  airline_pnr?: string | null;
-  booking_status?: string | null;
-  payment_status?: string | null;
-  payment_method?: string | null;
-  subtotal?: number | string | null;
-  payment_gateway_fee?: number | string | null;
-  total_amount?: number | string | null;
-  flight?: VoucherFlight | null;
-  passengers?: VoucherPassenger[] | null;
-  profile?: VoucherProfile | null;
-};
-
-const styles = StyleSheet.create({
-  page: { padding: 32, fontSize: 11, fontFamily: 'Helvetica' },
-  title: { fontSize: 20, marginBottom: 8, fontWeight: 700 },
-  subtitle: { fontSize: 12, marginBottom: 18, color: '#444' },
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
-  section: { marginTop: 14, padding: 12, borderWidth: 1, borderColor: '#DDD', borderRadius: 6 },
-  sectionTitle: { fontSize: 12, fontWeight: 700, marginBottom: 8 },
-  label: { color: '#666' },
-  value: { fontWeight: 700 },
-  divider: { height: 1, backgroundColor: '#EEE', marginVertical: 10 },
-  tableHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#DDD', paddingBottom: 6, marginBottom: 6 },
-  th: { fontWeight: 700 },
-  colName: { width: '46%' },
-  colNat: { width: '18%' },
-  colTicket: { width: '36%' },
-  muted: { color: '#666' },
+// 🚀 Registramos la fuente Premium (Inter)
+Font.register({
+  family: 'Inter',
+  fonts: [
+    { src: 'https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hjp-Ek-_EeA.woff', fontWeight: 400 },
+    { src: 'https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuI6fAZ9hjp-Ek-_EeA.woff', fontWeight: 700 },
+  ],
 });
 
-function formatMoney(v: number | string | null | undefined): string {
-  const n = typeof v === 'string' ? Number(v) : (v ?? 0);
-  const safe = Number.isFinite(n) ? n : 0;
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(safe);
+const styles = StyleSheet.create({
+  // 🚀 Aplicamos la fuente 'Inter'
+  page: { padding: 30, fontFamily: 'Inter', fontSize: 10, color: '#333333' },
+  
+  header: { flexDirection: 'row', justifyContent: 'space-between', borderBottom: '2px solid #0F2545', paddingBottom: 10, marginBottom: 20 },
+  logoContainer: { flexDirection: 'column' },
+  logoImage: { 
+    width: 200,         
+    marginLeft: -30,     
+    marginBottom: 8,
+    marginTop: -45
+  },
+  brandSub: { fontSize: 9, color: '#666666' },
+  headerDetails: { alignItems: 'flex-end' },
+  invoiceText: { fontSize: 12, fontWeight: 700, color: '#0F2545' },
+  statusText: { fontSize: 10, color: '#059669', marginTop: 4, fontWeight: 700 }, 
+  
+  sectionTitle: { 
+    fontSize: 12, 
+    fontWeight: 700, 
+    backgroundColor: '#F4F7FB', 
+    padding: 6, 
+    paddingLeft: 10,
+    marginBottom: 10, 
+    color: '#0F2545',
+    borderLeft: '4px solid #FF4757' 
+  },
+  
+  table: { width: '100%', marginBottom: 20 },
+  tableHeader: { flexDirection: 'row', backgroundColor: '#0F2545', padding: 6, fontWeight: 700, fontSize: 8, color: '#ffffff' },
+  tableRow: { flexDirection: 'row', borderBottom: '1px solid #e2e8f0', padding: 6, fontSize: 8, color: '#333333' },
+  
+  colAirline: { width: '14%' },
+  colTime: { width: '17%' },
+  colDateInfo: { width: '15%' },
+  colFlight: { width: '12%' },
+  colCity: { width: '22%' },
+  colClass: { width: '10%' },
+  colStatus: { width: '10%' },
+
+  colPaxName: { width: '40%' },
+  colBaggage: { width: '20%' },
+  colPNR: { width: '20%' },
+  colTicket: { width: '20%' },
+
+  footer: { marginTop: 'auto', paddingTop: 10, borderTop: '2px solid #FF4757', fontSize: 8, color: '#666666', textAlign: 'justify' }
+});
+
+export interface FlightSegment {
+  airline: string;
+  flightNumber: string;
+  date: string;
+  origin: string;
+  destination: string;
+  departure: string;
+  arrival: string;
+  cabinClass: string;
+  status: string;
 }
 
-function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString('es-ES', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+export interface Passenger {
+  fullName: string;
+  baggage: string;
+  pnr: string;
+  ticketNumber: string;
 }
 
-export function BookingVoucherDocument({ booking }: { booking: VoucherBooking }) {
-  const flight = booking.flight ?? null;
-  const passengers = booking.passengers ?? [];
-  const profile = booking.profile ?? null;
+export interface BookingVoucherProps {
+  invoiceId: string;
+  issueDate: string;
+  outboundFlights: FlightSegment[]; 
+  returnFlights?: FlightSegment[];
+  passengers: Passenger[];
+  policies?: string; // 🚀 Prop de Políticas editables
+}
 
-  const origin = flight?.origin_airport;
-  const dest = flight?.destination_airport;
-  const airline = flight?.airline;
-
-  const originLabel = origin?.iata_code ? `${origin.iata_code} · ${origin.city ?? ''}`.trim() : '—';
-  const destLabel = dest?.iata_code ? `${dest.iata_code} · ${dest.city ?? ''}`.trim() : '—';
-  const airlineLabel = airline?.name ? `${airline.name}${airline.iata_code ? ` (${airline.iata_code})` : ''}` : '—';
-
-  return (
-    <Document>
-      <Page size="A4" style={styles.page}>
-        <Text style={styles.title}>Voucher de Reserva</Text>
-        <Text style={styles.subtitle}>Global Solutions Travel · Documento informativo para su viaje</Text>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Datos de la reserva</Text>
-          <View style={styles.row}>
-            <Text>
-              <Text style={styles.label}>Código: </Text>
-              <Text style={styles.value}>{booking.booking_code}</Text>
-            </Text>
-            <Text>
-              <Text style={styles.label}>PNR: </Text>
-              <Text style={styles.value}>{booking.airline_pnr ?? '—'}</Text>
-            </Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.row}>
-            <Text>
-              <Text style={styles.label}>Estado: </Text>
-              <Text style={styles.value}>{booking.booking_status ?? '—'}</Text>
-            </Text>
-            <Text>
-              <Text style={styles.label}>Pago: </Text>
-              <Text style={styles.value}>{booking.payment_status ?? '—'}</Text>
-            </Text>
-          </View>
-
-          <View style={styles.row}>
-            <Text>
-              <Text style={styles.label}>Método: </Text>
-              <Text style={styles.value}>{booking.payment_method ?? '—'}</Text>
-            </Text>
-            <Text>
-              <Text style={styles.label}>Total: </Text>
-              <Text style={styles.value}>{formatMoney(booking.total_amount)}</Text>
-            </Text>
-          </View>
-
-          {profile?.email ? (
-            <Text style={{ marginTop: 8 }}>
-              <Text style={styles.label}>Cliente: </Text>
-              <Text style={styles.value}>{profile.full_name ?? '—'}</Text>
-              <Text style={styles.muted}> · {profile.email}</Text>
-            </Text>
-          ) : null}
+export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFlights, passengers, policies }: BookingVoucherProps) => (
+  <Document>
+    <Page size="A4" style={styles.page}>
+      
+      <View style={styles.header}>
+        <View style={styles.logoContainer}>
+          {/* Usamos el logo de public/brand/logo.png */}
+          <Image src="/brand/logo.png" style={styles.logoImage} />
+          <Text style={styles.brandSub}>support@globalsolutions.travel | +1 (305) 555-0100</Text>
         </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Vuelo</Text>
-          <Text>
-            <Text style={styles.label}>Aerolínea: </Text>
-            <Text style={styles.value}>{airlineLabel}</Text>
-          </Text>
-          <Text>
-            <Text style={styles.label}>Número de vuelo: </Text>
-            <Text style={styles.value}>{flight?.flight_number ?? '—'}</Text>
-          </Text>
-
-          <View style={styles.divider} />
-
-          <View style={styles.row}>
-            <Text>
-              <Text style={styles.label}>Origen: </Text>
-              <Text style={styles.value}>{originLabel}</Text>
-            </Text>
-            <Text>
-              <Text style={styles.label}>Destino: </Text>
-              <Text style={styles.value}>{destLabel}</Text>
-            </Text>
-          </View>
-
-          <View style={{ marginTop: 6 }}>
-            <Text>
-              <Text style={styles.label}>Salida: </Text>
-              <Text style={styles.value}>{formatDateTime(flight?.departure_datetime)}</Text>
-            </Text>
-            <Text>
-              <Text style={styles.label}>Llegada: </Text>
-              <Text style={styles.value}>{formatDateTime(flight?.arrival_datetime)}</Text>
-            </Text>
-          </View>
+        <View style={styles.headerDetails}>
+          <Text style={styles.invoiceText}>Recibo: {invoiceId}</Text>
+          <Text style={styles.brandSub}>Fecha de emisión: {issueDate}</Text>
+          <Text style={styles.statusText}>ESTADO: CONFIRMADO TICKET</Text>
         </View>
+      </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Pasajeros</Text>
-
-          <View style={styles.tableHeader}>
-            <Text style={[styles.th, styles.colName]}>Nombre</Text>
-            <Text style={[styles.th, styles.colNat]}>Nac.</Text>
-            <Text style={[styles.th, styles.colTicket]}>Ticket</Text>
+      <Text style={styles.sectionTitle}>INFORMACIÓN DE PASAJEROS</Text>
+      <View style={styles.table}>
+        <View style={styles.tableHeader}>
+          <Text style={styles.colPaxName}>PASAJERO</Text>
+          <Text style={styles.colBaggage}>EQUIPAJE</Text>
+          <Text style={styles.colPNR}>LOCALIZADOR</Text>
+          <Text style={styles.colTicket}>NÚMERO TICKET</Text>
+        </View>
+        {passengers.map((pax, index) => (
+          <View key={`pax-${index}`} style={styles.tableRow}>
+            <Text style={[styles.colPaxName, { fontWeight: 700 }]}>{pax.fullName}</Text>
+            <Text style={styles.colBaggage}>{pax.baggage}</Text>
+            <Text style={[styles.colPNR, { fontWeight: 700, color: '#0F2545' }]}>{pax.pnr}</Text>
+            <Text style={styles.colTicket}>{pax.ticketNumber}</Text>
           </View>
+        ))}
+      </View>
 
-          {passengers.length === 0 ? (
-            <Text style={styles.muted}>—</Text>
-          ) : (
-            passengers.map((p, idx) => (
-              <View key={`${p.first_name}-${p.last_name}-${idx}`} style={{ flexDirection: 'row', marginBottom: 4 }}>
-                <Text style={styles.colName}>{`${p.first_name} ${p.last_name}`}</Text>
-                <Text style={styles.colNat}>{p.nationality ?? '—'}</Text>
-                <Text style={styles.colTicket}>{p.ticket_number ?? '—'}</Text>
+      <Text style={styles.sectionTitle}>ITINERARIO DE VUELOS - IDA</Text>
+      <View style={styles.table}>
+        <View style={styles.tableHeader}>
+          <Text style={styles.colAirline}>AEROLÍNEA</Text>
+          <Text style={styles.colTime}>HORA (SAL / LLE)</Text>
+          <Text style={styles.colDateInfo}>FECHA</Text>
+          <Text style={styles.colFlight}>VUELO</Text>
+          <Text style={styles.colCity}>ORIGEN / DESTINO</Text>
+          <Text style={styles.colClass}>CLASE</Text>
+          <Text style={styles.colStatus}>ESTADO</Text>
+        </View>
+        {outboundFlights.map((flight, index) => (
+          <View key={`flight-out-${index}`} style={styles.tableRow}>
+            <Text style={styles.colAirline}>{flight.airline}</Text>
+            <View style={styles.colTime}>
+              <Text style={{ fontSize: 7, color: '#666666' }}>Salida:</Text>
+              <Text style={{ fontWeight: 700, color: '#0F2545', marginBottom: 4 }}>{flight.departure}</Text>
+              <Text style={{ fontSize: 7, color: '#666666' }}>Llegada:</Text>
+              <Text style={{ fontWeight: 700, color: '#0F2545' }}>{flight.arrival}</Text>
+            </View>
+            <Text style={[styles.colDateInfo, { fontWeight: 700 }]}>{flight.date}</Text>
+            <Text style={styles.colFlight}>{flight.flightNumber}</Text>
+            <View style={styles.colCity}>
+              <Text style={{ fontSize: 7, color: '#666666' }}>Origen:</Text>
+              <Text style={{ fontWeight: 700, color: '#0F2545', marginBottom: 4 }}>{flight.origin}</Text>
+              <Text style={{ fontSize: 7, color: '#666666' }}>Destino:</Text>
+              <Text style={{ fontWeight: 700, color: '#0F2545' }}>{flight.destination}</Text>
+            </View>
+            <Text style={styles.colClass}>{flight.cabinClass}</Text>
+            <Text style={styles.colStatus}>{flight.status}</Text>
+          </View>
+        ))}
+      </View>
+
+      {returnFlights && returnFlights.length > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>ITINERARIO DE VUELOS - REGRESO</Text>
+          <View style={styles.table}>
+            <View style={styles.tableHeader}>
+              <Text style={styles.colAirline}>AEROLÍNEA</Text>
+              <Text style={styles.colTime}>HORA (SAL / LLE)</Text>
+              <Text style={styles.colDateInfo}>FECHA</Text>
+              <Text style={styles.colFlight}>VUELO</Text>
+              <Text style={styles.colCity}>ORIGEN / DESTINO</Text>
+              <Text style={styles.colClass}>CLASE</Text>
+              <Text style={styles.colStatus}>ESTADO</Text>
+            </View>
+            {returnFlights.map((flight, index) => (
+              <View key={`flight-ret-${index}`} style={styles.tableRow}>
+                <Text style={styles.colAirline}>{flight.airline}</Text>
+                <View style={styles.colTime}>
+                  <Text style={{ fontSize: 7, color: '#666666' }}>Salida:</Text>
+                  <Text style={{ fontWeight: 700, color: '#0F2545', marginBottom: 4 }}>{flight.departure}</Text>
+                  <Text style={{ fontSize: 7, color: '#666666' }}>Llegada:</Text>
+                  <Text style={{ fontWeight: 700, color: '#0F2545' }}>{flight.arrival}</Text>
+                </View>
+                <Text style={[styles.colDateInfo, { fontWeight: 700 }]}>{flight.date}</Text>
+                <Text style={styles.colFlight}>{flight.flightNumber}</Text>
+                <View style={styles.colCity}>
+                  <Text style={{ fontSize: 7, color: '#666666' }}>Origen:</Text>
+                  <Text style={{ fontWeight: 700, color: '#0F2545', marginBottom: 4 }}>{flight.origin}</Text>
+                  <Text style={{ fontSize: 7, color: '#666666' }}>Destino:</Text>
+                  <Text style={{ fontWeight: 700, color: '#0F2545' }}>{flight.destination}</Text>
+                </View>
+                <Text style={styles.colClass}>{flight.cabinClass}</Text>
+                <Text style={styles.colStatus}>{flight.status}</Text>
               </View>
-            ))
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Importes</Text>
-          <View style={styles.row}>
-            <Text>
-              <Text style={styles.label}>Subtotal: </Text>
-              <Text style={styles.value}>{formatMoney(booking.subtotal)}</Text>
-            </Text>
-            <Text>
-              <Text style={styles.label}>Fee gateway: </Text>
-              <Text style={styles.value}>{formatMoney(booking.payment_gateway_fee)}</Text>
-            </Text>
+            ))}
           </View>
-          <View style={{ marginTop: 6 }}>
-            <Text>
-              <Text style={styles.label}>Total pagado: </Text>
-              <Text style={styles.value}>{formatMoney(booking.total_amount)}</Text>
-            </Text>
-          </View>
-        </View>
+        </>
+      )}
 
-        <Text style={{ marginTop: 18, fontSize: 9, color: '#666' }}>
-          Nota: Este voucher es informativo. Para cambios o reemisiones, contacte a su agente.
+      {/* 🚀 Políticas Dinámicas */}
+      <View style={styles.footer}>
+        <Text style={{ fontWeight: 700, marginBottom: 4, color: '#0F2545' }}>Políticas y Condiciones</Text>
+        <Text>
+          {policies || "1. Boletos No Reembolsables, No Transferibles.\n2. Presentar formularios migratorios (D'Viajeros, E-Ticket) obligatorios según el destino.\n3. Llegar al aeropuerto con al menos 3 horas de antelación para vuelos internacionales."}
         </Text>
-      </Page>
-    </Document>
-  );
-}
+      </View>
+
+    </Page>
+  </Document>
+);

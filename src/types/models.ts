@@ -195,12 +195,6 @@ export interface CarRentalBooking {
 /*  SPECIAL OFFERS                                                    */
 /* ------------------------------------------------------------------ */
 
-export interface SpecialOfferStop {
-  city: string;
-  airport_code: string;
-  duration: string;
-}
-
 export interface SpecialOffer {
   id: string;
   destination: string;
@@ -221,20 +215,6 @@ export interface SpecialOffer {
   created_by: string | null;
   created_at: string;
   updated_at: string;
-  // Flight detail fields
-  departure_time: string | null;
-  arrival_time: string | null;
-  flight_duration: string | null;
-  aircraft_type: string | null;
-  cabin_class: string | null;
-  baggage_included: string | null;
-  stops: SpecialOfferStop[] | null;
-  origin_city: string | null;
-  destination_city: string | null;
-  // Joined relations (optional, populated by select with joins)
-  airline?: { id: string; iata_code: string; name: string; logo_url: string | null };
-  origin_airport?: { id: string; iata_code: string; name: string; city: string; country: string };
-  destination_airport?: { id: string; iata_code: string; name: string; city: string; country: string };
 }
 
 /* ------------------------------------------------------------------ */
@@ -274,18 +254,27 @@ export type ReviewStatus = 'pending_approval' | 'approved' | 'rejected';
 
 export interface Review {
   id: string;
-  user_id: string;
+  profile_id: string;
   booking_id: string;
   rating: number;
   title: string | null;
   comment: string;
   photo_urls: string[];
   status: ReviewStatus;
+  moderated_by: string | null;
+  moderated_at: string | null;
   created_at: string;
+  /** @deprecated Legacy column — use profile_id for ownership. */
+  user_id?: string | null;
 }
 
 export interface ReviewWithAuthor extends Review {
   profile: Pick<Profile, 'full_name' | 'avatar_url'>;
+  booking?: {
+    booking_code: string;
+    flight?: { destination_airport?: { city: string } | null } | null;
+    offer?: { destination: string } | null;
+  } | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -317,6 +306,7 @@ export interface AgentTicket {
   created_by: string;
   assigned_to: string | null;
   subject: string;
+  description?: string | null; // ✅ NUEVO
   category: TicketCategory;
   priority: TicketPriority;
   status: TicketStatus;
@@ -325,8 +315,8 @@ export interface AgentTicket {
 }
 
 export interface AgentTicketWithDetails extends AgentTicket {
-  creator?: Pick<Profile, 'full_name' | 'email' | 'role'>;
-  assignee?: Pick<Profile, 'full_name' | 'email' | 'role'>;
+  creator?: Pick<Profile, 'full_name' | 'email' | 'role' | 'agent_code'>;  // ✅
+  assignee?: Pick<Profile, 'full_name' | 'email' | 'role' | 'agent_code'>; // ✅
   messages?: TicketMessage[];
 }
 
@@ -411,6 +401,8 @@ export interface FlightSegment {
   id: string;
   origin: string;
   destination: string;
+  originName?: string;
+  destinationName?: string;
   departureTime: string;
   arrivalTime: string;
   airline: UiAirline;
@@ -430,4 +422,41 @@ export interface FlightOffer {
   stops?: Array<{ airport: string; duration_minutes: number }>;
   is_exclusive_offer?: boolean;
   provider?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  MULTICITY SELECTION STATE                                          */
+/* ------------------------------------------------------------------ */
+
+/** Datos mínimos de un vuelo para mostrar en el resumen multicity */
+export interface SelectedLegFlightData {
+  price: number;
+  airline: string;
+  flightNumber: string;
+}
+
+/** Un tramo seleccionado en el flujo multicity, guardado en sessionStorage */
+export interface SelectedLeg {
+  legIndex: number;
+  rawFlight: unknown;
+  flightData: SelectedLegFlightData;
+  legMeta: { origin: string; destination: string; date: string };
+}
+
+/* ------------------------------------------------------------------ */
+/*  BOOKING ITINERARIES (multicity DB rows)                           */
+/* ------------------------------------------------------------------ */
+
+export interface BookingItinerary {
+  id: string;
+  booking_id: string;
+  leg_index: number;
+  flight_id: string | null;
+  flight_provider_id: string | null;
+  origin_iata: string;
+  destination_iata: string;
+  departure_datetime: string | null;
+  arrival_datetime: string | null;
+  subtotal: number;
+  created_at: string;
 }

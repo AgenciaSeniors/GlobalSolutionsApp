@@ -15,11 +15,16 @@ import { flightsService } from '@/services/flights.service';
  *     aren't re-triggered by StrictMode remounts or effect re-runs
  */
 
+type ResultsByLeg = Array<{ legIndex: number; flights: FlightWithDetails[] }>;
+
 export type UseFlightSearchResult = {
   results: FlightWithDetails[];
+  resultsByLeg: ResultsByLeg;
   isLoading: boolean;
   error: string | null;
   search: (params: FlightSearchParams) => Promise<void>;
+  /** Clears the completed-keys cache so the same search can be re-triggered */
+  clearCache: () => void;
 };
 
 /* ------------------------------------------------------------------ */
@@ -64,8 +69,6 @@ function stableRequestKey(params: FlightSearchParams): string {
 /*  Extract flights from the API response shape                       */
 /* ------------------------------------------------------------------ */
 
-type ResultsByLeg = Array<{ legIndex: number; flights: FlightWithDetails[] }>;
-
 function extractFlights(results: ResultsByLeg | undefined): FlightWithDetails[] {
   if (!Array.isArray(results) || results.length === 0) return [];
   const firstLeg = results[0];
@@ -79,6 +82,7 @@ function extractFlights(results: ResultsByLeg | undefined): FlightWithDetails[] 
 
 export function useFlightSearch(): UseFlightSearchResult {
   const [results, setResults] = useState<FlightWithDetails[]>([]);
+  const [resultsByLeg, setResultsByLeg] = useState<ResultsByLeg>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,6 +134,7 @@ export function useFlightSearch(): UseFlightSearchResult {
 
         if (controller.signal.aborted) {
           console.log(`[useFlightSearch] ABORTED after POST: ${key}`);
+          setIsLoading(false);
           return;
         }
 
@@ -137,7 +142,9 @@ export function useFlightSearch(): UseFlightSearchResult {
           `[useFlightSearch] POST response: sessionId=${started?.sessionId}, status=${started?.status}`
         );
 
-        const initialFlights = extractFlights(started?.results as ResultsByLeg);
+        const allInitialResults = (started?.results ?? []) as ResultsByLeg;
+        setResultsByLeg(allInitialResults);
+        const initialFlights = extractFlights(allInitialResults);
         if (initialFlights.length > 0) {
           setResults(initialFlights);
           console.log(
@@ -160,12 +167,16 @@ export function useFlightSearch(): UseFlightSearchResult {
 
           if (controller.signal.aborted) {
             console.log(`[useFlightSearch] ABORTED during poll: ${key}`);
+            setIsLoading(false);
             return;
           }
 
-          const finalFlights = extractFlights(final?.results as ResultsByLeg);
+          const allFinalResults = (final?.results ?? []) as ResultsByLeg;
+          setResultsByLeg(allFinalResults);
+          const finalFlights = extractFlights(allFinalResults);
           console.log(
-            `[useFlightSearch] Poll complete: ${finalFlights.length} flights, status=${final?.status}`
+            `[useFlightSearch] Poll complete: ${finalFlights.length} flights, status=${final?.status}`,
+            allFinalResults.map(l => ({ legIndex: l.legIndex, count: l.flights?.length ?? 0 }))
           );
           setResults(finalFlights);
         } else if (status === 'complete') {
@@ -181,6 +192,7 @@ export function useFlightSearch(): UseFlightSearchResult {
       } catch (e: unknown) {
         if (controller.signal.aborted) {
           console.log(`[useFlightSearch] ABORTED (catch): ${key}`);
+          setIsLoading(false);
           return;
         }
 
@@ -188,6 +200,7 @@ export function useFlightSearch(): UseFlightSearchResult {
         console.error(`[useFlightSearch] ERROR: ${msg}`);
         setError(msg);
         setResults([]);
+        setResultsByLeg([]);
         setIsLoading(false);
         activeKeyRef.current = null;
       }
@@ -195,18 +208,25 @@ export function useFlightSearch(): UseFlightSearchResult {
     [],
   );
 
-  // ── Cleanup: abort on unmount (StrictMode) ──
-  // Note: we do NOT clear completedKeysRef here, so remounts
-  // after StrictMode don't re-trigger finished searches.
+  const clearCache = useCallback(() => {
+    completedKeysRef.current.clear();
+  }, []);
+
+  // ── Cleanup: abort on unmount ──
+  // We also clear completedKeysRef on unmount so that if the component
+  // remounts (StrictMode double-mount in dev, or real navigation) the
+  // search will re-run properly instead of being skipped.
   useEffect(() => {
+    const completedKeys = completedKeysRef.current;
     return () => {
       if (abortRef.current) {
         abortRef.current.abort();
         abortRef.current = null;
       }
       activeKeyRef.current = null;
+      completedKeys.clear();
     };
   }, []);
 
-  return { results, isLoading, error, search };
+  return { results, resultsByLeg, isLoading, error, search, clearCache };
 }

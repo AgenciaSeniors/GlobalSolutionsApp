@@ -1,334 +1,182 @@
-//src/app/(dashboard)/user/dashboard/bookings/page.tsx
-/**
- * @fileoverview User Bookings — My reservations with status tracking.
- * Per spec §6.2: Shows status flow, voucher download when available.
- */
+// src/app/(dashboard)/user/dashboard/bookings/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
-import Card from '@/components/ui/Card';
-import Badge from '@/components/ui/Badge';
-import Modal from '@/components/ui/Modal';
-import { toast } from 'sonner';
-import { useAuthContext } from '@/components/providers/AuthProvider';
-import { Plane, FileText, Clock, CheckCircle, XCircle, CreditCard, AlertTriangle, Loader2 } from 'lucide-react';
-import type { BookingWithDetails } from '@/types/models';
+import { createClient } from '@/lib/supabase/client';
+import { Plane, Calendar, Download, User as UserIcon, Clock, CheckCircle, XCircle } from 'lucide-react';
 
-interface UserBooking {
-  id: string;
-  booking_code: string;
-  booking_status: string;
-  payment_status: string;
-  total_amount: number;
-  airline_pnr: string | null;
-  voucher_pdf_url: string | null;
-  created_at: string;
-    flight?: {
-    flight_number: string;
-    departure_datetime: string;
-    airline: { name: string } | null;
-    origin_airport: { iata_code: string; city: string } | null;
-    destination_airport: { iata_code: string; city: string } | null;
-  } | null;
-
-  passengers: { first_name: string; last_name: string; ticket_number: string | null }[];
+// Función para desempacar arreglos de Supabase
+function norm(val: any) {
+  if (Array.isArray(val)) return val[0] || null;
+  return val;
 }
 
-type StatusConfig = {
-  icon: typeof Clock;
-  label: string;
-  color: string;
-  variant: 'warning' | 'success' | 'destructive' | 'info' | 'default';
+const STATUS_CONFIG: Record<string, { bg: string, text: string, label: string, icon: any }> = {
+  pending_emission: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Procesando Emisión', icon: Clock },
+  completed: { bg: 'bg-green-100', text: 'text-green-800', label: 'Boleto Listo', icon: CheckCircle },
+  cancelled: { bg: 'bg-red-100', text: 'text-red-800', label: 'Cancelada', icon: XCircle },
 };
 
 export default function UserBookingsPage() {
-  const { user } = useAuthContext();
-  const [bookings, setBookings] = useState<UserBooking[]>([]);
+  const [supabase] = useState(() => createClient());
+  const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cancelModalOpen, setCancelModalOpen] = useState(false);
-  const [selectedBooking, setSelectedBooking] = useState<UserBooking | null>(null);
-  const [submittingCancel, setSubmittingCancel] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
-
-    async function load() {
-      try {
-        // ✅ CORRECCIÓN: Usamos fetch para llamar a la API en lugar del service de backend
-        const res = await fetch('/api/bookings');
-        
-        if (!res.ok) {
-          throw new Error('Error al cargar las reservas');
-        }
-
-        const { data } = await res.json();
-
-        // ✅ Normalizamos para que la UI nunca crashee por passengers undefined
-        const normalized: UserBooking[] = (data ?? []).map((b: BookingWithDetails ) => ({
-          ...b,
-          passengers: Array.isArray(b.passengers) ? b.passengers : [],
-          voucher_pdf_url: b.voucher_pdf_url ?? null,
-        }));
-
-        setBookings(normalized);
-      } catch (error) {
-        console.error(error);
-        // No rompemos la UI
-        setBookings([]);
-      } finally {
+    async function fetchMyBookings() {
+      setLoading(true);
+      
+      // 1. Obtenemos al usuario que tiene la sesión iniciada
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (!user || authError) {
         setLoading(false);
+        return;
       }
+
+      // 2. Buscamos SOLO sus reservas con los mismos alias seguros que usamos en el admin
+      const { data, error } = await supabase
+        .from('bookings')
+        .select(`
+          id, 
+          booking_code, 
+          booking_status, 
+          payment_status, 
+          total_amount, 
+          created_at, 
+          voucher_pdf_url,
+          flight:flights!bookings_flight_id_fkey(
+            flight_number, 
+            departure_datetime,
+            airline:airlines!flights_airline_id_fkey(name),
+            origin:airports!flights_origin_airport_id_fkey(iata_code, city),
+            dest:airports!flights_destination_airport_id_fkey(iata_code, city)
+          ),
+          passengers:booking_passengers!booking_passengers_booking_id_fkey(id, first_name, last_name)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error("Error al cargar reservas del usuario:", error.message);
+      } else {
+        setBookings(data || []);
+      }
+      setLoading(false);
     }
 
-    void load();
-  }, [user]);
-
-  const statusConfig: Record<string, StatusConfig> = {
-  pending_emission: {
-    icon: Clock,
-    label: 'Pendiente Emisión',
-    color: 'text-amber-500',
-    variant: 'warning',
-  },
-  confirmed: {
-    icon: CheckCircle,
-    label: 'Confirmada',
-    color: 'text-brand-500',
-    variant: 'info',
-  },
-  emitted: {
-    icon: CheckCircle,
-    label: 'Emitida',
-    color: 'text-emerald-500',
-    variant: 'success',
-  },
-  cancellation_requested: {
-    icon: AlertTriangle,
-    label: 'Cancelación Solicitada',
-    color: 'text-amber-600',
-    variant: 'warning',
-  },
-  completed: {
-    icon: CheckCircle,
-    label: 'Completada',
-    color: 'text-neutral-600',
-    variant: 'default',
-  },
-  cancelled: {
-    icon: XCircle,
-    label: 'Cancelada',
-    color: 'text-red-500',
-    variant: 'destructive',
-  },
-};
-
-  
-
-const openCancelModal = (b: UserBooking) => {
-  setSelectedBooking(b);
-  setCancelModalOpen(true);
-};
-
-const requestCancellation = async () => {
-  if (!selectedBooking) return;
-
-  setSubmittingCancel(true);
-  try {
-    const res = await fetch('/api/bookings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bookingId: selectedBooking.id,
-        action: 'REQUEST_CANCELLATION',
-      }),
-    });
-
-    if (!res.ok) {
-      const payload = await res.json().catch(() => null);
-      throw new Error(payload?.error || 'No se pudo solicitar la cancelación');
-    }
-
-    toast.success('Solicitud de cancelación enviada. Te contactaremos por WhatsApp.');
-
-    setBookings((prev) =>
-      prev.map((b) =>
-        b.id === selectedBooking.id ? { ...b, booking_status: 'cancellation_requested' } : b,
-      ),
-    );
-
-    setCancelModalOpen(false);
-    setSelectedBooking(null);
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Error inesperado');
-  } finally {
-    setSubmittingCancel(false);
-  }
-};
-
-return (
-    <div className="flex min-h-screen">
-      <Sidebar links={USER_SIDEBAR_LINKS} />
-      <div className="flex-1">
-        <Header title="Mis Reservas" subtitle="Historial de viajes y vouchers" />
-        <div className="p-8">
-          {loading ? (
-            <p className="text-neutral-500">Cargando...</p>
-          ) : bookings.length === 0 ? (
-            <Card variant="bordered" className="py-12 text-center">
-              <Plane className="mx-auto mb-3 h-12 w-12 text-neutral-300" />
-              <p className="font-semibold">Aún no tienes reservas</p>
-              <p className="text-sm text-neutral-500">Busca tu próximo vuelo y reserva aquí.</p>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {bookings.map((b) => {
-                const cfg = statusConfig[b.booking_status] || statusConfig.pending_emission;
-                const StatusIcon = cfg.icon;
-
-                // ✅ Fix robusto: no dependemos de 'PAID' vs enum
-                const payment = String(b.payment_status ?? '').toLowerCase();
-                const isPaid = payment === 'paid';
-
-                return (
-                  <Card key={b.id} variant="bordered">
-                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                      <div className="flex items-start gap-4">
-                        <StatusIcon className={`h-8 w-8 flex-shrink-0 ${cfg.color}`} />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-brand-600">{b.booking_code}</span>
-                            <Badge variant={cfg.variant}>{cfg.label}</Badge>
-                          </div>
-
-                          <p className="mt-1 text-sm">
-                            {b.flight?.airline?.name} {b.flight?.flight_number} · {b.flight?.origin_airport?.city} (
-                            {b.flight?.origin_airport?.iata_code}) → {b.flight?.destination_airport?.city} (
-                            {b.flight?.destination_airport?.iata_code})
-                          </p>
-
-                          <p className="text-xs text-neutral-400">
-                            Reservado: {new Date(b.created_at).toLocaleDateString('es')} · Total: $
-                            {b.total_amount.toFixed(2)}
-                          </p>
-
-                          {b.airline_pnr && (
-                            <p className="mt-1 text-xs text-neutral-500">
-                              PNR Aerolínea: <strong className="font-mono">{b.airline_pnr}</strong>
-                            </p>
-                          )}
-
-                          {(b.passengers?.length ?? 0) > 0 && (
-                            <div className="mt-2 text-xs text-neutral-500">
-                              Pasajeros: {(b.passengers ?? []).map((p) => `${p.first_name} ${p.last_name}`).join(', ')}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-end">
-                        {/* BOTÓN PAGAR (solo si NO está pagado) */}
-                        {!isPaid && (
-                          <a
-                            href={`/pay?booking_id=${b.id}`}
-                            className="flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-                          >
-                            <CreditCard className="h-4 w-4" />
-                            Pagar
-                          </a>
-                        )}
-
-
-{/* SOLICITAR CANCELACIÓN (si está confirmada o emitida) */}
-{(() => {
-  const s = String(b.booking_status ?? '').toLowerCase();
-  const canRequestCancellation = ['confirmed', 'emitted'].includes(s);
-  const alreadyRequested = s === 'cancellation_requested';
-  const isCancelled = s === 'cancelled';
-
-  if (!canRequestCancellation || alreadyRequested || isCancelled) return null;
+    fetchMyBookings();
+  }, [supabase]);
 
   return (
-    <button
-      onClick={() => openCancelModal(b)}
-      className="flex items-center justify-center gap-2 rounded-lg bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
-    >
-      <AlertTriangle className="h-4 w-4" />
-      Solicitar Cancelación
-    </button>
-  );
-})()}
+    <div className="flex min-h-screen bg-slate-50">
+      <Sidebar links={USER_SIDEBAR_LINKS} />
+      <div className="flex-1 overflow-auto">
+        <Header title="Mis Viajes" subtitle="Historial de reservas y boletos electrónicos" />
+        
+        <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+          {loading ? (
+            <div className="flex justify-center items-center py-20 text-slate-500">
+              <div className="animate-spin text-3xl mr-3">⏳</div> Cargando tu historial...
+            </div>
+          ) : bookings.length === 0 ? (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
+              <Plane className="mx-auto h-16 w-16 text-slate-200 mb-4" />
+              <h3 className="text-xl font-bold text-[#0F2545]">Aún no tienes viajes</h3>
+              <p className="text-slate-500 mt-2">¿Listo para tu próxima aventura? Explora nuestras ofertas y reserva tu primer vuelo.</p>
+              <button 
+                onClick={() => window.location.href = '/flights'}
+                className="mt-6 bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+              >
+                Buscar Vuelos
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {bookings.map((booking) => {
+                const flight = norm(booking.flight);
+                const airline = flight ? norm(flight.airline) : null;
+                const origin = flight ? norm(flight.origin) : null;
+                const dest = flight ? norm(flight.dest) : null;
+                
+                // Determinamos el estado visual
+                const statusStr = booking.booking_status || 'pending_payment';
+                const statusInfo = STATUS_CONFIG[statusStr] || { bg: 'bg-slate-100', text: 'text-slate-800', label: 'Pendiente', icon: Clock };
+                const StatusIcon = statusInfo.icon;
 
-                        {/* BOTÓN VOUCHER (solo si existe) */}
-                        {b.voucher_pdf_url && (
-                          <a
-                            href={b.voucher_pdf_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-2 rounded-lg bg-brand-50 px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-100"
-                          >
-                            <FileText className="h-4 w-4" />
-                            Descargar Voucher
-                          </a>
-                        )}
+                // Verificamos si tiene boleto listo para descargar
+                const isReadyToDownload = booking.booking_status === 'completed' && booking.voucher_pdf_url;
+
+                return (
+                  <div key={booking.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row">
+                    
+                    {/* Información del Vuelo */}
+                    <div className="p-6 flex-1 flex flex-col justify-center">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-lg font-bold text-brand-600">{booking.booking_code}</span>
+                          <span className={`${statusInfo.bg} ${statusInfo.text} text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1`}>
+                            <StatusIcon className="h-3 w-3" /> {statusInfo.label}
+                          </span>
+                        </div>
+                        <span className="text-sm font-bold text-slate-700">${booking.total_amount?.toFixed(2)}</span>
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <div className="h-12 w-12 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+                          <Plane className="h-6 w-6" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-bold text-[#0F2545] text-lg">
+                            {flight ? `${origin?.city || origin?.iata_code} → ${dest?.city || dest?.iata_code}` : 'Vuelo Personalizado'}
+                          </h4>
+                          <p className="text-sm text-slate-500 flex items-center gap-4 mt-1">
+                            <span className="flex items-center gap-1"><Calendar className="h-4 w-4" /> {new Date(booking.created_at).toLocaleDateString()}</span>
+                            <span className="flex items-center gap-1"><UserIcon className="h-4 w-4" /> {Array.isArray(booking.passengers) ? booking.passengers.length : 0} Pasajero(s)</span>
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </Card>
+
+                    {/* Área de Acción (Botón de Descarga) */}
+                    <div className="bg-slate-50 border-t md:border-t-0 md:border-l border-slate-200 p-6 flex flex-col justify-center items-center text-center w-full md:w-64">
+                      {isReadyToDownload ? (
+                        <>
+                          <div className="text-green-600 mb-2">
+                            <CheckCircle className="h-8 w-8 mx-auto" />
+                          </div>
+                          <p className="text-sm font-bold text-slate-700 mb-4">¡Tu boleto está listo!</p>
+                          <a 
+                            href={booking.voucher_pdf_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="w-full bg-[#FF4757] hover:bg-[#e03d4b] text-white py-3 px-4 rounded-xl text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2"
+                          >
+                            <Download className="h-4 w-4" /> Descargar PDF
+                          </a>
+                        </>
+                      ) : statusStr === 'pending_emission' ? (
+                        <>
+                          <div className="text-yellow-500 mb-2 animate-pulse">
+                            <Clock className="h-8 w-8 mx-auto" />
+                          </div>
+                          <p className="text-sm font-bold text-slate-700">Emitiendo boleto...</p>
+                          <p className="text-xs text-slate-500 mt-1">Te notificaremos por correo cuando el PDF esté disponible.</p>
+                        </>
+                      ) : (
+                        <p className="text-sm text-slate-500">Estamos gestionando tu reserva.</p>
+                      )}
+                    </div>
+
+                  </div>
                 );
               })}
             </div>
           )}
-
-<Modal
-  open={cancelModalOpen}
-  onClose={() => {
-    if (submittingCancel) return;
-    setCancelModalOpen(false);
-    setSelectedBooking(null);
-  }}
-  title="Solicitar Cancelación"
->
-  <div className="space-y-4">
-    <div className="flex items-start gap-3">
-      <div className="mt-0.5 rounded-xl bg-amber-50 p-2 text-amber-700">
-        <AlertTriangle className="h-5 w-5" />
+        </div>
       </div>
-      <div>
-        <h3 className="text-lg font-bold text-neutral-900">Solicitar Cancelación</h3>
-        <p className="text-sm text-neutral-600">
-          Las cancelaciones están sujetas a penalizaciones de la aerolínea. Nuestro equipo le
-          contactará por WhatsApp.
-        </p>
-      </div>
-    </div>
-
-    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-      <button
-        onClick={() => {
-          if (submittingCancel) return;
-          setCancelModalOpen(false);
-          setSelectedBooking(null);
-        }}
-        className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-      >
-        Volver
-      </button>
-
-      <button
-        onClick={requestCancellation}
-        disabled={submittingCancel}
-        className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
-      >
-        {submittingCancel ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        Confirmar solicitud
-      </button>
-    </div>
-  </div>
-</Modal>
-
-      </div>
-    </div>
     </div>
   );
 }

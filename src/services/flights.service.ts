@@ -76,22 +76,15 @@ function buildSearchBody(params: FlightSearchParams): {
 } {
   // New format
   if ('legs' in params && Array.isArray(params.legs) && params.legs.length > 0) {
-    const multiLegParams = params as {
-      legs: FlightLeg[];
-      passengers: number;
-      filters?: FlightSearchFilters;
-      cabinClass?: string;
-    };
-
     return {
-      legs: multiLegParams.legs.map((l) => ({
+      legs: params.legs.map((l) => ({
         origin: l.origin.toUpperCase(),
         destination: l.destination.toUpperCase(),
         departure_date: l.departure_date,
       })),
-      passengers: multiLegParams.passengers,
-      filters: normalizeFilters(multiLegParams.filters),
-      cabinClass: multiLegParams.cabinClass,
+      passengers: params.passengers,
+      filters: normalizeFilters(params.filters),
+      cabinClass: params.cabinClass,
     };
   }
 

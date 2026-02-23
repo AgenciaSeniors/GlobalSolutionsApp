@@ -17,7 +17,7 @@ export default function AgentNewsWall() {
     <div className="md:col-span-2 space-y-6">
       <h2 className="text-lg font-bold text-gray-700 flex items-center gap-2">
         <Bell className="w-5 h-5 text-[#FF4757]" />
-        Novedades Operativas
+        Novedades
       </h2>
 
       {loading && (

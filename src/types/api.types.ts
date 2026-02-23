@@ -43,6 +43,7 @@ export type FlightSearchParams =
   | {
       legs: FlightLeg[];
       passengers: number;
+      cabinClass?: string;
       filters?: FlightSearchFilters;
     }
   | {
@@ -52,9 +53,8 @@ export type FlightSearchParams =
       departure_date: string;
       return_date?: string;
       passengers: number;
-       cabinClass?: string;
+      cabinClass?: string;
       filters?: FlightSearchFilters;
-     
     };
 
 /* ------------------------------------------------------------------ */

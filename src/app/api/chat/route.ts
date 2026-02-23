@@ -46,7 +46,57 @@ const KB: ReadonlyArray<{ title: string; text: string }> = [
   {
     title: 'Soporte',
     text:
-      'Si tu caso es urgente o complejo, puedo escalarlo a un agente. Escribe: “Hablar con un agente”.',
+      'Si tu caso es urgente o complejo, puedo escalarlo a un agente. Escribe: "Hablar con un agente".',
+  },
+  {
+    title: 'Destinos principales',
+    text:
+      'Operamos vuelos a Cuba (La Habana HAV, Varadero VRA, Holguín HOG, Santiago SCU), México (CDMX MEX, Cancún CUN), Panamá (PTY), España (Madrid MAD, Barcelona BCN) y USA (Miami MIA, Nueva York JFK/EWR).',
+  },
+  {
+    title: 'Aerolíneas disponibles',
+    text:
+      'Trabajamos con Copa Airlines (hub en PTY), Iberia, American Airlines, JetBlue, Aeromexico, Wingo y Cubana de Aviación. La disponibilidad varía según la ruta y fecha.',
+  },
+  {
+    title: 'Proceso de reserva',
+    text:
+      'Pasos: 1) Busca tu vuelo en la sección Vuelos. 2) Selecciona el vuelo. 3) Completa los datos de los pasajeros. 4) Elige tu método de pago. 5) Confirma el checkout. Recibirás el voucher en tu correo.',
+  },
+  {
+    title: 'Tiempos de emisión según método de pago',
+    text:
+      'Stripe y PayPal: el pago se confirma automáticamente y la emisión del boleto toma hasta 24 horas. Zelle: un agente confirma el pago manualmente en 2–4 horas, luego procede la emisión.',
+  },
+  {
+    title: 'Documentos requeridos para viajar',
+    text:
+      'Necesitas pasaporte vigente con al menos 6 meses de validez. Ciudadanos cubanos deben presentar pasaporte cubano. Algunos destinos requieren visa (ej: USA, Schengen). Consulta requisitos con tu agente.',
+  },
+  {
+    title: 'Renta de autos',
+    text:
+      'Ofrecemos renta de autos en Cuba. Categorías disponibles: económico, compacto y SUV, con transmisión manual o automática. Se requiere licencia de conducir vigente y pasaporte. El seguro básico está incluido.',
+  },
+  {
+    title: 'Escalas y conexiones frecuentes',
+    text:
+      'La mayoría de vuelos hacia Cuba tienen escala en Ciudad de Panamá (PTY) con Copa Airlines o en Miami (MIA). La duración total varía entre 8 y 16 horas según el origen.',
+  },
+  {
+    title: 'Programa de lealtad',
+    text:
+      'Acumulas puntos automáticamente con cada reserva completada. Los puntos se pueden canjear como descuento en tu próxima reserva. Consulta tu saldo en la sección "Mi Panel".',
+  },
+  {
+    title: 'Política de cancelación y cambios',
+    text:
+      'Las políticas dependen de la aerolínea y el tipo de tarifa. Tarifas flex permiten cambios o cancelaciones con reembolso parcial. Tarifas básicas pueden ser no reembolsables. Para revisar tu caso escríbeme tu código de reserva.',
+  },
+  {
+    title: 'Contacto y horario de atención',
+    text:
+      'Nuestros agentes atienden de lunes a viernes, 9am–6pm (hora de Cuba). Para urgencias puedes contactarnos por WhatsApp. Escribe "Hablar con un agente" en este chat para ser conectado de inmediato.',
   },
 ] as const;
 
@@ -512,12 +562,14 @@ export async function POST(req: Request) {
   // Step 4: concise responses
   const system =
     `Eres el asistente oficial de Global Solutions Travel.\n` +
-    `Objetivo: ayudar con vuelos, reservas/PNR, pagos, reembolsos, equipaje, emisión y vouchers.\n` +
+    `Objetivo: ayudar con vuelos, reservas/PNR, pagos, reembolsos, equipaje, emisión, vouchers, destinos y aerolíneas.\n` +
     `Reglas:\n` +
     `1) Responde SIEMPRE en español, claro y con pasos.\n` +
     `2) No inventes políticas. Si falta info, pide el dato faltante.\n` +
     `3) Si el caso requiere verificación (pago/emisión/reembolso/cambio), pide PNR o código de reserva y correo.\n` +
     `4) Mantén la respuesta en máximo 120 palabras salvo que el usuario pida detalle.\n` +
+    `5) Cuando respondas sobre destinos o aerolíneas, menciona datos concretos del KB si están disponibles.\n` +
+    `6) Si el usuario pregunta por precios, explica que varían según fecha/disponibilidad y ofrécele ir al buscador de vuelos en la sección Vuelos.\n` +
     (kbSnippets ? `\n[BASE DE CONOCIMIENTO]\n${kbSnippets}\n` : '');
 
   let assistantText = '';

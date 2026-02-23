@@ -9,13 +9,12 @@ import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
-  CalendarCheck, Plane, Star, Clock, ArrowRight,
-  DollarSign, Sparkles, Trophy,
+  Plane, Star, Clock, ArrowRight,
+  DollarSign,Trophy,
 } from 'lucide-react';
 
 interface DashboardStats {
   totalBookings: number;
-  activeBookings: number;
   completedFlights: number;
   loyaltyPoints: number;
   totalSpent: number;
@@ -46,7 +45,6 @@ export default function UserDashboardPage() {
 
   const [stats, setStats] = useState<DashboardStats>({
     totalBookings: 0,
-    activeBookings: 0,
     completedFlights: 0,
     loyaltyPoints: 0,
     totalSpent: 0,
@@ -76,7 +74,7 @@ export default function UserDashboardPage() {
             .eq('id', user.id)
             .single(),
 
-          supabase.from('reviews').select('id').eq('user_id', user.id),
+          supabase.from('reviews').select('id').eq('profile_id', user.id),
 
           supabase
             .from('bookings')
@@ -107,10 +105,7 @@ export default function UserDashboardPage() {
       const paidBookings = allBookings.filter((b) => b.payment_status === 'paid');
 
       setStats({
-        totalBookings: allBookings.length,
-        activeBookings: allBookings.filter(
-          (b) => b.booking_status === 'pending_emission' || b.booking_status === 'confirmed',
-        ).length,
+        totalBookings: paidBookings.length,
         completedFlights: allBookings.filter((b) => b.booking_status === 'completed').length,
         loyaltyPoints: profileRes.data?.loyalty_points || 0,
         totalSpent: paidBookings.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0),
@@ -150,16 +145,6 @@ export default function UserDashboardPage() {
   const formatMoney = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0);
 
-  // Loyalty tier
-  const getLoyaltyTier = (pts: number) => {
-    if (pts >= 5000) return { name: 'Platino', color: 'text-purple-700 bg-purple-100', icon: '💎' };
-    if (pts >= 2000) return { name: 'Oro', color: 'text-amber-700 bg-amber-100', icon: '🥇' };
-    if (pts >= 500) return { name: 'Plata', color: 'text-gray-600 bg-gray-100', icon: '🥈' };
-    return { name: 'Bronce', color: 'text-orange-700 bg-orange-100', icon: '🥉' };
-  };
-
-  const tier = getLoyaltyTier(stats.loyaltyPoints);
-
   return (
     <div className="flex min-h-screen">
       <Sidebar links={USER_SIDEBAR_LINKS} />
@@ -181,21 +166,13 @@ export default function UserDashboardPage() {
           ) : (
             <>
               {/* KPIs */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-4">
                 <Card className="p-4 border border-gray-100">
                   <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Reservas totales</div>
+                    <div className="text-sm text-gray-500">Reservas completadas</div>
                     <Plane size={18} className="text-brand-500" />
                   </div>
                   <div className="mt-2 text-2xl font-semibold text-navy">{stats.totalBookings}</div>
-                </Card>
-
-                <Card className="p-4 border border-gray-100">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Activas</div>
-                    <CalendarCheck size={18} className="text-emerald-500" />
-                  </div>
-                  <div className="mt-2 text-2xl font-semibold text-navy">{stats.activeBookings}</div>
                 </Card>
 
                 <Card className="p-4 border border-gray-100">
@@ -206,24 +183,6 @@ export default function UserDashboardPage() {
                   <div className="mt-2 text-2xl font-semibold text-navy">{formatMoney(stats.totalSpent)}</div>
                 </Card>
 
-                {/* Loyalty Points Card */}
-                <Card className="p-4 border border-amber-200 bg-amber-50/30">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-amber-700 flex items-center gap-1">
-                      <Sparkles size={14} /> Puntos de Lealtad
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${tier.color}`}>
-                      {tier.icon} {tier.name}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-2xl font-bold text-amber-700">{stats.loyaltyPoints.toLocaleString()} pts</div>
-                  <Link
-                    href="/user/dashboard/loyalty"
-                    className="mt-2 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
-                  >
-                    Ver historial de puntos <ArrowRight size={12} />
-                  </Link>
-                </Card>
               </div>
 
               {/* Quick Actions */}

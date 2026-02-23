@@ -12,18 +12,21 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Pin, Trash2, Megaphone } from 'lucide-react';
+import { Plus, Pin, Trash2, Megaphone, Pencil } from 'lucide-react';
 import type { AgentNews } from '@/types/models';
+import { toast } from 'sonner';
 
 export default function AdminNewsPage() {
   const supabase = createClient();
   const [news, setNews] = useState<AgentNews[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [category, setCategory] = useState<'update' | 'promo' | 'alert'>('update');
   const [isPinned, setIsPinned] = useState(false);
+  
 
   // 2. Wrap fetchNews in useCallback to stabilize the function reference
   const fetchNews = useCallback(async () => {
@@ -42,28 +45,77 @@ export default function AdminNewsPage() {
     fetchNews(); 
   }, [fetchNews]);
 
-  async function handlePublish() {
-    if (!title.trim() || !content.trim()) return;
-    await supabase.from('agent_news').insert({
-      title: title.trim(),
-      content: content.trim(),
-      category,
-      is_pinned: isPinned,
-    });
-    setEditing(false);
-    setTitle(''); setContent('');
-    fetchNews();
+ function resetForm() {
+  setEditing(false);
+  setEditingId(null);
+  setTitle('');
+  setContent('');
+  setCategory('update');
+  setIsPinned(false);
+}
+
+function startCreate() {
+  setEditing(true);
+  setEditingId(null);
+  setTitle('');
+  setContent('');
+  setCategory('update');
+  setIsPinned(false);
+}
+
+function startEdit(n: AgentNews) {
+  setEditing(true);
+  setEditingId(n.id);
+  setTitle(n.title || '');
+  setContent(n.content || '');
+  setCategory(((n.category as any) || 'update') as typeof category);
+  setIsPinned(!!n.is_pinned);
+}
+
+async function handleSave() {
+  if (!title.trim() || !content.trim()) return;
+
+  const payload = {
+    title: title.trim(),
+    content: content.trim(),
+    category,
+    is_pinned: isPinned,
+  };
+
+  const { error } = editingId
+    ? await supabase.from('agent_news').update(payload).eq('id', editingId)
+    : await supabase.from('agent_news').insert(payload);
+
+  if (error) {
+    console.error('agent_news save error:', error);
+    toast.error(`No se pudo guardar: ${error.message}`);
+    return;
   }
+
+  toast.success(editingId ? 'Noticia actualizada' : 'Noticia publicada');
+  resetForm();
+  fetchNews();
+}
 
   async function deleteNews(id: string) {
     if (confirm('¿Eliminar esta noticia?')) {
-      await supabase.from('agent_news').delete().eq('id', id);
+     const { error } = await supabase.from('agent_news').delete().eq('id', id);
+if (error) {
+  toast.error(`No se pudo eliminar: ${error.message}`);
+  return;
+}
+toast.success('Noticia eliminada');
+if (editingId === id) resetForm();
       fetchNews();
     }
   }
 
   async function togglePin(id: string, current: boolean) {
-    await supabase.from('agent_news').update({ is_pinned: !current }).eq('id', id);
+    const { error } = await supabase.from('agent_news').update({ is_pinned: !current }).eq('id', id);
+if (error) {
+  toast.error(`No se pudo fijar/desfijar: ${error.message}`);
+  return;
+}
     fetchNews();
   }
 
@@ -80,15 +132,15 @@ export default function AdminNewsPage() {
         <Header title="Noticias para Gestores" subtitle="Publica actualizaciones en el muro de la comunidad" />
         <div className="p-8">
           <div className="mb-6 flex justify-end">
-            <Button onClick={() => setEditing(!editing)} className="gap-2">
-              <Plus className="h-4 w-4" /> Nueva Noticia
-            </Button>
+           <Button onClick={startCreate} className="gap-2">
+  <Plus className="h-4 w-4" /> Nueva Noticia
+</Button>
           </div>
 
           {editing && (
             <Card className="mb-8 border-2 border-blue-200 bg-blue-50/30">
               <h3 className="mb-4 flex items-center gap-2 font-bold">
-                <Megaphone className="h-5 w-5 text-blue-600" /> Publicar Noticia
+                <Megaphone className="h-5 w-5 text-blue-600" /> {editingId ? 'Editar Noticia' : 'Publicar Noticia'}
               </h3>
               <div className="space-y-4">
                 {/* 4. Removed 'label' prop and added manual label styling */}
@@ -121,8 +173,8 @@ export default function AdminNewsPage() {
                   </label>
                 </div>
                 <div className="flex gap-3">
-                  <Button onClick={handlePublish}>Publicar</Button>
-                  <Button variant="outline" onClick={() => setEditing(false)}>Cancelar</Button>
+                 <Button onClick={handleSave}>{editingId ? 'Guardar cambios' : 'Publicar'}</Button>
+<Button variant="outline" onClick={resetForm}>Cancelar</Button>
                 </div>
               </div>
             </Card>
@@ -147,6 +199,9 @@ export default function AdminNewsPage() {
                       <p className="mt-2 text-xs text-neutral-400">{new Date(n.created_at).toLocaleDateString('es', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                     </div>
                     <div className="flex gap-1">
+                      <button onClick={() => startEdit(n)} className="rounded-lg p-2 hover:bg-neutral-100" title="Editar">
+  <Pencil className="h-4 w-4 text-neutral-400" />
+</button>
                       <button onClick={() => togglePin(n.id, n.is_pinned)} className="rounded-lg p-2 hover:bg-neutral-100">
                         <Pin className={`h-4 w-4 ${n.is_pinned ? 'text-amber-500' : 'text-neutral-300'}`} />
                       </button>

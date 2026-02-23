@@ -18,8 +18,10 @@ import Button from '@/components/ui/Button';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { useAppSettings } from '@/hooks/useAppSettings';
+import { COUNTRIES } from '@/lib/data/countries';
 import PriceBreakdownCard from '@/components/features/checkout/PriceBreakdownCard';
-import type { FlightWithDetails, PriceBreakdown } from '@/types/models';
+import type { FlightWithDetails, PriceBreakdown, SelectedLeg } from '@/types/models';
+import type { SpecialOfferStop } from '@/types/models';
 import {
   CreditCard,
   Building,
@@ -31,7 +33,11 @@ import {
   AlertTriangle,
   MapPin,
   Flame,
+  CircleDot,
+  Armchair,
+  Luggage,
 } from 'lucide-react';
+import Image from 'next/image';
 
 const FormField = ({
   label,
@@ -45,7 +51,7 @@ const FormField = ({
 
 type Gateway = 'stripe' | 'paypal' | 'zelle';
 
-/** Shape of offer data stored in sessionStorage */
+/** Shape of offer data used in checkout — enriched with flight details */
 interface OfferCheckoutData {
   offer_id: string;
   destination: string;
@@ -57,6 +63,32 @@ interface OfferCheckoutData {
   max_seats: number;
   sold_seats: number;
   tags: string[];
+  // Flight detail fields (populated from DB)
+  airline_name: string | null;
+  airline_logo: string | null;
+  airline_iata: string | null;
+  origin_city: string | null;
+  origin_code: string | null;
+  destination_city: string | null;
+  destination_code: string | null;
+  departure_time: string | null;
+  arrival_time: string | null;
+  flight_duration: string | null;
+  aircraft_type: string | null;
+  cabin_class: string | null;
+  baggage_included: string | null;
+  stops: SpecialOfferStop[];
+}
+
+function cabinLabel(cabin: string | null) {
+  if (!cabin) return 'Económica';
+  const map: Record<string, string> = {
+    economy: 'Económica',
+    premium_economy: 'Premium Economy',
+    business: 'Business',
+    first: 'Primera Clase',
+  };
+  return map[cabin] ?? cabin;
 }
 
 function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: string): FlightWithDetails {
@@ -144,24 +176,29 @@ export default function CheckoutPage() {
   const { user } = useAuthContext();
   const { settings, loading: settingsLoading, calculateGatewayFee } = useAppSettings();
 
-  // Detect mode: offer-based or flight-based
+  // --- URL params (read once) ---
   const offerId = searchParams.get('offer');
   const offerDate = searchParams.get('date');
   const flightId = searchParams.get('flight');
-  const offerId = searchParams.get('offer');
-  const offerDate = searchParams.get('date');
   const passengerCount = parseInt(searchParams.get('passengers') || '1', 10);
+  const checkoutMode = searchParams.get('mode'); // 'multicity' | null
 
   const isOfferMode = Boolean(offerId);
+  const isMulticityMode = checkoutMode === 'multicity';
 
-  // -- Offer state --
+  // --- Offer state ---
   const [offerData, setOfferData] = useState<OfferCheckoutData | null>(null);
 
-  // -- Flight state --
+  // --- Flight state ---
   const [flight, setFlight] = useState<FlightWithDetails | null>(null);
   const [flightDbId, setFlightDbId] = useState<string | null>(null);
   const [flightProviderId, setFlightProviderId] = useState<string | null>(null);
 
+  // --- Multicity state ---
+  const [multicityLegs, setMulticityLegs] = useState<SelectedLeg[]>([]);
+  const [multicityFlightIds, setMulticityFlightIds] = useState<string[]>([]);
+
+  // --- Shared state ---
   const [loading, setLoading] = useState(true);
   const [gateway, setGateway] = useState<Gateway>('stripe');
   const [passengers, setPassengers] = useState<
@@ -174,7 +211,6 @@ export default function CheckoutPage() {
       passport_expiry: string;
     }>
   >([]);
-
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -182,17 +218,38 @@ export default function CheckoutPage() {
 
   const hasLoadedRef = useRef(false);
 
+  // --- Derived values ---
+  const pricePerPerson = isMulticityMode
+    ? multicityLegs.reduce((acc, leg) => {
+        const raw = leg.rawFlight as Record<string, unknown>;
+        return acc + Number(raw.final_price ?? raw.price ?? 0);
+      }, 0)
+    : isOfferMode
+      ? (offerData?.offer_price ?? 0)
+      : (flight?.final_price ?? 0);
+
+  // BUG 3b FIX: for multicity, both arrays must be filled and in sync
+  const isReady = !loading && !settingsLoading && (
+    isMulticityMode
+      ? multicityLegs.length > 0 && multicityFlightIds.length === multicityLegs.length
+      : isOfferMode
+        ? !!offerData
+        : !!flight
+  );
+
+  // --- Data loading ---
   useEffect(() => {
     if (!user) {
-      // Build redirect URL preserving either flight or offer params
-      const redirectParams = offerId
-        ? `offer=${offerId}&date=${offerDate ?? ''}`
-        : `flight=${flightId ?? ''}&passengers=${passengerCount}`;
+      const redirectParams = isMulticityMode
+        ? `mode=multicity&passengers=${passengerCount}`
+        : offerId
+          ? `offer=${offerId}&date=${offerDate ?? ''}&passengers=${passengerCount}`
+          : `flight=${flightId ?? ''}&passengers=${passengerCount}`;
       router.push(`/login?redirect=${encodeURIComponent(`/checkout?${redirectParams}`)}`);
       return;
     }
 
-    if (!flightId && !offerId) {
+    if (!isMulticityMode && !flightId && !offerId) {
       router.push('/flights');
       return;
     }
@@ -206,193 +263,250 @@ export default function CheckoutPage() {
     hasLoadedRef.current = true;
 
     async function load() {
-      if (isOfferMode) {
-        // === OFFER MODE ===
-        let offer: OfferCheckoutData | null = null;
-
-        // 1) Try sessionStorage
-        try {
-          const cached = sessionStorage.getItem('selectedOfferData');
-          if (cached) {
-            const parsed = JSON.parse(cached) as OfferCheckoutData;
-            if (parsed.offer_id === offerId) {
-              offer = parsed;
-            }
-            sessionStorage.removeItem('selectedOfferData');
-          }
-        } catch (e) {
-          console.warn('[Checkout] sessionStorage error:', e);
-        }
-
-        // 2) Fallback: fetch offer from DB
-        if (!offer && offerId) {
-          const { data } = await supabase
-            .from('special_offers')
-            .select('*')
-            .eq('id', offerId)
-            .single();
-
-          if (data) {
-            offer = {
-              offer_id: data.id,
-              destination: data.destination,
-              destination_img: data.destination_img,
-              offer_price: Number(data.offer_price),
-              original_price: Number(data.original_price),
-              flight_number: data.flight_number,
-              selected_date: offerDate!,
-              max_seats: data.max_seats,
-              sold_seats: data.sold_seats,
-              tags: data.tags ?? [],
-            };
-          }
-        }
-
-        if (!offer) {
-          setError('No se encontró la información de la oferta. Por favor, vuelve a seleccionar la oferta.');
-          setLoading(false);
-          return;
-        }
-
-      // ✅ 2) If coming from an exclusive offer, load offer data and build synthetic flight
-      if (!flightData && offerId) {
-        try {
-          const { data: offer, error: offerErr } = await supabase
-            .from('special_offers')
-            .select(
-              '*, origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*), airline:airlines!airline_id(*)'
-            )
-            .eq('id', offerId)
-            .single();
-
-          if (offerErr) {
-            console.warn('[Checkout] Offer lookup failed:', offerErr.message);
-          }
-
-          if (offer) {
-            const syntheticFlight: Record<string, unknown> = {
-              id: offer.id,
-              airline_id: offer.airline_id,
-              flight_number: offer.flight_number || 'OFFER',
-              origin_airport_id: offer.origin_airport_id,
-              destination_airport_id: offer.destination_airport_id,
-              departure_datetime: offerDate ? `${offerDate}T08:00:00Z` : new Date().toISOString(),
-              arrival_datetime: offerDate ? `${offerDate}T23:59:59Z` : new Date().toISOString(),
-              base_price: offer.offer_price / (1 + ((offer.markup_percentage ?? 10) / 100)),
-              markup_percentage: offer.markup_percentage ?? 10,
-              final_price: offer.offer_price,
-              total_seats: offer.max_seats,
-              available_seats: Math.max(0, offer.max_seats - offer.sold_seats),
-              is_exclusive_offer: true,
-              offer_id: offer.id,
-              airline: offer.airline || {},
-              origin_airport: offer.origin_airport || {},
-              destination_airport: offer.destination_airport || {},
-            };
-
-            flightData = rawToFlightWithDetails(syntheticFlight, offer.id);
-
-            // Persist to DB to get a real UUID for the booking
-            try {
-              const { uuid } = await persistFlightToDb(syntheticFlight);
-              resolvedDbId = uuid;
-              flightData = { ...flightData, id: uuid };
-              console.log('[Checkout] ✅ Offer persisted -> UUID:', uuid);
-            } catch (persistErr) {
-              console.warn('[Checkout] Offer persist failed, using offer ID:', persistErr);
-              resolvedDbId = offer.id;
-            }
-          }
-        } catch (err) {
-          console.warn('[Checkout] Offer load error:', err);
-        }
-      }
-
-      // ✅ 3) If sessionStorage didn't have it and no offer, try DB (only works for real DB UUIDs)
-      if (!flightData && flightId) {
-        const isUUID = isUuidLike(flightId);
-
-        if (isUUID) {
+      try {
+        if (isMulticityMode) {
+          // ═══════════════════════════════════════
+          // MULTICITY MODE
+          // ═══════════════════════════════════════
+          let legs: SelectedLeg[] = [];
           try {
-            const { data, error: dbError } = await supabase
+            const raw = sessionStorage.getItem('multicity_selected_legs');
+            if (raw) {
+              const parsed = JSON.parse(raw) as SelectedLeg[];
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                legs = parsed.sort((a, b) => a.legIndex - b.legIndex);
+              }
+            }
+          } catch (e) {
+            console.warn('[Checkout] Failed to read multicity legs from sessionStorage:', e);
+          }
+
+          if (legs.length === 0) {
+            router.push('/flights');
+            return;
+          }
+
+          // Persist each leg to DB to get a stable UUID
+          const resolvedIds: string[] = [];
+          for (const leg of legs) {
+            const raw = leg.rawFlight as Record<string, unknown>;
+            const rawId = String(raw.id ?? '');
+            if (isUuidLike(rawId)) {
+              resolvedIds.push(rawId);
+            } else {
+              try {
+                const { uuid } = await persistFlightToDb(raw);
+                resolvedIds.push(uuid);
+              } catch (err) {
+                console.warn('[Checkout] Failed to persist multicity leg:', err);
+                setError('Error al preparar uno de los vuelos. Vuelve a seleccionar tu itinerario.');
+                setLoading(false);
+                return;
+              }
+            }
+          }
+
+          // Validate seat availability for each leg
+          for (let i = 0; i < resolvedIds.length; i++) {
+            const { data: fl } = await supabase
               .from('flights')
-              .select(
-                '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)'
-              )
-              .eq('id', flightId)
+              .select('available_seats')
+              .eq('id', resolvedIds[i])
+              .single();
+            if (fl && (fl.available_seats as number) < passengerCount) {
+              setError(
+                `El Tramo ${i + 1} no tiene suficientes asientos disponibles. Por favor, elige otro vuelo.`
+              );
+              setLoading(false);
+              return;
+            }
+          }
+
+          setMulticityLegs(legs);
+          setMulticityFlightIds(resolvedIds);
+          // Clear sessionStorage after loading
+          try { sessionStorage.removeItem('multicity_selected_legs'); } catch { /* ignore */ }
+        } else if (isOfferMode) {
+          // ═══════════════════════════════════════
+          // OFFER MODE
+          // ═══════════════════════════════════════
+          let offer: OfferCheckoutData | null = null;
+
+          // Always fetch full offer from DB with airline/airport joins
+          // (sessionStorage may have stale data or missing flight details)
+          try {
+            sessionStorage.removeItem('selectedOfferData');
+          } catch { /* ignore */ }
+
+          if (offerId) {
+            const { data } = await supabase
+              .from('special_offers')
+              .select('*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)')
+              .eq('id', offerId)
               .single();
 
-            if (dbError) {
-              console.warn('[Checkout] DB lookup failed:', dbError.message);
-            }
+            if (data) {
+              const airline = data.airline as Record<string, unknown> | null;
+              const originAirport = data.origin_airport as Record<string, unknown> | null;
+              const destAirport = data.destination_airport as Record<string, unknown> | null;
+              const offerStops = (data.stops ?? []) as SpecialOfferStop[];
 
-            sessionStorage.removeItem('selectedFlightData');
+              offer = {
+                offer_id: data.id,
+                destination: data.destination,
+                destination_img: data.destination_img,
+                offer_price: Number(data.offer_price),
+                original_price: Number(data.original_price),
+                flight_number: data.flight_number,
+                selected_date: offerDate!,
+                max_seats: data.max_seats,
+                sold_seats: data.sold_seats,
+                tags: data.tags ?? [],
+                // Flight details
+                airline_name: airline ? String(airline.name ?? '') : null,
+                airline_logo: airline ? (airline.logo_url as string) ?? null : null,
+                airline_iata: airline ? String(airline.iata_code ?? '') : null,
+                origin_city: data.origin_city ?? (originAirport ? String(originAirport.city ?? '') : null),
+                origin_code: originAirport ? String(originAirport.iata_code ?? '') : null,
+                destination_city: data.destination_city ?? (destAirport ? String(destAirport.city ?? '') : null),
+                destination_code: destAirport ? String(destAirport.iata_code ?? '') : null,
+                departure_time: data.departure_time ? String(data.departure_time).slice(0, 5) : null,
+                arrival_time: data.arrival_time ? String(data.arrival_time).slice(0, 5) : null,
+                flight_duration: data.flight_duration,
+                aircraft_type: data.aircraft_type,
+                cabin_class: data.cabin_class,
+                baggage_included: data.baggage_included,
+                stops: offerStops,
+              };
+            }
           }
-        } catch (e) {
-          console.warn('[Checkout] sessionStorage error:', e);
-        }
 
-        if (!flightData) {
-          const isUUID = isUuidLike(flightId!);
+          if (!offer) {
+            setError('No se encontró la información de la oferta. Por favor, vuelve a seleccionar la oferta.');
+            setLoading(false);
+            return;
+          }
 
-          if (isUUID) {
-            try {
-              const { data } = await supabase
-                .from('flights')
-                .select(
-                  '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)'
-                )
-                .eq('id', flightId)
-                .single();
-
-              if (data) {
-                flightData = data as unknown as FlightWithDetails;
-                resolvedDbId = flightId;
-              }
-            } catch (err) {
-              console.warn('[Checkout] DB query error:', err);
-            }
-          } else {
+          // 3) Validate seat availability
+          const seatsAvailable = offer.max_seats - offer.sold_seats;
+          if (seatsAvailable < passengerCount) {
             setError(
-              'No se encontró la información del vuelo. Esto puede ocurrir si recargas la página. Por favor, vuelve a buscar el vuelo.'
+              `Solo quedan ${seatsAvailable} cupo(s) disponible(s) para esta oferta. Has seleccionado ${passengerCount} pasajero(s).`
             );
             setLoading(false);
             return;
           }
+
+          setOfferData(offer);
+        } else {
+          // ═══════════════════════════════════════
+          // FLIGHT MODE
+          // ═══════════════════════════════════════
+          let flightData: FlightWithDetails | null = null;
+          let resolvedDbId: string | null = null;
+          let resolvedProviderId: string | null = null;
+
+          // 1) Try sessionStorage
+          try {
+            const cached = sessionStorage.getItem('selectedFlightData');
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              const rawId = String(parsed.id ?? flightId);
+
+              if (isUuidLike(rawId)) {
+                flightData = rawToFlightWithDetails(parsed, rawId);
+                resolvedDbId = rawId;
+              } else {
+                // External ID — persist to get a real UUID
+                try {
+                  const { uuid, externalId } = await persistFlightToDb(parsed);
+                  flightData = rawToFlightWithDetails(parsed, uuid);
+                  flightData = { ...flightData, id: uuid };
+                  resolvedDbId = uuid;
+                  resolvedProviderId = externalId;
+                } catch (persistErr) {
+                  console.warn('[Checkout] Persist failed:', persistErr);
+                }
+              }
+              sessionStorage.removeItem('selectedFlightData');
+            }
+          } catch (e) {
+            console.warn('[Checkout] sessionStorage error:', e);
+          }
+
+          // 2) Fallback: fetch from DB if we have a UUID
+          if (!flightData && flightId) {
+            if (isUuidLike(flightId)) {
+              try {
+                const { data } = await supabase
+                  .from('flights')
+                  .select(
+                    '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)'
+                  )
+                  .eq('id', flightId)
+                  .single();
+
+                if (data) {
+                  flightData = data as unknown as FlightWithDetails;
+                  resolvedDbId = flightId;
+                }
+              } catch (err) {
+                console.warn('[Checkout] DB query error:', err);
+              }
+            } else {
+              setError(
+                'No se encontró la información del vuelo. Esto puede ocurrir si recargas la página. Por favor, vuelve a buscar el vuelo.'
+              );
+              setLoading(false);
+              return;
+            }
+          }
+
+          if (!flightData || !resolvedDbId) {
+            router.push('/flights');
+            return;
+          }
+
+          // Validate seat availability
+          if (flightData.available_seats < passengerCount) {
+            setError(
+              `Solo quedan ${flightData.available_seats} asiento(s) disponible(s). Has seleccionado ${passengerCount} pasajero(s).`
+            );
+            setLoading(false);
+            return;
+          }
+
+          setFlight(flightData);
+          setFlightDbId(resolvedDbId);
+          setFlightProviderId(resolvedProviderId);
         }
 
-        if (!flightData || !resolvedDbId) {
-          router.push('/flights');
-          return;
-        }
+        // Initialize empty passenger forms for both modes
+        setPassengers(
+          Array.from({ length: passengerCount }, () => ({
+            first_name: '',
+            last_name: '',
+            dob: '',
+            nationality: '',
+            passport_number: '',
+            passport_expiry: '',
+          }))
+        );
 
-      // ✅ 4) If still no data, redirect back
-      if (!flightData || !resolvedDbId) {
-        console.warn('[Checkout] ❌ Flight/offer not found for id:', flightId ?? offerId);
-        router.push(offerId ? '/offers' : '/flights');
-        return;
+        setLoading(false);
+      } catch (err) {
+        console.error('[Checkout] Unexpected load error:', err);
+        setError('Error inesperado al cargar el checkout. Inténtalo de nuevo.');
+        setLoading(false);
       }
-
-      // Initialize passengers for both modes
-      setPassengers(
-        Array.from({ length: passengerCount }, () => ({
-          first_name: '',
-          last_name: '',
-          dob: '',
-          nationality: '',
-          passport_number: '',
-          passport_expiry: '',
-        }))
-      );
-
-      setLoading(false);
     }
 
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flightId, offerId, user]);
+  }, [flightId, offerId, isMulticityMode, user]);
 
-  if (loading || settingsLoading || !isReady) {
+  // --- Loading / error screen ---
+  if (!isReady) {
     return (
       <>
         <Navbar />
@@ -413,6 +527,7 @@ export default function CheckoutPage() {
     );
   }
 
+  // --- Price breakdown ---
   const subtotal = pricePerPerson * passengerCount;
   const gatewayFee = calculateGatewayFee(subtotal, gateway);
   const total = Math.round((subtotal + gatewayFee) * 100) / 100;
@@ -434,6 +549,7 @@ export default function CheckoutPage() {
     breakdown.markup_amount = flight.final_price - flight.base_price;
   }
 
+  // --- Helpers ---
   function updatePassenger(index: number, field: string, value: string) {
     setPassengers((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: value } : p)));
   }
@@ -469,7 +585,25 @@ export default function CheckoutPage() {
     }
     return true;
   }
+  async function requestZelle(bookingId: string) {
+  const res = await fetch('/api/payments/zelle/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      booking_id: bookingId,
+      note: 'Checkout: user selected Zelle',
+    }),
+  });
 
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(data?.error || 'Failed to request Zelle');
+  }
+
+  return data as { success: boolean; already_requested?: boolean; repaired?: boolean };
+}
+  // --- Submit ---
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!user) return;
@@ -483,12 +617,112 @@ export default function CheckoutPage() {
     try {
       const newBookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
-      if (isOfferMode && offerData) {
-        // === OFFER BOOKING ===
+      if (isMulticityMode && multicityLegs.length > 0 && multicityFlightIds.length > 0) {
+        // ═══ MULTICITY BOOKING ═══
+        const totalSubtotal = multicityLegs.reduce((acc, leg) => {
+          const raw = leg.rawFlight as Record<string, unknown>;
+          return acc + Number(raw.final_price ?? raw.price ?? 0) * passengerCount;
+        }, 0);
+        const gatewayFeeMulticity = calculateGatewayFee(totalSubtotal, gateway);
+        const totalMulticity = Math.round((totalSubtotal + gatewayFeeMulticity) * 100) / 100;
+
         const { data: booking, error: bookingErr } = await supabase
           .from('bookings')
           .insert({
             booking_code: newBookingCode,
+            user_id: user.id,
+            profile_id: user.id,
+            flight_id: null,
+            trip_type: 'multicity',
+            subtotal: totalSubtotal,
+            payment_gateway_fee: gateway === 'zelle' ? 0 : Math.round(gatewayFeeMulticity * 100) / 100,
+            total_amount: gateway === 'zelle' ? totalSubtotal : totalMulticity,
+            payment_method: gateway,
+            payment_status: 'pending',
+            booking_status: 'pending_emission',
+            currency: 'USD',
+            pricing_breakdown: {
+              base_price: pricePerPerson,
+              markup_amount: 0,
+              subtotal: totalSubtotal,
+              gateway_fee: Math.round(gatewayFeeMulticity * 100) / 100,
+              gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
+              gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
+              total: totalMulticity,
+              passengers: passengerCount,
+            },
+          })
+          .select('id')
+          .single();
+
+        if (bookingErr) {
+          console.error('[Checkout] Multicity booking insert failed:', bookingErr.message);
+          throw bookingErr;
+        }
+
+        // Insert one itinerary row per leg
+        for (let i = 0; i < multicityLegs.length; i++) {
+          const leg = multicityLegs[i];
+          const raw = leg.rawFlight as Record<string, unknown>;
+          const legSubtotal = Number(raw.final_price ?? raw.price ?? 0) * passengerCount;
+
+          const { error: itinErr } = await supabase.from('booking_itineraries').insert({
+            booking_id: booking.id,
+            leg_index: i,
+            flight_id: multicityFlightIds[i] ?? null,
+            origin_iata: leg.legMeta.origin,
+            destination_iata: leg.legMeta.destination,
+            departure_datetime: String(raw.departure_datetime ?? raw.departureTime ?? '') || null,
+            arrival_datetime: String(raw.arrival_datetime ?? raw.arrivalTime ?? '') || null,
+            subtotal: legSubtotal,
+          });
+          if (itinErr) throw itinErr;
+        }
+
+        // Insert passengers
+        for (const p of passengers) {
+          const { error: pErr } = await supabase.from('booking_passengers').insert({
+            booking_id: booking.id,
+            first_name: p.first_name.trim(),
+            last_name: p.last_name.trim(),
+            date_of_birth: p.dob,
+            nationality: p.nationality.trim().toUpperCase(),
+            passport_number: p.passport_number.trim(),
+            passport_expiry_date: p.passport_expiry,
+          });
+          if (pErr) throw pErr;
+        }
+
+        // Decrement available_seats on each leg's flight
+        for (const flightUuid of multicityFlightIds) {
+          const { data: fl } = await supabase
+            .from('flights')
+            .select('available_seats')
+            .eq('id', flightUuid)
+            .single();
+          if (fl) {
+            await supabase
+              .from('flights')
+              .update({ available_seats: (fl.available_seats as number) - passengerCount })
+              .eq('id', flightUuid);
+          }
+        }
+
+        if (gateway === 'zelle') {
+          await requestZelle(booking.id);
+          setBookingCode(newBookingCode);
+          setSuccess(true);
+          return;
+        }
+
+        router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
+      } else if (isOfferMode && offerData) {
+        // ═══ OFFER BOOKING ═══
+        const { data: booking, error: bookingErr } = await supabase
+          .from('bookings')
+          .insert({
+            booking_code: newBookingCode,
+            profile_id: user.id,
             user_id: user.id,
             offer_id: offerData.offer_id,
             selected_date: offerData.selected_date,
@@ -530,6 +764,7 @@ export default function CheckoutPage() {
           .eq('id', offerData.offer_id);
 
         if (gateway === 'zelle') {
+          await requestZelle(booking.id);
           setBookingCode(newBookingCode);
           setSuccess(true);
           return;
@@ -537,7 +772,7 @@ export default function CheckoutPage() {
 
         router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
       } else if (flight && flightDbId) {
-        // === FLIGHT BOOKING (existing logic) ===
+        // ═══ FLIGHT BOOKING ═══
         if (!isUuidLike(flightDbId)) {
           setError('Error interno: No se tiene un ID de vuelo válido.');
           return;
@@ -586,10 +821,11 @@ export default function CheckoutPage() {
           .eq('id', flightDbId);
 
         if (gateway === 'zelle') {
-          setBookingCode(newBookingCode);
-          setSuccess(true);
-          return;
-        }
+            await requestZelle(booking.id);
+            setBookingCode(newBookingCode);
+            setSuccess(true);
+            return;
+          }
 
         router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
       }
@@ -601,6 +837,7 @@ export default function CheckoutPage() {
     }
   }
 
+  // --- Success screen (Zelle) ---
   if (success) {
     return (
       <>
@@ -627,7 +864,8 @@ export default function CheckoutPage() {
     );
   }
 
-  // Format the selected date for display
+  // --- Display date ---
+  // BUG 3a FIX: add multicity branch so displayDate is never empty when flight=null
   const displayDate = isOfferMode && offerData
     ? new Date(offerData.selected_date + 'T12:00:00').toLocaleDateString('es', {
         weekday: 'long',
@@ -635,21 +873,24 @@ export default function CheckoutPage() {
         month: 'long',
         year: 'numeric',
       })
-    : flight
-      ? new Date(flight.departure_datetime).toLocaleDateString('es', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        })
-      : '';
+    : isMulticityMode && multicityLegs.length > 0
+      ? multicityLegs[0].legMeta.date
+      : flight
+        ? new Date(flight.departure_datetime).toLocaleDateString('es', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })
+        : '';
 
+  // --- Main checkout UI ---
   return (
     <>
       <Navbar />
       <main className="min-h-screen bg-neutral-50 pb-20 pt-24">
         <div className="mx-auto max-w-5xl px-6">
-          <h1 className="mb-8 font-display text-3xl font-bold">Finalizar Compra</h1>
+          <h1 className="mb-6 font-display text-2xl font-bold sm:mb-8 sm:text-3xl">Finalizar Compra</h1>
 
           {error && (
             <div className="mb-6 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">
@@ -658,41 +899,166 @@ export default function CheckoutPage() {
           )}
 
           <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-              <div className="space-y-6 lg:col-span-2">
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-5 lg:grid-cols-3">
+              <div className="space-y-6 md:col-span-3 lg:col-span-2">
                 {/* Booking summary card */}
                 <Card variant="bordered">
-                  {isOfferMode && offerData ? (
-                    // === OFFER SUMMARY ===
-                    <div className="flex items-center gap-4">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-brand-100">
-                        {offerData.destination_img ? (
-                          <img
-                            src={offerData.destination_img}
-                            alt={offerData.destination}
-                            className="h-full w-full rounded-2xl object-cover"
-                          />
-                        ) : (
-                          <MapPin className="h-8 w-8 text-brand-600" />
-                        )}
+                  {isMulticityMode && multicityLegs.length > 0 ? (
+                    // === MULTICITY SUMMARY ===
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Plane className="h-5 w-5 text-brand-600" />
+                        <h3 className="font-bold">Itinerario Multidestino</h3>
+                        <span className="rounded-md bg-brand-50 px-2 py-0.5 text-xs font-bold text-brand-700">
+                          {multicityLegs.length} tramos
+                        </span>
                       </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold">{offerData.destination}</p>
-                          <Flame className="h-4 w-4 text-orange-500" />
-                          <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                            Oferta Exclusiva
-                          </span>
+                      {[...multicityLegs].sort((a, b) => a.legIndex - b.legIndex).map((leg, i) => {
+                        const raw = leg.rawFlight as Record<string, unknown>;
+                        const legPrice = Number(raw.final_price ?? raw.price ?? 0);
+                        return (
+                          <div key={i} className="flex items-center gap-3 rounded-xl bg-neutral-50 px-4 py-3">
+                            <div className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                              {i + 1}
+                            </div>
+                            <Plane className="h-4 w-4 text-brand-400 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <span className="font-bold text-sm">{leg.legMeta.origin}</span>
+                              <span className="text-neutral-400 mx-1 text-sm">→</span>
+                              <span className="font-bold text-sm">{leg.legMeta.destination}</span>
+                              <span className="text-neutral-400 text-xs ml-2">{leg.legMeta.date}</span>
+                            </div>
+                            <div className="text-right text-sm font-bold text-brand-600 flex-shrink-0">
+                              ${legPrice.toFixed(2)}
+                              <span className="text-xs font-normal text-neutral-400">/p</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="border-t pt-2 flex justify-between text-sm font-bold text-neutral-700">
+                        <span>Total por persona</span>
+                        <span>${pricePerPerson.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ) : isOfferMode && offerData ? (
+                    // === OFFER SUMMARY (rich flight details) ===
+                    <div className="space-y-4">
+                      {/* Header row: image + destination + price */}
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-brand-100 overflow-hidden relative">
+                          {offerData.destination_img ? (
+                            <Image
+                              src={offerData.destination_img}
+                              alt={offerData.destination}
+                              fill
+                              sizes="64px"
+                              className="object-cover"
+                            />
+                          ) : (
+                            <MapPin className="h-8 w-8 text-brand-600" />
+                          )}
                         </div>
-                        {offerData.flight_number && (
-                          <p className="text-sm text-neutral-500">Vuelo {offerData.flight_number}</p>
-                        )}
-                        <p className="text-xs text-neutral-400 capitalize">{displayDate}</p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold truncate">{offerData.destination}</p>
+                            <Flame className="h-4 w-4 flex-shrink-0 text-orange-500" />
+                            <span className="flex-shrink-0 rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                              Oferta Exclusiva
+                            </span>
+                          </div>
+                          {offerData.airline_name && (
+                            <p className="text-sm text-neutral-500">
+                              {offerData.airline_name}
+                              {offerData.flight_number && <> · Vuelo {offerData.flight_number}</>}
+                            </p>
+                          )}
+                          <p className="text-xs text-neutral-400 capitalize">{displayDate}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm text-neutral-400 line-through">${offerData.original_price.toFixed(2)}</p>
+                          <p className="text-lg font-bold text-emerald-600">${offerData.offer_price.toFixed(2)}</p>
+                          <p className="text-xs text-neutral-400">por persona</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm text-neutral-400 line-through">${offerData.original_price.toFixed(2)}</p>
-                        <p className="text-lg font-bold text-emerald-600">${offerData.offer_price.toFixed(2)}</p>
-                        <p className="text-xs text-neutral-400">por persona</p>
+
+                      {/* Flight route strip */}
+                      {offerData.departure_time && offerData.origin_code && offerData.destination_code && (
+                        <div className="rounded-xl bg-neutral-50 px-4 py-3">
+                          <div className="flex items-center gap-4">
+                            {/* Origin */}
+                            <div className="text-center min-w-[60px]">
+                              <p className="text-lg font-bold text-brand-950">{offerData.departure_time}</p>
+                              <p className="text-sm font-bold text-brand-700">{offerData.origin_code}</p>
+                              {offerData.origin_city && (
+                                <p className="text-[10px] text-neutral-500 truncate max-w-[80px]">{offerData.origin_city}</p>
+                              )}
+                            </div>
+
+                            {/* Flight path */}
+                            <div className="flex flex-1 flex-col items-center gap-0.5">
+                              {offerData.flight_duration && (
+                                <p className="text-[10px] text-neutral-500">{offerData.flight_duration}</p>
+                              )}
+                              <div className="relative flex w-full items-center">
+                                <div className="h-[2px] flex-1 bg-brand-200" />
+                                {offerData.stops.map((stop, i) => (
+                                  <div key={i} className="relative mx-1 flex flex-col items-center">
+                                    <CircleDot className="h-2.5 w-2.5 text-amber-500" />
+                                    <span className="absolute top-3 whitespace-nowrap text-[9px] font-semibold text-amber-600">
+                                      {stop.airport_code}
+                                    </span>
+                                  </div>
+                                ))}
+                                <div className="h-[2px] flex-1 bg-brand-200" />
+                                <Plane className="-ml-1 h-3.5 w-3.5 text-brand-600" />
+                              </div>
+                              <p className="text-[10px] font-medium text-brand-600">
+                                {offerData.stops.length === 0
+                                  ? 'Vuelo directo'
+                                  : `${offerData.stops.length} escala${offerData.stops.length > 1 ? 's' : ''}`}
+                              </p>
+                            </div>
+
+                            {/* Destination */}
+                            <div className="text-center min-w-[60px]">
+                              <p className="text-lg font-bold text-brand-950">{offerData.arrival_time}</p>
+                              <p className="text-sm font-bold text-brand-700">{offerData.destination_code}</p>
+                              {offerData.destination_city && (
+                                <p className="text-[10px] text-neutral-500 truncate max-w-[80px]">{offerData.destination_city}</p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Stop details */}
+                          {offerData.stops.length > 0 && (
+                            <div className="mt-2 border-t border-neutral-200 pt-2">
+                              {offerData.stops.map((stop, i) => (
+                                <p key={i} className="text-xs text-neutral-500">
+                                  Escala en {stop.city} ({stop.airport_code}) · {stop.duration}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Flight detail pills */}
+                      <div className="flex flex-wrap gap-2">
+                        {offerData.aircraft_type && (
+                          <span className="inline-flex items-center gap-1 rounded-lg bg-neutral-100 px-2.5 py-1 text-xs text-neutral-600">
+                            <Plane className="h-3 w-3" /> {offerData.aircraft_type}
+                          </span>
+                        )}
+                        {offerData.cabin_class && (
+                          <span className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2.5 py-1 text-xs text-brand-700">
+                            <Armchair className="h-3 w-3" /> {cabinLabel(offerData.cabin_class)}
+                          </span>
+                        )}
+                        {offerData.baggage_included && (
+                          <span className="inline-flex items-center gap-1 rounded-lg bg-neutral-100 px-2.5 py-1 text-xs text-neutral-600">
+                            <Luggage className="h-3 w-3" /> {offerData.baggage_included}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ) : flight ? (
@@ -758,14 +1124,24 @@ export default function CheckoutPage() {
                         onChange={(e) => updatePassenger(i, 'dob', e.target.value)}
                         required
                       />
-                      <FormField
-                        label="Nacionalidad"
-                        value={p.nationality}
-                        onChange={(e) => updatePassenger(i, 'nationality', e.target.value)}
-                        placeholder="CUB"
-                        maxLength={3}
-                        required
-                      />
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-neutral-700">
+                          Nacionalidad <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={p.nationality}
+                          onChange={(e) => updatePassenger(i, 'nationality', e.target.value)}
+                          required
+                          className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:opacity-50"
+                        >
+                          <option value="">Selecciona un país…</option>
+                          {COUNTRIES.map((c) => (
+                            <option key={c.code} value={c.code}>
+                              {c.name} ({c.code})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                       <FormField
                         label="Número de Pasaporte"
                         value={p.passport_number}
@@ -846,7 +1222,7 @@ export default function CheckoutPage() {
               </div>
 
               {/* Sidebar */}
-              <div className="space-y-4">
+              <div className="space-y-4 md:col-span-2 lg:col-span-1">
                 <PriceBreakdownCard breakdown={breakdown} gateway={gateway} />
 
                 <Button type="submit" isLoading={processing} className="w-full gap-2">

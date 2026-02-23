@@ -280,7 +280,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await supabaseAdmin
       .rpc("log_payment_event_once", {
         p_provider: "paypal",
-        p_event_id: `capture_${captureId}_${Date.now()}`,
+        p_event_id: `capture_${captureId}_${booking_id}`,
         p_event_type: "capture.completed.direct",
         p_booking_id: booking_id,
         p_payment_intent_id: order_id,
