@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
@@ -8,6 +9,7 @@ import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 export default function PaymentForm() {
   const stripe = useStripe();
   const elements = useElements();
+  const router = useRouter();
 
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +34,7 @@ export default function PaymentForm() {
 
     setSuccess(true);
     setPaying(false);
+    router.push('/user/dashboard/bookings');
   }
 
   if (success) {

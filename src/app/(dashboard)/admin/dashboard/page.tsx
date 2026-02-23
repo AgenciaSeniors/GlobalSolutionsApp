@@ -15,7 +15,6 @@ import { createClient } from '@/lib/supabase/client';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import {
   CalendarCheck,
-  Users,
   DollarSign,
   Plane,
   ShieldCheck,
@@ -26,19 +25,16 @@ import {
   TrendingUp,
   FileText,
   Megaphone,
-  MessageSquare,
 } from 'lucide-react';
 
 interface DashboardStats {
   totalBookings: number;
   pendingEmission: number;
   urgentEmissions: number;
-  totalUsers: number;
   activeAgents: number;
   monthRevenue: number;
   activeFlights: number;
   pendingReviews: number;
-  pendingQuotations: number;
 }
 
 interface RecentBooking {
@@ -76,7 +72,6 @@ export default function AdminDashboardPage() {
       paidRes,
       flightsRes,
       reviewsRes,
-      quotationsRes,
       recentRes,
     ] = await Promise.all([
       supabase.from('bookings').select('id', { count: 'exact', head: true }),
@@ -86,7 +81,6 @@ export default function AdminDashboardPage() {
       supabase.from('bookings').select('total_amount').eq('payment_status', 'paid'),
       supabase.from('flights').select('id', { count: 'exact', head: true }),
       supabase.from('reviews').select('id', { count: 'exact', head: true }).eq('status', 'pending_approval'),
-      supabase.from('quotation_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('bookings').select(`
         id, booking_code, booking_status, payment_status, total_amount, created_at,
         profile:profiles!user_id(full_name),
@@ -109,12 +103,10 @@ export default function AdminDashboardPage() {
       totalBookings: bookingsRes.count || 0,
       pendingEmission: pendingRes.count || 0,
       urgentEmissions: urgentCount,
-      totalUsers: usersRes.count || 0,
       activeAgents: agentsRes.count || 0,
       monthRevenue,
       activeFlights: flightsRes.count || 0,
       pendingReviews: reviewsRes.count || 0,
-      pendingQuotations: quotationsRes.count || 0,
     });
 
     setRecentBookings((recentRes.data as unknown as RecentBooking[]) || []);
@@ -211,15 +203,7 @@ export default function AdminDashboardPage() {
                 icon: Plane,
                 color: 'text-cyan-600',
                 bg: 'bg-cyan-50',
-                href: '/admin/dashboard/flights',
-              },
-              {
-                label: 'Usuarios',
-                value: stats.totalUsers,
-                icon: Users,
-                color: 'text-indigo-600',
-                bg: 'bg-indigo-50',
-                href: '/admin/dashboard/users',
+                href: '/admin/dashboard/markup',
               },
               {
                 label: 'Gestores Activos',
@@ -237,14 +221,7 @@ export default function AdminDashboardPage() {
                 bg: 'bg-amber-50',
                 href: '/admin/dashboard/reviews',
               },
-              {
-                label: 'Cotizaciones',
-                value: stats.pendingQuotations,
-                icon: MessageSquare,
-                color: 'text-blue-600',
-                bg: 'bg-blue-50',
-                href: '/admin/dashboard/quotations',
-              },
+      
             ].map(({ label, value, icon: Icon, color, bg, href, urgent }) => (
               <Link key={label} href={href}>
                 <Card

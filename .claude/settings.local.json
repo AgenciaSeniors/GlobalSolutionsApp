@@ -27,6 +27,8 @@
       "Bash(git commit:*)",
       "Bash(git diff:*)",
       "Bash(node_modules/.bin/vitest run:*)"
+      "Bash(git show:*)"
+      "Bash(find:*)",
     ]
   }
 }

@@ -101,13 +101,13 @@ export default async function HomePage() {
       <HeroSection />
 
       {/* Flight Search */}
-      <section className="bg-white py-20">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="mb-12 text-center">
+      <section className="bg-white py-12 sm:py-16 md:py-20">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6">
+          <div className="mb-8 text-center sm:mb-12">
             <span className="text-sm font-bold uppercase tracking-widest text-brand-500">
               Búsqueda de Vuelos
             </span>
-            <h2 className="mt-2 font-display text-4xl font-bold text-brand-950">
+            <h2 className="mt-2 font-display text-2xl font-bold text-brand-950 sm:text-3xl md:text-4xl">
               Encuentra tu vuelo ideal
             </h2>
           </div>
@@ -116,16 +116,16 @@ export default async function HomePage() {
       </section>
 
       {/* Offers Carousel */}
-      <section className="bg-neutral-50 py-20">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="mb-12">
+      <section className="bg-neutral-50 py-12 sm:py-16 md:py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <div className="mb-8 sm:mb-12">
             <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-widest text-amber-700">
               🔥 Ofertas Exclusivas
             </span>
-            <h2 className="mt-3 font-display text-4xl font-bold text-brand-950">
+            <h2 className="mt-3 font-display text-2xl font-bold text-brand-950 sm:text-3xl md:text-4xl">
               Destinos imperdibles
             </h2>
-            <p className="mt-2 text-neutral-600">
+            <p className="mt-2 text-sm text-neutral-600 sm:text-base">
               Carrusel visual con ofertas activas y fechas disponibles.
             </p>
           </div>
@@ -147,13 +147,13 @@ export default async function HomePage() {
       <ServicesSection />
 
       {/* Reviews */}
-      <section className="bg-gradient-to-b from-neutral-50 to-brand-50 py-20">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="mb-12 text-center">
+      <section className="bg-gradient-to-b from-neutral-50 to-brand-50 py-12 sm:py-16 md:py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <div className="mb-8 text-center sm:mb-12">
             <span className="text-sm font-bold uppercase tracking-widest text-emerald-600">
               Reseñas Verificadas
             </span>
-            <h2 className="mt-2 font-display text-4xl font-bold text-brand-950">
+            <h2 className="mt-2 font-display text-2xl font-bold text-brand-950 sm:text-3xl md:text-4xl">
               Lo que dicen nuestros viajeros
             </h2>
 
@@ -175,7 +175,7 @@ export default async function HomePage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
               {reviewCards.slice(0, 3).map((r, i) => (
                 <ReviewCard key={`${r.authorName}-${i}`} {...r} />
               ))}

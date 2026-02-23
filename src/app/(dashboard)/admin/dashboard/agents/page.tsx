@@ -32,13 +32,13 @@ export default function AdminAgentsPage() {
   const [requests, setRequests] = useState<AgentRequest[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Estado para desplegar/ocultar la lista de solicitudes al dar clic en la tarjeta
+  // Mostrar/Ocultar lista de solicitudes
   const [showRequests, setShowRequests] = useState(false);
 
-  // búsqueda en tabla
+  // Búsqueda en tabla
   const [search, setSearch] = useState('');
 
-  // promover/crear agente desde email
+  // Promover/crear agente desde email
   const [promoteEmail, setPromoteEmail] = useState('');
   const [promoteCode, setPromoteCode] = useState('');
   const [promoteActive, setPromoteActive] = useState(true);
@@ -46,62 +46,69 @@ export default function AdminAgentsPage() {
   
   const [toast, setToast] = useState<ToastState>({ ok: null, error: null });
 
-  // edición rápida de agent_code por fila
+  // Edición rápida de agent_code por fila
   const [editCodeById, setEditCodeById] = useState<Record<string, string>>({});
   const [savingCodeById, setSavingCodeById] = useState<Record<string, boolean>>({});
 
+  // Cargar datos iniciales
   useEffect(() => {
-    fetchAgents();
+    fetchAgentsData();
+    fetchRequestsData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function fetchAgents() {
+  // Función exclusiva para cargar la tabla de Gestores
+  async function fetchAgentsData() {
     setLoading(true);
-    
-    // Peticiones en paralelo
-    const [agentsRes, requestsRes] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'agent')
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('agent_requests')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: true })
-    ]);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'agent') // Solo los que tengan rol 'agent'
+      .order('created_at', { ascending: false });
 
-    if (agentsRes.error) {
-      console.error('fetchAgents error:', agentsRes.error);
+    if (error) {
+      console.error('fetchAgentsData error:', error);
       setAgents([]);
     } else {
-      const rows = (agentsRes.data ?? []) as Profile[];
+      const rows = (data ?? []) as Profile[];
       setAgents(rows);
 
-      // inicializa edit inputs
+      // Inicializa edit inputs
       const initial: Record<string, string> = {};
       for (const a of rows) {
         initial[a.id] = a.agent_code ?? '';
       }
       setEditCodeById(initial);
     }
-
-    if (!requestsRes.error) {
-      const pendingReqs = (requestsRes.data as unknown as AgentRequest[]) ?? [];
-      setRequests(pendingReqs);
-      // Si el contador llega a 0, ocultar la lista
-      if (pendingReqs.length === 0) setShowRequests(false);
-    }
-
     setLoading(false);
   }
 
+  // Función exclusiva para cargar las Solicitudes Pendientes
+  async function fetchRequestsData() {
+    const { data, error } = await supabase
+      .from('agent_requests')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true });
+
+    if (!error) {
+      const pendingReqs = (data as unknown as AgentRequest[]) ?? [];
+      setRequests(pendingReqs);
+      if (pendingReqs.length === 0) setShowRequests(false);
+    }
+  }
+
+  // Desactivar: Cambia el rol a 'client' y lo saca de la tabla
   async function toggleAgentStatus(agent: Profile) {
     setToast({ ok: null, error: null });
+    
+    const isDeactivating = agent.is_active;
+    const nextActive = !agent.is_active;
+    const nextRole: UserRole = isDeactivating ? 'client' : 'agent';
+
     const { error } = await supabase
       .from('profiles')
-      .update({ is_active: !agent.is_active })
+      .update({ is_active: nextActive, role: nextRole })
       .eq('id', agent.id);
 
     if (error) {
@@ -109,8 +116,13 @@ export default function AdminAgentsPage() {
       return;
     }
 
-    setToast({ ok: `Estado actualizado: ${agent.full_name}`, error: null });
-    fetchAgents();
+    if (isDeactivating) {
+      setToast({ ok: `El gestor ${agent.full_name} fue desactivado y ha vuelto a ser Cliente.`, error: null });
+    } else {
+      setToast({ ok: `Gestor activado correctamente: ${agent.full_name}`, error: null });
+    }
+    
+    fetchAgentsData();
   }
 
   async function saveAgentCode(agentId: string) {
@@ -152,22 +164,29 @@ export default function AdminAgentsPage() {
       }
 
       setToast({ ok: `Código actualizado: ${code}`, error: null });
-      fetchAgents();
+      fetchAgentsData();
     } finally {
       setSavingCodeById((p) => ({ ...p, [agentId]: false }));
     }
   }
 
-  // --- LÓGICA DE SOLICITUDES --- //
+  // --- LÓGICA DE SOLICITUDES PENDIENTES --- //
   
-  // Aprobar: Cambia el rol directo a agent y marca como approved
+  const handleToggleRequests = () => {
+    // Si no hay solicitudes pendientes, bloqueamos la acción y no abrimos nada
+    if (requests.length === 0) return;
+    setShowRequests(!showRequests);
+  };
+
+  // Aprobar solicitud
+// Aprobar solicitud
   async function handleApproveRequest(req: AgentRequest) {
     setToast({ ok: null, error: null });
     
-    // 1. Actualizar el rol en la tabla perfiles
+    // 1. Convertir a agente y activarlo en perfiles
     const { error: profileErr } = await supabase
       .from('profiles')
-      .update({ role: 'agent' })
+      .update({ role: 'agent', is_active: true })
       .eq('id', req.user_id);
       
     if (profileErr) {
@@ -175,7 +194,7 @@ export default function AdminAgentsPage() {
       return;
     }
     
-    // 2. Marcar la solicitud como aprobada
+    // 2. Marcar solicitud como aprobada
     const { error: reqErr } = await supabase
       .from('agent_requests')
       .update({ status: 'approved' })
@@ -186,31 +205,81 @@ export default function AdminAgentsPage() {
       return;
     }
 
-    setToast({ 
-      ok: `¡Usuario ${req.contact_full_name} aprobado como agente! Recuerda asignarle un código en la tabla.`, 
-      error: null 
+    // 🚀 NUEVO: 3. Obtener el token de sesión y disparar el correo de aprobación
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      await fetch('/api/notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          type: 'agent_approved', // Le pasamos el tipo de notificación
+          email: req.contact_email,
+          data: { name: req.contact_full_name }
+        })
+      });
+    } catch (error) {
+      console.error('Error enviando email de notificación:', error);
+      // No bloqueamos el flujo si el email falla, el usuario ya fue aprobado en DB
+    }
+
+    setToast({ ok: `¡Usuario ${req.contact_full_name} aprobado como agente y notificado!`, error: null });
+
+    // 4. Eliminar de la lista visual inmediatamente
+    setRequests(prev => {
+      const updated = prev.filter(r => r.id !== req.id);
+      if (updated.length === 0) setShowRequests(false); // Cierra si era la última
+      return updated;
     });
-    fetchAgents();
+
+    // 5. Recargar tabla de agentes
+    fetchAgentsData();
   }
 
-  // Declinar: Marca la solicitud como rechazada
-  async function handleDeclineRequest(reqId: string) {
+  // Declinar solicitud
+ async function handleDeclineRequest(req: AgentRequest) {
     setToast({ ok: null, error: null });
+    
     const { error } = await supabase
       .from('agent_requests')
       .update({ status: 'rejected' })
-      .eq('id', reqId);
+      .eq('id', req.id);
 
     if (error) {
       setToast({ ok: null, error: 'Error al declinar solicitud' });
       return;
     }
 
-    setToast({ ok: 'Solicitud declinada.', error: null });
-    fetchAgents(); 
+    // 🚀 ENVIAR CORREO DE RECHAZO
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      await fetch('/api/notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          type: 'agent_rejected', 
+          email: req.contact_email,
+          data: { name: req.contact_full_name }
+        })
+      });
+    } catch (e) { console.error(e); }
+
+    setToast({ ok: 'Solicitud declinada y usuario notificado.', error: null });
+    
+    setRequests(prev => {
+      const updated = prev.filter(r => r.id !== req.id);
+      if (updated.length === 0) setShowRequests(false);
+      return updated;
+    });
   }
 
-  // Creación manual
+  // --- PROMOCION MANUAL --- //
   async function promoteToAgent() {
     setToast({ ok: null, error: null });
 
@@ -276,7 +345,7 @@ export default function AdminAgentsPage() {
       setPromoteEmail('');
       setPromoteCode('');
       setPromoteActive(true);
-      fetchAgents();
+      fetchAgentsData();
     } finally {
       setPromoteLoading(false);
     }
@@ -305,9 +374,9 @@ export default function AdminAgentsPage() {
 
         <div className="p-8 space-y-6">
           {/* Alertas */}
-          <div className="flex items-center gap-2">
-            {toast.ok && <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-3 py-1 rounded-md w-full">{toast.ok}</span>}
-            {toast.error && <span className="text-sm font-medium text-red-600 bg-red-50 px-3 py-1 rounded-md w-full">{toast.error}</span>}
+          <div className="flex items-center gap-2 min-h-[32px]">
+            {toast.ok && <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-3 py-1 rounded-md w-full transition-all">{toast.ok}</span>}
+            {toast.error && <span className="text-sm font-medium text-red-600 bg-red-50 px-3 py-1 rounded-md w-full transition-all">{toast.error}</span>}
           </div>
 
           {/* Stats */}
@@ -342,29 +411,31 @@ export default function AdminAgentsPage() {
               </div>
             </Card>
 
-            {/* Tarjeta Botón de Solicitudes Pendientes */}
+            {/* Tarjeta de Solicitudes Pendientes */}
             <div 
-              onClick={() => {
-                if (requests.length > 0) setShowRequests(!showRequests);
-              }}
-              className={`rounded-2xl border bg-white p-6 shadow-sm transition ${
+              onClick={handleToggleRequests}
+              className={`rounded-2xl border bg-white p-6 transition select-none ${
                 requests.length > 0 
-                  ? 'cursor-pointer hover:border-blue-300 hover:shadow-md border-blue-100 ring-2 ring-transparent hover:ring-blue-50' 
-                  : 'border-neutral-200 opacity-70'
+                  ? 'cursor-pointer hover:shadow-md border-red-300 ring-2 ring-red-50 hover:border-red-400' 
+                  : 'border-neutral-200 opacity-60 cursor-default'
               }`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <ClipboardList className={`h-8 w-8 ${requests.length > 0 ? 'text-blue-500' : 'text-neutral-400'}`} />
+                  <ClipboardList className={`h-8 w-8 transition-colors ${
+                    requests.length > 0 ? 'text-red-500' : 'text-neutral-400'
+                  }`} />
                   <div>
-                    <p className="text-sm text-neutral-500">Nuevas Solicitudes</p>
-                    <p className={`text-2xl font-bold ${requests.length > 0 ? 'text-blue-600' : 'text-neutral-600'}`}>
+                    <p className="text-sm text-neutral-500">Solicitudes Pendientes</p>
+                    <p className={`text-2xl font-bold transition-colors ${
+                      requests.length > 0 ? 'text-red-600' : 'text-neutral-400'
+                    }`}>
                       {requests.length}
                     </p>
                   </div>
                 </div>
                 {requests.length > 0 && (
-                  <span className="text-xs text-blue-500 font-medium">Ver {showRequests ? 'menos' : 'todas'}</span>
+                  <span className="text-xs text-neutral-500 font-medium">Ver {showRequests ? 'menos' : 'todas'}</span>
                 )}
               </div>
             </div>
@@ -372,13 +443,16 @@ export default function AdminAgentsPage() {
 
           {/* LISTA DESPLEGABLE DE SOLICITUDES PENDIENTES */}
           {showRequests && requests.length > 0 && (
-            <Card variant="bordered" className="border-blue-200 bg-blue-50/20 animate-in fade-in slide-in-from-top-4 duration-300">
+            <Card variant="bordered" className="border-neutral-200 bg-white shadow-md animate-in fade-in slide-in-from-top-4 duration-300">
               <h3 className="text-base font-bold text-neutral-900 mb-4 flex items-center gap-2">
-                <ClipboardList className="h-4 w-4 text-blue-600" /> Solicitudes Pendientes de Aprobación
+                <ClipboardList className="h-4 w-4 text-neutral-600" /> Solicitudes por Revisar
               </h3>
-              <div className="divide-y divide-blue-100">
+              <div className="space-y-3">
                 {requests.map(req => (
-                  <div key={req.id} className="py-3 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                  <div 
+                    key={req.id} 
+                    className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-4 rounded-xl transition-all duration-300 border bg-neutral-50/50 hover:border-neutral-200"
+                  >
                     <div>
                       <p className="font-semibold text-sm text-neutral-900">
                         {req.contact_full_name}
@@ -388,11 +462,20 @@ export default function AdminAgentsPage() {
                         Solicitado el: {new Date(req.created_at).toLocaleDateString('es')}
                       </p>
                     </div>
+                    
                     <div className="flex items-center gap-2">
-                      <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50 hover:border-red-200" onClick={() => handleDeclineRequest(req.id)}>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="text-red-600 hover:bg-red-50 hover:border-red-200" 
+                        onClick={() => handleDeclineRequest(req)}
+                      >
                         <X className="h-3.5 w-3.5 mr-1" /> Declinar
                       </Button>
-                      <Button size="sm" onClick={() => handleApproveRequest(req)}>
+                      <Button 
+                        size="sm" 
+                        onClick={() => handleApproveRequest(req)}
+                      >
                         <Check className="h-3.5 w-3.5 mr-1" /> Aprobar
                       </Button>
                     </div>
@@ -483,16 +566,15 @@ export default function AdminAgentsPage() {
                       <td className="px-4 py-3 font-semibold">{agent.full_name}</td>
                       <td className="px-4 py-3 text-neutral-600">{agent.email}</td>
 
-                      {/* Código editable - Aquí se le asignará código a los recién aprobados */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <input
-                            className="w-28 rounded-lg border border-neutral-300 px-2 py-1 font-mono text-xs"
+                            className="w-28 rounded-lg border border-neutral-300 px-2 py-1 font-mono text-xs focus:ring-2 focus:ring-brand-500"
                             value={editCodeById[agent.id] ?? ''}
                             onChange={(e) =>
                               setEditCodeById((p) => ({ ...p, [agent.id]: e.target.value }))
                             }
-                            placeholder="GST123"
+                            placeholder="Ej: GST123"
                           />
                           <Button
                             size="sm"

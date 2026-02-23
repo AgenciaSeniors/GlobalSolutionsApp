@@ -1,8 +1,11 @@
+// src/app/api/webhooks/stripe/route.ts
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { Resend } from 'resend';
+import { paymentProcessingEmail } from '@/lib/email/templates';
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
@@ -11,7 +14,7 @@ function requiredEnv(name: string): string {
 }
 
 const stripe = new Stripe(requiredEnv('STRIPE_SECRET_KEY'), {
-  // Usa una versiÃ³n estable de stripe-node. Si ya fijaste otra, puedes cambiarla,
+  // Usa una versión estable de stripe-node. Si ya fijaste otra, puedes cambiarla,
   // pero esta es segura para PaymentIntents.
   apiVersion: '2024-06-20',
 });
@@ -47,7 +50,7 @@ function getMetadataString(
 
 /**
  * Inserta el evento una sola vez (idempotencia real) usando RPC.
- * Devuelve true si se insertÃ³ por primera vez; false si ya existÃ­a (duplicado).
+ * Devuelve true si se insertó por primera vez; false si ya existía (duplicado).
  */
 async function logStripeEventOnce(params: {
   event: Stripe.Event;
@@ -67,10 +70,7 @@ async function logStripeEventOnce(params: {
   });
 
   if (error) {
-    // Si esto falla, prefiero NO romper el webhook (Stripe reintenta y puedes duplicar updates).
-    // Pero como ya tienes la tabla y la funciÃ³n, esto no deberÃ­a fallar.
     console.error('[Stripe Webhook] RPC log_stripe_event_once failed:', error.message);
-    // Si quieres ser mÃ¡s estricto: return false + 500. En dev es mejor ver el error.
     throw new Error(`RPC failed: ${error.message}`);
   }
 
@@ -88,7 +88,7 @@ async function updateBookingPaymentStatus(params: {
   bookingId: string | null;
   paymentIntentId: string;
   paidAtIso?: string;
-}): Promise<void> {
+}): Promise<any> {
   const supabaseAdmin = createAdminClient();
 
   const updatePayload: Record<string, string | null> = {
@@ -96,6 +96,8 @@ async function updateBookingPaymentStatus(params: {
     payment_intent_id: params.paymentIntentId,
     payment_method: 'stripe',
     payment_gateway: 'stripe',
+    // 🚀 FIX: Aseguramos que cambie a pending_emission para que salga en el panel
+    booking_status: params.status === 'paid' ? 'pending_emission' : 'pending_payment'
   };
 
   if (params.status === 'paid') {
@@ -103,15 +105,17 @@ async function updateBookingPaymentStatus(params: {
   }
 
   const q = params.bookingId
-    ? supabaseAdmin.from('bookings').update(updatePayload).eq('id', params.bookingId)
-    : supabaseAdmin.from('bookings').update(updatePayload).eq('payment_intent_id', params.paymentIntentId);
+    ? supabaseAdmin.from('bookings').update(updatePayload).eq('id', params.bookingId).select('id, booking_code').single()
+    : supabaseAdmin.from('bookings').update(updatePayload).eq('payment_intent_id', params.paymentIntentId).select('id, booking_code').single();
 
-  const { error } = await q;
+  const { data, error } = await q;
 
   if (error) {
     console.error('[Stripe Webhook] DB update failed:', error.message);
     throw new Error(`DB update failed: ${error.message}`);
   }
+
+  return data;
 }
 
 async function markBookingRefunded(params: {
@@ -198,7 +202,6 @@ export async function POST(request: NextRequest) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Event logging failed';
     console.error('[Stripe Webhook] Event logging failed:', message);
-    // AquÃ­ sÃ­ devolvemos 500 para que Stripe reintente, porque sin log no garantizamos idempotencia.
     return NextResponse.json({ error: 'Event logging failed' }, { status: 500 });
   }
 
@@ -207,15 +210,61 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case 'payment_intent.succeeded': {
         const pi = event.data.object as Stripe.PaymentIntent;
+        const supabaseAdmin = createAdminClient();
 
         const targetBookingId = getMetadataString(pi.metadata, 'booking_id');
-        await updateBookingPaymentStatus({
+        
+        // Actualizamos estado a Pagado y Pendiente Emisión
+        const booking = await updateBookingPaymentStatus({
           status: 'paid',
           bookingId: targetBookingId,
           paymentIntentId: pi.id,
           paidAtIso: new Date().toISOString(),
         });
 
+        if (booking) {
+          // 🔔 1. NOTIFICACIÓN POR CORREO AL CLIENTE (MANEJO DE EXPECTATIVAS)
+          try {
+            const { data: bookingData } = await supabaseAdmin
+              .from('bookings')
+              .select(`booking_code, profile:profiles!bookings_user_id_fkey(email, full_name)`)
+              .eq('id', booking.id)
+              .single();
+
+            const profile = bookingData?.profile ? (Array.isArray(bookingData.profile) ? bookingData.profile[0] : bookingData.profile) : null;
+
+            // 🚀 FIX: Aseguramos que bookingData no es nulo antes de leer sus propiedades
+            if (bookingData && profile?.email && process.env.RESEND_API_KEY) {
+              const resend = new Resend(process.env.RESEND_API_KEY);
+              await resend.emails.send({
+                from: 'Global Solutions Travel <onboarding@resend.dev>', // Cámbialo a tu correo cuando estés en producción
+                to: profile.email,
+                subject: `Pago Confirmado - Reserva ${bookingData.booking_code}`,
+                html: paymentProcessingEmail({
+                  clientName: profile.full_name || 'Cliente',
+                  bookingCode: bookingData.booking_code
+                })
+              });
+              console.log(`✅ Correo de expectativa enviado al cliente: ${profile.email}`);
+            }
+          } catch (mailError) {
+            console.error("⚠️ Error enviando correo al cliente:", mailError);
+          }
+
+          // 🔔 2. NOTIFICACIÓN IN-APP PARA ADMINISTRADORES
+          const { data: admins } = await supabaseAdmin.from('profiles').select('id').eq('role', 'admin');
+          if (admins && admins.length > 0) {
+            const notifications = admins.map((admin: any) => ({
+              user_id: admin.id, 
+              type: 'system_alert', 
+              title: '🚨 NUEVA EMISIÓN PENDIENTE',
+              content: `La reserva ${booking.booking_code} ha sido pagada. Ya puedes emitir el boleto.`,
+              link: `/admin/dashboard/emission?id=${booking.id}`, 
+              is_read: false
+            }));
+            await supabaseAdmin.from('notifications').insert(notifications);
+          }
+        }
         break;
       }
 
@@ -232,7 +281,6 @@ export async function POST(request: NextRequest) {
 
       case 'charge.refunded': {
         const ch = event.data.object as Stripe.Charge;
-        // Charge.payment_intent can be string | PaymentIntent | null
         const piId =
           typeof ch.payment_intent === 'string'
             ? ch.payment_intent
@@ -243,7 +291,6 @@ export async function POST(request: NextRequest) {
           break;
         }
 
-        // Try to resolve booking_id from charge metadata (if you set it) otherwise DB fallback by payment_intent_id.
         const targetBookingId =
           getMetadataString((ch.metadata as Stripe.Metadata | undefined) ?? undefined, 'booking_id') ??
           null;
@@ -270,7 +317,6 @@ export async function POST(request: NextRequest) {
       }
 
       default: {
-        // No hacemos nada mÃ¡s (pero ya quedÃ³ auditado en payment_events por RPC)
         console.log(`[Stripe Webhook] Unhandled event: ${event.type}`);
         break;
       }

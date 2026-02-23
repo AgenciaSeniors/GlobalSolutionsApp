@@ -22,7 +22,7 @@ import {
   getPassengerPricingDetails,
   type PaymentGateway,
 } from "@/lib/pricing/bookingPricing";
-import type { PriceBreakdown } from "@/lib/pricing/priceEngine";
+import type { FeePolicy, PriceBreakdown } from "@/lib/pricing/priceEngine";
 import type { PassengerType } from "@/lib/pricing/passengerRules";
 
 /* ───────────────────── Types ───────────────────── */
@@ -134,6 +134,47 @@ export class PricingServiceError extends Error {
   }
 }
 
+/* ───────────────────── Gateway Fee Loader ───────────────────── */
+
+/**
+ * Fetches gateway fee policy from app_settings.
+ * Falls back to standard processor rates if DB values are missing.
+ */
+export async function fetchGatewayFeePolicy(
+  gateway: PaymentGateway,
+): Promise<FeePolicy> {
+  const supabaseAdmin = createAdminClient();
+
+  const pctKey = `${gateway}_fee_percentage`;
+  const fixedKey = `${gateway}_fee_fixed`;
+
+  const { data: rows } = await supabaseAdmin
+    .from("app_settings")
+    .select("key, value")
+    .in("key", [pctKey, fixedKey]);
+
+  let percentage: number | null = null;
+  let fixedAmount: number | null = null;
+
+  for (const row of rows ?? []) {
+    const val = parseNumber(row.value);
+    if (row.key === pctKey) percentage = val;
+    if (row.key === fixedKey) fixedAmount = val;
+  }
+
+  // Fallback defaults (real processor rates)
+  const defaultPct = gateway === "stripe" ? 2.9 : 3.49;
+  const defaultFixed = gateway === "stripe" ? 0.30 : 0.49;
+
+  const pct = percentage ?? defaultPct;
+  const fixed = fixedAmount ?? defaultFixed;
+
+  if (pct === 0 && fixed === 0) {
+    return { type: "none" };
+  }
+  return { type: "mixed", percentage: pct, fixed_amount: fixed };
+}
+
 /* ───────────────────── Main Function ───────────────────── */
 
 /**
@@ -220,16 +261,13 @@ export async function calculateFinalBookingPrice(
     throw new PricingServiceError("No passengers found for booking", "NO_PASSENGERS", 400);
   }
 
-  // ── 4. Calculate via pure engine ──
-  // calculateBookingTotal internally:
-  //   - Classifies each passenger by DOB → infant/child/adult
-  //   - Applies age multiplier to base fare
-  //   - Sums passenger subtotal
-  //   - Adds 3% volatility buffer
-  //   - Adds gateway-specific fee
-  const breakdown = calculateBookingTotal(flight.final_price, passengers, gateway);
+  // ── 4. Fetch gateway fee from DB ──
+  const gatewayFeePolicy = await fetchGatewayFeePolicy(gateway);
 
-  // ── 5. Get per-passenger detail ──
+  // ── 5. Calculate via pure engine ──
+  const breakdown = calculateBookingTotal(flight.final_price, passengers, gateway, gatewayFeePolicy);
+
+  // ── 6. Get per-passenger detail ──
   const passengerDetails = getPassengerPricingDetails(flight.final_price, passengers);
 
   return {

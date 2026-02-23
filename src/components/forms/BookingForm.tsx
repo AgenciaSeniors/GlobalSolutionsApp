@@ -8,6 +8,7 @@ import { useState, type FormEvent } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
+import { COUNTRIES } from '@/lib/data/countries';
 import { useBooking } from '@/hooks/useBooking';
 import type { PassengerPayload } from '@/types/api.types';
 
@@ -108,14 +109,24 @@ export default function BookingForm({ flightId, maxPassengers = 9 }: BookingForm
               onChange={(e) => updatePassenger(idx, 'date_of_birth', e.target.value)}
               required
             />
-            <Input
-              label="Nacionalidad (ISO 3)"
-              placeholder="CUB"
-              value={pax.nationality}
-              onChange={(e) => updatePassenger(idx, 'nationality', e.target.value.toUpperCase())}
-              maxLength={3}
-              required
-            />
+            <div>
+              <label className="mb-1 block text-sm font-medium text-neutral-700">
+                Nacionalidad <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={pax.nationality}
+                onChange={(e) => updatePassenger(idx, 'nationality', e.target.value)}
+                required
+                className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+              >
+                <option value="">Selecciona un país…</option>
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.name} ({c.code})
+                  </option>
+                ))}
+              </select>
+            </div>
             <Input
               label="Nº Pasaporte"
               placeholder="A12345678"

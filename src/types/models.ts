@@ -149,11 +149,18 @@ export interface PriceBreakdown {
   base_price: number;
   markup_amount: number;
   subtotal: number;
+  volatility_buffer?: number;
   gateway_fee: number;
   gateway_fee_pct: number;
   gateway_fixed_fee: number;
   total: number;
   passengers: number;
+  passenger_details?: Array<{
+    index: number;
+    type: 'infant' | 'child' | 'adult';
+    multiplier: number;
+    price: number;
+  }>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -422,4 +429,41 @@ export interface FlightOffer {
   stops?: Array<{ airport: string; duration_minutes: number }>;
   is_exclusive_offer?: boolean;
   provider?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  MULTICITY SELECTION STATE                                          */
+/* ------------------------------------------------------------------ */
+
+/** Datos mínimos de un vuelo para mostrar en el resumen multicity */
+export interface SelectedLegFlightData {
+  price: number;
+  airline: string;
+  flightNumber: string;
+}
+
+/** Un tramo seleccionado en el flujo multicity, guardado en sessionStorage */
+export interface SelectedLeg {
+  legIndex: number;
+  rawFlight: unknown;
+  flightData: SelectedLegFlightData;
+  legMeta: { origin: string; destination: string; date: string };
+}
+
+/* ------------------------------------------------------------------ */
+/*  BOOKING ITINERARIES (multicity DB rows)                           */
+/* ------------------------------------------------------------------ */
+
+export interface BookingItinerary {
+  id: string;
+  booking_id: string;
+  leg_index: number;
+  flight_id: string | null;
+  flight_provider_id: string | null;
+  origin_iata: string;
+  destination_iata: string;
+  departure_datetime: string | null;
+  arrival_datetime: string | null;
+  subtotal: number;
+  created_at: string;
 }

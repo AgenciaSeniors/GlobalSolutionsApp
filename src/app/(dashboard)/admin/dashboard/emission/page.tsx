@@ -1,637 +1,505 @@
-/**
- * @fileoverview Admin Emission Panel — Ticket issuance + Voucher upload (PDF).
- *
- * FIX A3:
- * - Show PAID bookings that still have no voucher/ticket emitted (pending_emission OR confirmed but missing voucher)
- * - Modal form: PNR + upload official PDF + (optional) ticket numbers per passenger
- * - Mark status to EMITTED (tries 'emitted' then falls back to 'confirmed' for compatibility)
- */
+// src/app/(dashboard)/admin/dashboard/emission/page.tsx
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import Sidebar, { ADMIN_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
-import Header from '@/components/layout/Header';
-import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
-import Badge from '@/components/ui/Badge';
-import Modal from '@/components/ui/Modal';
+import React, { useState, useEffect, Suspense } from 'react';
+import dynamic from 'next/dynamic';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { pdf } from '@react-pdf/renderer';
+import { BookingVoucher } from '@/lib/pdf/bookingVoucher';
 import { createClient } from '@/lib/supabase/client';
-import { useAppSettings } from '@/hooks/useAppSettings';
-import {
-  Plane,
-  Users,
-  FileText,
-  CheckCircle,
-  Clock,
-  AlertTriangle,
-  Mail,
-  Phone,
-  CreditCard,
-  RefreshCw,
-  Upload,
-  Download,
-} from 'lucide-react';
+import { Clock, Plane, ArrowRight, Search, Edit, CheckCircle, FileText } from 'lucide-react';
+import type { FlightSegment, Passenger } from '@/lib/pdf/bookingVoucher';
 
-/* ---------- Config ---------- */
-const VOUCHERS_BUCKET = 'vouchers';
+const DynamicPDFWrapper = dynamic(
+  () => import('./PDFWrapper'),
+  { ssr: false, loading: () => <div className="h-full flex items-center justify-center text-slate-500 font-bold animate-pulse">Cargando Motor de PDF...</div> }
+);
 
-/* ---------- Types ---------- */
-interface PassengerRow {
-  id: string;
-  first_name: string;
-  last_name: string;
-  date_of_birth: string;
-  nationality: string;
-  ticket_number: string | null;
+type OneOrMany<T> = T | T[];
+
+function norm<T>(val: OneOrMany<T> | null | undefined): T | null {
+  if (!val) return null;
+  if (Array.isArray(val)) return val[0] ?? null;
+  return val;
 }
 
-interface PendingBooking {
+type ProfileRow = { full_name: string | null; email: string | null };
+type AirlineRow = { name: string | null };
+type FlightRow = {
+  flight_number: string | null;
+  airline: OneOrMany<AirlineRow> | null;
+};
+
+type PendingBookingRow = {
   id: string;
-  booking_code: string;
-  booking_status: string;
-  payment_status: string;
-  payment_method: string | null;
-  total_amount: number;
-  subtotal: number;
-  payment_gateway_fee: number;
-  airline_pnr: string | null;
-  voucher_pdf_url: string | null;
-  emitted_at: string | null;
+  booking_code: string | null;
   created_at: string;
-  paid_at: string | null;
-  profile: { full_name: string; email: string; phone: string | null } | null;
-  flight: {
-    flight_number: string;
-    departure_datetime: string;
-    arrival_datetime: string;
-    base_price: number;
-    markup_percentage: number;
-    final_price: number;
-    aircraft_type: string | null;
-    baggage_included: string | null;
-    airline: { name: string; iata_code: string } | null;
-    origin_airport: { iata_code: string; city: string; name: string } | null;
-    destination_airport: { iata_code: string; city: string; name: string } | null;
-  } | null;
-  passengers: PassengerRow[];
+  payment_status: string | null;
+  profile: OneOrMany<ProfileRow> | null;
+  flight: OneOrMany<FlightRow> | null;
+};
+
+type VoucherRow = {
+  id: string;
+  created_at: string;
+  invoice_id: string | null;
+  client_email: string | null;
+  passengers: Passenger[] | null;
+  pdf_url: string | null;
+  outbound_flights?: FlightSegment[] | null;
+  return_flights?: FlightSegment[] | null;
+  issue_date?: string | null;
+};
+
+type BookingPassengerRow = {
+  first_name: string | null;
+  last_name: string | null;
+  ticket_number: string | null;
+};
+
+type AirportRow = { iata_code: string | null };
+type FlightDetailsRow = {
+  departure_datetime: string;
+  arrival_datetime: string;
+  flight_number: string | null;
+  airline: OneOrMany<AirlineRow> | null;
+  origin: OneOrMany<AirportRow> | null;
+  dest: OneOrMany<AirportRow> | null;
+};
+
+type BookingWithRelations = {
+  booking_code: string | null;
+  user_id: string | null;
+  airline_pnr: string | null;
+  passengers: BookingPassengerRow[] | null;
+  flight: OneOrMany<FlightDetailsRow> | null;
+};
+
+const DEFAULT_POLICIES = `✈️ Política de Cancelación: Consulte términos y condiciones.
+💼 Equipaje: 1 pieza de 23kg incluida.
+⏰ Presentación: 2 horas antes de vuelo internacional.
+📋 Documentos: Pasaporte válido requerido.`;
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return 'Unknown error';
+  }
 }
 
-/* ---------- Helpers ---------- */
-function hoursElapsed(dateStr: string): number {
-  return Math.round((Date.now() - new Date(dateStr).getTime()) / 3600000);
-}
-
-function isPaid(paymentStatus: string | null | undefined) {
-  const v = String(paymentStatus ?? '').toLowerCase();
-  return v === 'paid';
-}
-
-function slaColor(hours: number, warningHours: number, slaHours: number): string {
-  if (hours >= slaHours - 4) return 'text-red-600 bg-red-50';
-  if (hours >= warningHours) return 'text-amber-600 bg-amber-50';
-  return 'text-emerald-600 bg-emerald-50';
-}
-
-function slaLabel(hours: number, slaHours: number): string {
-  const remaining = slaHours - hours;
-  if (remaining <= 0) return `⚠️ SLA VENCIDO (${hours}h)`;
-  return `${remaining}h restantes`;
-}
-
-/* ---------- Component ---------- */
-export default function EmissionPage() {
-  const supabase = createClient();
-  const { settings } = useAppSettings();
-
-  const [bookings, setBookings] = useState<PendingBooking[]>([]);
+// ==========================================
+// COMPONENTE 1: EL CENTRO DE EMISIONES
+// ==========================================
+function EmissionsDashboard() {
+  const [supabase] = useState(() => createClient());
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
+  const [pending, setPending] = useState<PendingBookingRow[]>([]);
+  const [history, setHistory] = useState<VoucherRow[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Modal state
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<PendingBooking | null>(null);
-
-  // Form state
-  const [pnr, setPnr] = useState('');
-  const [ticketNumbers, setTicketNumbers] = useState<Record<string, string>>({});
-  const [voucherFile, setVoucherFile] = useState<File | null>(null);
-
-  const [saving, setSaving] = useState(false);
-  const [successMsg, setSuccessMsg] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
-
-  const fetchBookings = useCallback(async () => {
-    setLoading(true);
-
-    const { data } = await supabase
-      .from('bookings')
-      .select(
-        `
-        id, booking_code, booking_status, payment_status, payment_method,
-        total_amount, subtotal, payment_gateway_fee,
-        airline_pnr, voucher_pdf_url, emitted_at,
-        created_at, paid_at,
-        profile:profiles!user_id(full_name, email, phone),
-        flight:flights(
-          flight_number, departure_datetime, arrival_datetime,
-          base_price, markup_percentage, final_price,
-          aircraft_type, baggage_included,
-          airline:airlines(name, iata_code),
-          origin_airport:airports!origin_airport_id(iata_code, city, name),
-          destination_airport:airports!destination_airport_id(iata_code, city, name)
-        ),
-        passengers:booking_passengers(id, first_name, last_name, date_of_birth, nationality, ticket_number)
-      `,
-      )
-      // FIX: robust "paid"
-      .in('payment_status', ['paid', 'PAID', 'Paid'])
-      // FIX: show pending + confirmed + emitted (if exists), because we detect "missing voucher"
-      .in('booking_status', ['pending_emission', 'confirmed', 'emitted'])
-      .order('created_at', { ascending: true });
-
-    setBookings((data as unknown as PendingBooking[]) || []);
-    setLoading(false);
-  }, [supabase]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
-
-  function closeModal() {
-    setOpen(false);
-    setSelected(null);
-    setPnr('');
-    setVoucherFile(null);
-    setTicketNumbers({});
-    setErrorMsg('');
-  }
-
-  function openModalFor(booking: PendingBooking) {
-    setSelected(booking);
-    setOpen(true);
-
-    setPnr(booking.airline_pnr || '');
-
-    const tickets: Record<string, string> = {};
-    (booking.passengers || []).forEach((p) => {
-      tickets[p.id] = p.ticket_number || '';
-    });
-    setTicketNumbers(tickets);
-
-    setVoucherFile(null);
-    setErrorMsg('');
-  }
-
-  async function uploadVoucherPdf(booking: PendingBooking, file: File): Promise<string> {
-    const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
-    const safeExt = ext === 'pdf' ? 'pdf' : ext;
-
-    const path = `booking_${booking.booking_code}/${booking.id}/${Date.now()}.${safeExt}`;
-
-    const { error: upErr } = await supabase.storage.from(VOUCHERS_BUCKET).upload(path, file, {
-      contentType: file.type || 'application/pdf',
-      upsert: true,
-    });
-
-    if (upErr) {
-      throw new Error(
-        `No se pudo subir el PDF. Verificá el bucket "${VOUCHERS_BUCKET}" y las policies. Detalle: ${upErr.message}`,
-      );
-    }
-
-    const { data } = supabase.storage.from(VOUCHERS_BUCKET).getPublicUrl(path);
-    if (!data?.publicUrl) {
-      throw new Error('No se pudo obtener la URL pública del voucher.');
-    }
-
-    return data.publicUrl;
-  }
-
-  async function markAsEmitted(booking: PendingBooking, voucherUrl: string) {
-    const base = {
-      airline_pnr: pnr.trim().toUpperCase(),
-      voucher_pdf_url: voucherUrl,
-      emitted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    // INTENTO 1: booking_status = 'emitted' (si existe en tu DB)
-    const attempt = await supabase
-      .from('bookings')
-      .update({ ...base, booking_status: 'emitted' })
-      .eq('id', booking.id);
-
-    if (!attempt.error) return;
-
-    // FALLBACK: booking_status = 'confirmed' (compat con el resto del proyecto)
-    const fallback = await supabase
-      .from('bookings')
-      .update({ ...base, booking_status: 'confirmed' })
-      .eq('id', booking.id);
-
-    if (fallback.error) throw fallback.error;
-  }
-
-  async function handleSave() {
-    if (!selected) return;
-
-    if (!pnr.trim()) {
-      setErrorMsg('El PNR es obligatorio.');
-      return;
-    }
-
-    if (!voucherFile) {
-      setErrorMsg('Debes subir el PDF del boleto oficial (voucher).');
-      return;
-    }
-
-    if (voucherFile.type && voucherFile.type !== 'application/pdf') {
-      setErrorMsg('El archivo debe ser PDF.');
-      return;
-    }
-
-    setSaving(true);
-    setErrorMsg('');
-
-    try {
-      // 1) upload PDF
-      const voucherUrl = await uploadVoucherPdf(selected, voucherFile);
-
-      // 2) update booking status + pnr + voucher + emitted_at
-      await markAsEmitted(selected, voucherUrl);
-
-      // 3) optional: save ticket numbers per passenger (si se completaron)
-      for (const [passId, ticketNum] of Object.entries(ticketNumbers)) {
-        if (ticketNum.trim()) {
-          const { error: passErr } = await supabase
-            .from('booking_passengers')
-            .update({ ticket_number: ticketNum.trim() })
-            .eq('id', passId);
-
-          if (passErr) throw passErr;
-        }
+    async function fetchData() {
+      setLoading(true);
+      if (activeTab === 'pending') {
+        const { data, error } = await supabase
+          .from('bookings')
+          .select(`
+            id, booking_code, created_at, payment_status, booking_status,
+            profile:profiles!bookings_user_id_fkey(full_name, email),
+            flight:flights!bookings_flight_id_fkey(flight_number, airline:airlines!flights_airline_id_fkey(name))
+          `)
+          .eq('booking_status', 'pending_emission')
+          .order('created_at', { ascending: false });
+        
+        if (error) console.error("Error buscando pendientes:", error.message);
+        const validBookings = ((data as PendingBookingRow[]) || []).filter(b => String(b.payment_status).trim() === 'paid');
+        setPending(validBookings);
+      } else {
+        const { data, error } = await supabase
+          .from('vouchers')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (error) console.error("Error buscando historial:", error.message);
+        setHistory((data as VoucherRow[]) || []);
       }
-
-      setSuccessMsg(`✅ Voucher cargado y reserva marcada como EMITTED — ${selected.booking_code} (PNR ${pnr.trim().toUpperCase()})`);
-      closeModal();
-      fetchBookings();
-    } catch (err: unknown) {
-      setErrorMsg(`Error: ${err instanceof Error ? err.message : 'Intenta de nuevo'}`);
-    } finally {
-      setSaving(false);
+      setLoading(false);
     }
-  }
+    fetchData();
+  }, [activeTab, supabase]);
 
-  /* ---------- Derived lists ---------- */
-  const pending = bookings
-    .filter((b) => isPaid(b.payment_status))
-    // FIX: pendientes son las que NO tienen voucher aún, aunque estén "confirmed"
-    .filter((b) => !b.voucher_pdf_url || b.booking_status === 'pending_emission')
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-  const emitted = bookings
-    .filter((b) => isPaid(b.payment_status))
-    .filter((b) => Boolean(b.voucher_pdf_url))
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-  /* ---------- Stats ---------- */
-  const warningH = settings.emission_warning_hours;
-  const slaH = settings.emission_sla_hours;
-
-  const urgentCount = pending.filter((b) => hoursElapsed(b.created_at) >= warningH).length;
-  const criticalCount = pending.filter((b) => hoursElapsed(b.created_at) >= slaH - 4).length;
+  const filteredHistory = history.filter(v => (v.invoice_id?.toLowerCase().includes(searchQuery.toLowerCase())) || (v.client_email?.toLowerCase().includes(searchQuery.toLowerCase())));
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar links={ADMIN_SIDEBAR_LINKS} />
-      <div className="flex-1 overflow-auto">
-        <Header
-          title="Emisión de Boletos"
-          subtitle={`Reservas pagadas sin voucher/ticket — SLA: ${settings.emission_sla_hours} horas`}
-        />
+    <div className="p-6 lg:p-8 w-full max-w-6xl mx-auto">
+      {/* 🚀 NUEVO BOTÓN PARA VOLVER AL PANEL PRINCIPAL */}
+      <button 
+        onClick={() => router.push('/admin/dashboard')} 
+        className="text-xs font-bold text-slate-500 mb-6 flex items-center gap-1 hover:text-brand-600 transition-colors"
+      >
+        ← Volver al Panel Principal
+      </button>
 
-        <div className="p-6 lg:p-8">
-          {/* Success */}
-          {successMsg && (
-            <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-700">
-              {successMsg}
-            </div>
-          )}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-[#0F2545] flex items-center gap-2"><Plane className="text-brand-600" /> Centro de Emisiones</h1>
+        <p className="text-slate-500 mt-1">Gestiona los boletos pendientes o re-emite los ya enviados.</p>
+      </div>
 
-          {/* Summary */}
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Card variant="bordered" className={criticalCount > 0 ? 'border-red-300 bg-red-50/50' : ''}>
-              <div className="flex items-center gap-3">
-                <AlertTriangle className={`h-8 w-8 ${criticalCount > 0 ? 'text-red-500' : 'text-neutral-300'}`} />
-                <div>
-                  <p className="text-xs text-neutral-500">SLA Crítico ({'>'}{slaH - 4}h)</p>
-                  <p className={`text-2xl font-bold ${criticalCount > 0 ? 'text-red-600' : 'text-neutral-300'}`}>
-                    {criticalCount}
-                  </p>
-                </div>
-              </div>
-            </Card>
+      <div className="flex gap-6 mb-6 border-b border-slate-200">
+        <button className={`pb-3 font-bold text-sm transition-all flex items-center gap-2 ${activeTab === 'pending' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500'}`} onClick={() => setActiveTab('pending')}><Clock className="h-4 w-4" /> Pendientes</button>
+        <button className={`pb-3 font-bold text-sm transition-all flex items-center gap-2 ${activeTab === 'history' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500'}`} onClick={() => setActiveTab('history')}><CheckCircle className="h-4 w-4" /> Historial</button>
+      </div>
 
-            <Card variant="bordered" className={urgentCount > 0 ? 'border-amber-300 bg-amber-50/50' : ''}>
-              <div className="flex items-center gap-3">
-                <Clock className={`h-8 w-8 ${urgentCount > 0 ? 'text-amber-500' : 'text-neutral-300'}`} />
-                <div>
-                  <p className="text-xs text-neutral-500">Urgentes ({'>'}{warningH}h)</p>
-                  <p className={`text-2xl font-bold ${urgentCount > 0 ? 'text-amber-600' : 'text-neutral-300'}`}>
-                    {urgentCount}
-                  </p>
-                </div>
-              </div>
-            </Card>
-
-            <Card variant="bordered">
-              <div className="flex items-center gap-3">
-                <FileText className="h-8 w-8 text-brand-500" />
-                <div>
-                  <p className="text-xs text-neutral-500">Pendientes</p>
-                  <p className="text-2xl font-bold">{pending.length}</p>
-                </div>
-              </div>
-            </Card>
-
-            <Card variant="bordered">
-              <div className="flex items-center gap-3">
-                <CheckCircle className="h-8 w-8 text-emerald-500" />
-                <div>
-                  <p className="text-xs text-neutral-500">Con Voucher</p>
-                  <p className="text-2xl font-bold text-emerald-600">{emitted.length}</p>
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          {/* Refresh */}
-          <div className="mb-4 flex justify-end">
-            <Button size="sm" variant="ghost" onClick={fetchBookings} className="gap-1.5">
-              <RefreshCw className="h-4 w-4" /> Actualizar
-            </Button>
-          </div>
-
-          {/* Pending list */}
-          {loading ? (
-            <div className="py-12 text-center text-neutral-500">Cargando reservas pendientes...</div>
-          ) : pending.length === 0 ? (
-            <Card variant="bordered" className="py-16 text-center">
-              <CheckCircle className="mx-auto mb-4 h-16 w-16 text-emerald-400" />
-              <p className="text-xl font-bold text-neutral-700">¡Todo al día!</p>
-              <p className="mt-1 text-sm text-neutral-500">No hay reservas pagadas pendientes de voucher.</p>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {pending.map((booking) => {
-                const hours = hoursElapsed(booking.created_at);
-                const needsVoucher = !booking.voucher_pdf_url;
-
-                return (
-                  <Card
-                    key={booking.id}
-                    variant="bordered"
-                    className={`transition-all ${
-                      hours >= slaH - 4
-                        ? 'border-red-300 bg-red-50/30'
-                        : hours >= warningH
-                          ? 'border-amber-300 bg-amber-50/30'
-                          : ''
-                    }`}
-                  >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div className="flex items-center gap-4">
-                        <div
-                          className={`flex h-12 w-20 flex-col items-center justify-center rounded-xl text-xs font-bold ${slaColor(
-                            hours,
-                            warningH,
-                            slaH,
-                          )}`}
-                        >
-                          <Clock className="h-3.5 w-3.5" />
-                          <span>{slaLabel(hours, slaH)}</span>
-                        </div>
-
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm font-bold text-brand-600">{booking.booking_code}</span>
-                            <Badge variant="warning">{needsVoucher ? 'Pendiente Voucher' : 'Pendiente'}</Badge>
-                          </div>
-                          <p className="mt-0.5 text-sm text-neutral-600">
-                            {booking.profile?.full_name} · {booking.flight?.airline?.iata_code} {booking.flight?.flight_number} ·{' '}
-                            {booking.flight?.origin_airport?.iata_code} → {booking.flight?.destination_airport?.iata_code}
-                          </p>
-                          {booking.airline_pnr && (
-                            <p className="mt-1 text-xs text-neutral-500">
-                              PNR actual: <strong className="font-mono">{booking.airline_pnr}</strong>
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-start gap-2 md:items-end">
-                        <div className="text-right">
-                          <p className="text-sm font-bold">${booking.total_amount.toFixed(2)}</p>
-                          <p className="text-xs text-neutral-400">
-                            {booking.passengers.length} pasajero{booking.passengers.length > 1 ? 's' : ''}
-                          </p>
-                        </div>
-
-                        <Button
-                          size="sm"
-                          className="bg-emerald-600 text-white hover:bg-emerald-700"
-                          onClick={() => openModalFor(booking)}
-                        >
-                          <Upload className="h-4 w-4" /> Cargar Voucher (PDF) y Emitir
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Recently emitted (voucher uploaded) */}
-          {emitted.length > 0 && (
-            <div className="mt-10">
-              <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-neutral-400">Con Voucher (Recientes)</h3>
-              <div className="overflow-x-auto rounded-xl border border-neutral-200">
-                <table className="w-full text-sm">
-                  <thead className="bg-neutral-50 text-left text-xs uppercase text-neutral-500">
-                    <tr>
-                      <th className="px-4 py-3">Código</th>
-                      <th className="px-4 py-3">Cliente</th>
-                      <th className="px-4 py-3">Vuelo</th>
-                      <th className="px-4 py-3">PNR</th>
-                      <th className="px-4 py-3">Voucher</th>
-                      <th className="px-4 py-3">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-neutral-100">
-                    {emitted.slice(0, 20).map((b) => (
-                      <tr key={b.id} className="hover:bg-neutral-50">
-                        <td className="px-4 py-3 font-mono font-bold text-brand-600">{b.booking_code}</td>
-                        <td className="px-4 py-3">{b.profile?.full_name}</td>
-                        <td className="px-4 py-3">
-                          {b.flight?.origin_airport?.iata_code} → {b.flight?.destination_airport?.iata_code}
-                        </td>
-                        <td className="px-4 py-3 font-mono">{b.airline_pnr || '—'}</td>
-                        <td className="px-4 py-3">
-                          {b.voucher_pdf_url ? (
-                            <a
-                              href={b.voucher_pdf_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded-lg bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700 hover:bg-neutral-200"
-                            >
-                              <Download className="h-3.5 w-3.5" />
-                              PDF
-                            </a>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant="success">Emitida</Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* MODAL */}
-          <Modal
-            open={open}
-            onClose={closeModal}
-            className="max-w-2xl"
-            title="Cargar Voucher y Emitir"
-          >
-            <div className="space-y-4">
-              <div className="mb-2">
-                <h3 className="text-lg font-bold text-neutral-900">Cargar Voucher (PDF) y marcar como EMITTED</h3>
-                <p className="text-sm text-neutral-500">
-                  Completa PNR + sube el boleto oficial en PDF. (Opcional: número de ticket por pasajero)
-                </p>
-              </div>
-
-              {errorMsg && (
-                <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{errorMsg}</div>
-              )}
-
-              {/* Booking summary */}
-              {selected && (
-                <div className="rounded-xl bg-neutral-50 p-4">
-                  <div className="flex flex-col gap-1">
-                    <p className="text-sm">
-                      <span className="font-semibold">Reserva:</span>{' '}
-                      <span className="font-mono font-bold text-brand-600">{selected.booking_code}</span>
-                    </p>
-                    <p className="text-sm text-neutral-700">
-                      {selected.profile?.full_name} · {selected.flight?.airline?.name} {selected.flight?.flight_number} ·{' '}
-                      {selected.flight?.origin_airport?.iata_code} → {selected.flight?.destination_airport?.iata_code}
-                    </p>
-
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <p className="flex items-center gap-1.5 text-sm text-neutral-600">
-                        <Mail className="h-3.5 w-3.5" /> {selected.profile?.email}
-                      </p>
-                      {selected.profile?.phone ? (
-                        <p className="flex items-center gap-1.5 text-sm text-neutral-600">
-                          <Phone className="h-3.5 w-3.5" /> {selected.profile.phone}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-neutral-400">Sin teléfono</p>
-                      )}
-                      <p className="flex items-center gap-1.5 text-sm text-neutral-600">
-                        <CreditCard className="h-3.5 w-3.5" /> {selected.payment_method || '—'}
-                      </p>
-                      <p className="text-sm font-semibold text-emerald-700">Total: ${selected.total_amount.toFixed(2)}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <Input
-                label="PNR de la Aerolínea"
-                placeholder="Ej: ABC123"
-                value={pnr}
-                onChange={(e) => setPnr(e.target.value.toUpperCase())}
-              />
-
-              {/* PDF upload */}
-              <div className="rounded-xl border-2 border-dashed border-neutral-200 bg-white p-4">
-                <p className="text-sm font-semibold text-neutral-800">PDF del boleto oficial</p>
-                <p className="text-xs text-neutral-500">Debe ser PDF. Se guarda en Storage y queda visible para el usuario.</p>
-
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <input
-                    type="file"
-                    accept="application/pdf,.pdf"
-                    onChange={(e) => setVoucherFile(e.target.files?.[0] || null)}
-                    className="block w-full text-sm"
-                  />
-                  {voucherFile && (
-                    <span className="text-xs font-medium text-neutral-600">
-                      Seleccionado: {voucherFile.name}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Ticket numbers (optional) */}
-              {selected && (
-                <div className="rounded-xl bg-neutral-50 p-4">
-                  <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-800">
-                    <Users className="h-4 w-4" /> Nº de Ticket por Pasajero (opcional)
-                  </p>
-                  <div className="space-y-3">
-                    {selected.passengers.map((p, idx) => (
-                      <div key={p.id}>
-                        <label className="mb-1 block text-xs text-neutral-500">
-                          Pasajero {idx + 1}: {p.first_name} {p.last_name}
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Ej: 235-1234567890"
-                          value={ticketNumbers[p.id] || ''}
-                          onChange={(e) =>
-                            setTicketNumbers((prev) => ({
-                              ...prev,
-                              [p.id]: e.target.value,
-                            }))
-                          }
-                          className="w-full rounded-xl border-2 border-neutral-200 bg-white px-4 py-2.5 font-mono text-sm focus:border-brand-500 focus:outline-none"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <Button
-                  variant="outline"
-                  onClick={closeModal}
-                  className="sm:min-w-[140px]"
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={handleSave}
-                  isLoading={saving}
-                  className="bg-emerald-600 text-white hover:bg-emerald-700 sm:min-w-[220px]"
-                >
-                  <CheckCircle className="h-4 w-4" /> Guardar y marcar EMITTED
-                </Button>
-              </div>
-            </div>
-          </Modal>
+      {activeTab === 'history' && (
+        <div className="mb-6 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+          <input type="text" placeholder="Buscar por Código o Email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-brand-500 text-sm shadow-sm" />
         </div>
+      )}
+
+      {loading ? (<div className="flex justify-center items-center py-20 text-slate-500">Cargando...</div>) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {activeTab === 'pending' ? pending.map((booking) => (
+            <div key={booking.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
+              <div><h3 className="font-mono text-lg font-bold text-brand-600 mb-2">{booking.booking_code}</h3><p className="text-sm text-slate-600">{norm(booking.profile)?.full_name}</p></div>
+              <button onClick={() => router.push(`/admin/dashboard/emission?id=${booking.id}`)} className="w-full bg-[#0F2545] text-white py-2.5 rounded-lg mt-4 text-sm font-medium transition-colors hover:bg-brand-700">Generar Boleto <ArrowRight className="ml-1 inline h-4 w-4" /></button>
+            </div>
+          )) : filteredHistory.map((voucher) => (
+            <div key={voucher.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
+              <div><h3 className="font-mono text-lg font-bold text-brand-600 mb-2">{voucher.invoice_id}</h3><p className="text-sm text-slate-600 truncate">{voucher.client_email}</p></div>
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => voucher.pdf_url && window.open(voucher.pdf_url, '_blank')} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg text-xs font-bold transition-colors">
+                  Ver PDF
+                </button>
+                <button onClick={() => router.push(`/admin/dashboard/emission?vid=${voucher.id}`)} className="flex-1 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1">
+                  <Edit className="h-3 w-3" /> Editar
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// COMPONENTE 2: EL FORMULARIO PDF Y EDITOR
+// ==========================================
+function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?: string }) {
+  const [supabase] = useState(() => createClient());
+  const router = useRouter();
+  
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isEmitting, setIsEmitting] = useState(false);
+  
+  const [invoiceId, setInvoiceId] = useState('');
+  const [issueDate, setIssueDate] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [passengers, setPassengers] = useState<Passenger[]>([]);
+  const [flights, setFlights] = useState<FlightSegment[]>([]);
+  const [returnFlights, setReturnFlights] = useState<FlightSegment[]>([]);
+  
+  // 🚀 ESTADO PARA LAS POLÍTICAS
+  const [policies, setPolicies] = useState(DEFAULT_POLICIES);
+
+  useEffect(() => {
+    const today = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+    setIssueDate(today);
+
+    async function loadData() {
+      setIsLoadingData(true);
+      try {
+        if (voucherId) {
+          const { data } = await supabase.from('vouchers').select('*').eq('id', voucherId).single();
+          if (data) {
+            const voucher = data as VoucherRow;
+            setInvoiceId(voucher.invoice_id || '');
+            setClientEmail(voucher.client_email || '');
+            setPassengers(voucher.passengers || [{ fullName: '', baggage: '1x23kg', pnr: '', ticketNumber: '' }]);
+            setFlights(voucher.outbound_flights || [{ airline: '', flightNumber: '', date: '', origin: '', destination: '', departure: '', arrival: '', cabinClass: 'ECONÓMICA', status: 'HK' }]);
+            setReturnFlights(voucher.return_flights || []);
+          }
+        } 
+        // 🚀 MODO NUEVO: Cargamos desde la reserva virgen
+        else if (bookingId) {
+          const { data: booking, error } = await supabase
+            .from('bookings')
+            .select(`
+              *,
+              passengers:booking_passengers!booking_passengers_booking_id_fkey(*),
+              flight:flights!bookings_flight_id_fkey(*, airline:airlines!flights_airline_id_fkey(name), origin:airports!flights_origin_airport_id_fkey(iata_code), dest:airports!flights_destination_airport_id_fkey(iata_code))
+            `)
+            .eq('id', bookingId)
+            .single();
+
+          if (error) throw error;
+
+          const bookingData = booking as BookingWithRelations;
+
+          if (bookingData.user_id) {
+            const { data: profile } = await supabase.from('profiles').select('email').eq('id', bookingData.user_id).single();
+            if (profile) setClientEmail(profile.email);
+          }
+
+          setInvoiceId(bookingData.booking_code || '');
+
+          const mappedPassengers = Array.isArray(bookingData.passengers) ? bookingData.passengers : [];
+          if (mappedPassengers.length > 0) {
+            setPassengers(mappedPassengers.map((p: BookingPassengerRow) => ({
+              fullName: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim().toUpperCase(),
+              pnr: bookingData.airline_pnr || '',
+              ticketNumber: p.ticket_number || '',
+              baggage: '1x23kg'
+            })));
+          } else {
+            setPassengers([{ fullName: '', baggage: '1x23kg', pnr: '', ticketNumber: '' }]);
+          }
+
+          const flightData = norm(bookingData.flight);
+          if (flightData) {
+            const dObj = new Date(flightData.departure_datetime);
+            const aObj = new Date(flightData.arrival_datetime);
+            setFlights([{
+              airline: norm(flightData.airline)?.name || '',
+              flightNumber: flightData.flight_number || '',
+              date: dObj.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase(),
+              origin: norm(flightData.origin)?.iata_code || '',
+              destination: norm(flightData.dest)?.iata_code || '',
+              departure: dObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              arrival: aObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              cabinClass: 'ECONÓMICA',
+              status: 'HK'
+            }]);
+          } else {
+            setFlights([{ airline: '', flightNumber: '', date: '', origin: '', destination: '', departure: '', arrival: '', cabinClass: 'ECONÓMICA', status: 'HK' }]);
+          }
+        }
+      } catch (e) {
+         console.error(e);
+      } finally { setIsLoadingData(false); }
+    }
+    loadData();
+  }, [bookingId, voucherId, supabase]);
+
+  const updatePassenger = (index: number, field: keyof Passenger, value: string) => {
+    const newPax = [...passengers];
+    newPax[index] = { ...newPax[index], [field]: value.toUpperCase() };
+    setPassengers(newPax);
+  };
+  const updateFlight = (index: number, field: keyof FlightSegment, value: string, isReturn: boolean = false) => {
+    const targetArray = isReturn ? [...returnFlights] : [...flights];
+    targetArray[index] = { ...targetArray[index], [field]: value.toUpperCase() };
+    if (isReturn) {
+      setReturnFlights(targetArray);
+    } else {
+      setFlights(targetArray);
+    }
+  };
+  const addPassenger = () => setPassengers([...passengers, { fullName: '', baggage: '1x23kg', pnr: '', ticketNumber: '' }]);
+  const removePassenger = (index: number) => setPassengers(passengers.filter((_, i) => i !== index));
+  const addFlight = (isReturn: boolean = false) => {
+    const newFlight = { airline: '', flightNumber: '', date: '', origin: '', destination: '', departure: '', arrival: '', cabinClass: 'Económica', status: 'HK' };
+    if (isReturn) {
+      setReturnFlights([...returnFlights, newFlight]);
+    } else {
+      setFlights([...flights, newFlight]);
+    }
+  };
+  const removeFlight = (index: number, isReturn: boolean = false) => {
+    if (isReturn) {
+      setReturnFlights(returnFlights.filter((_, i) => i !== index));
+    } else {
+      setFlights(flights.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleEmit = async () => {
+    setIsEmitting(true);
+    try {
+      if (!clientEmail) {
+        alert("⚠️ Es obligatorio colocar el email del cliente.");
+        setIsEmitting(false);
+        return;
+      }
+
+      const doc = <BookingVoucher invoiceId={invoiceId} issueDate={issueDate} outboundFlights={flights} returnFlights={returnFlights} passengers={passengers} policies={policies} />;
+      const blob = await pdf(doc).toBlob();
+      const fileName = `${invoiceId}_${Date.now()}.pdf`;
+      
+      const { error: uploadError } = await supabase.storage.from('vouchers').upload(fileName, blob, { contentType: 'application/pdf' });
+      if (uploadError) throw new Error("Fallo al subir PDF: " + uploadError.message);
+
+      const { data: { publicUrl } } = supabase.storage.from('vouchers').getPublicUrl(fileName);
+
+      const payload = { 
+        invoice_id: invoiceId, 
+        issue_date: issueDate,
+        client_email: clientEmail, 
+        passengers, 
+        outbound_flights: flights, 
+        return_flights: returnFlights, 
+        pdf_url: publicUrl, 
+        status: 'emitted' 
+      };
+      
+      if (voucherId) {
+          const { error: dbErr } = await supabase.from('vouchers').update(payload).eq('id', voucherId);
+          if (dbErr) throw new Error("Error DB Voucher: " + dbErr.message);
+      } else {
+          const { error: dbErr } = await supabase.from('vouchers').insert([payload]);
+          if (dbErr) throw new Error("Error DB Voucher: " + dbErr.message);
+      }
+
+      const { error: updateErr } = await supabase.from('bookings').update({ booking_status: 'completed', voucher_pdf_url: publicUrl, emitted_at: new Date().toISOString() }).eq('booking_code', invoiceId);
+      if (updateErr) throw new Error("Error DB Booking: " + updateErr.message);
+
+      const emailRes = await fetch('/api/dev/emit-voucher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: clientEmail, clientName: passengers[0]?.fullName, invoiceId, pdfUrl: publicUrl, passengers, flights })
+      });
+
+      if (!emailRes.ok) {
+        console.error("Error mandando correo, pero el PDF se guardó.");
+      }
+
+      alert("✅ ¡Boleto emitido y guardado con éxito!");
+      router.push('/admin/dashboard/emission');
+
+    } catch (err: unknown) {
+      alert("❌ Ocurrió un error: " + getErrorMessage(err));
+    } finally {
+      setIsEmitting(false);
+    }
+  };
+
+  const inputClass = "w-full text-xs p-1.5 border border-slate-300 rounded focus:border-brand-500 outline-none uppercase placeholder:lowercase";
+
+  return (
+    <div className="flex flex-col lg:flex-row h-[calc(100vh-120px)] w-full gap-6 p-4">
+      <div className="w-full lg:w-2/5 bg-white p-5 rounded-xl border border-slate-200 overflow-y-auto custom-scrollbar relative">
+        {isLoadingData && (
+            <div className="absolute inset-0 bg-white/80 z-10 flex flex-col items-center justify-center">
+                <div className="animate-spin text-3xl mb-2">⏳</div>
+                <p className="font-bold text-slate-500">Cargando datos...</p>
+            </div>
+        )}
+        
+        <button onClick={() => router.push('/admin/dashboard/emission')} className="text-xs font-bold text-slate-500 mb-4">← Volver al Centro</button>
+        <h1 className="text-xl font-bold mb-4">{voucherId ? '✏️ Editar Voucher' : '🚀 Emitir Voucher'}</h1>
+        
+        {/* FORMULARIOS RÁPIDOS */}
+        <div className="grid grid-cols-2 gap-3 mb-6 bg-slate-50 p-3 rounded-lg">
+            <div><label className="block text-[10px] font-bold text-slate-500 mb-1">RECIBO</label><input type="text" value={invoiceId} className={inputClass} readOnly /></div>
+            <div><label className="block text-[10px] font-bold text-slate-500 mb-1">FECHA</label><input type="text" value={issueDate} className={inputClass} readOnly /></div>
+            <div className="col-span-2"><label className="block text-[10px] font-bold text-slate-500 mb-1">EMAIL CLIENTE *</label><input type="email" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} className={`${inputClass} !lowercase`} required /></div>
+        </div>
+
+        {/* 🚀 TEXTAREA PARA POLÍTICAS */}
+        <div className="mb-6 p-3 bg-yellow-50 rounded-lg border border-yellow-100">
+            <label className="flex items-center gap-2 text-[10px] font-bold text-yellow-700 mb-2 uppercase"><FileText className="h-3 w-3" /> Políticas del Boleto</label>
+            <textarea 
+                value={policies} 
+                onChange={(e) => setPolicies(e.target.value)}
+                className="w-full border p-2 bg-white rounded text-xs text-slate-600 h-24 outline-yellow-400"
+            />
+        </div>
+
+        <div className="mb-6">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-sm font-bold text-slate-700">👤 Pasajeros</h2>
+              <button onClick={addPassenger} className="text-xs bg-[#0F2545] text-white px-2 py-1 rounded">+ Añadir</button>
+            </div>
+            {passengers.map((pax, index) => (
+              <div key={`pax-${index}`} className="bg-white border border-slate-200 p-3 rounded-lg mb-3 relative">
+                <button onClick={() => removePassenger(index)} className="absolute top-2 right-2 text-red-500 font-bold text-xs">✕</button>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div className="col-span-2"><label className="block text-[10px] font-bold text-slate-500">NOMBRE</label><input type="text" value={pax.fullName} onChange={(e) => updatePassenger(index, 'fullName', e.target.value)} className={inputClass} /></div>
+                  <div><label className="block text-[10px] font-bold text-slate-500">PNR</label><input type="text" value={pax.pnr} onChange={(e) => updatePassenger(index, 'pnr', e.target.value)} className={inputClass} /></div>
+                    <div><label className="block text-[10px] font-bold text-brand-600">NÚMERO DE TICKET</label><input type="text" value={pax.ticketNumber} onChange={(e) => updatePassenger(index, 'ticketNumber', e.target.value)} className={inputClass} placeholder="Requerido" /></div>
+                </div>
+              </div>
+            ))}
+        </div>
+
+        {/* ✈️ VUELO DE IDA */}
+        <div className="mb-6">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-sm font-bold text-slate-700">✈️ Vuelo de Ida</h2>
+              <button onClick={() => addFlight(false)} className="text-xs bg-brand-600 text-white px-2 py-1 rounded">+ Escala</button>
+            </div>
+            {flights.map((flight, index) => (
+              <div key={`flight-out-${index}`} className="bg-slate-50 border border-slate-200 p-3 rounded-lg mb-3 relative">
+                <button onClick={() => removeFlight(index, false)} className="absolute top-2 right-2 text-red-500 font-bold text-xs">✕</button>
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <div className="col-span-2"><label className="text-[9px] font-bold text-slate-400">AEROLÍNEA</label><input type="text" value={flight.airline} onChange={(e) => updateFlight(index, 'airline', e.target.value, false)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">VUELO</label><input type="text" value={flight.flightNumber} onChange={(e) => updateFlight(index, 'flightNumber', e.target.value, false)} className={inputClass} /></div>
+                  <div className="col-span-3"><label className="text-[9px] font-bold text-slate-400">FECHA</label><input type="text" value={flight.date} onChange={(e) => updateFlight(index, 'date', e.target.value, false)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">ORIGEN</label><input type="text" value={flight.origin} onChange={(e) => updateFlight(index, 'origin', e.target.value, false)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">DESTINO</label><input type="text" value={flight.destination} onChange={(e) => updateFlight(index, 'destination', e.target.value, false)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">CLASE</label><input type="text" value={flight.cabinClass} onChange={(e) => updateFlight(index, 'cabinClass', e.target.value, false)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">SALIDA</label><input type="text" value={flight.departure} onChange={(e) => updateFlight(index, 'departure', e.target.value, false)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">LLEGADA</label><input type="text" value={flight.arrival} onChange={(e) => updateFlight(index, 'arrival', e.target.value, false)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">ESTADO</label><input type="text" value={flight.status} onChange={(e) => updateFlight(index, 'status', e.target.value, false)} className={inputClass} /></div>
+                </div>
+              </div>
+            ))}
+        </div>
+
+        {/* ✈️ VUELO DE RETORNO */}
+        <div className="mb-6">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-sm font-bold text-slate-700">✈️ Vuelo de Retorno (Opcional)</h2>
+              <button onClick={() => addFlight(true)} className="text-xs bg-[#0F2545] hover:bg-[#1a3f7a] transition-colors text-white px-2 py-1 rounded">+ Añadir Retorno</button>
+            </div>
+            {returnFlights.map((flight, index) => (
+              <div key={`flight-ret-${index}`} className="bg-slate-50 border border-slate-200 p-3 rounded-lg mb-3 relative">
+                <button onClick={() => removeFlight(index, true)} className="absolute top-2 right-2 text-red-500 font-bold text-xs">✕</button>
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <div className="col-span-2"><label className="text-[9px] font-bold text-slate-400">AEROLÍNEA</label><input type="text" value={flight.airline} onChange={(e) => updateFlight(index, 'airline', e.target.value, true)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">VUELO</label><input type="text" value={flight.flightNumber} onChange={(e) => updateFlight(index, 'flightNumber', e.target.value, true)} className={inputClass} /></div>
+                  <div className="col-span-3"><label className="text-[9px] font-bold text-slate-400">FECHA</label><input type="text" value={flight.date} onChange={(e) => updateFlight(index, 'date', e.target.value, true)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">ORIGEN</label><input type="text" value={flight.origin} onChange={(e) => updateFlight(index, 'origin', e.target.value, true)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">DESTINO</label><input type="text" value={flight.destination} onChange={(e) => updateFlight(index, 'destination', e.target.value, true)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">CLASE</label><input type="text" value={flight.cabinClass} onChange={(e) => updateFlight(index, 'cabinClass', e.target.value, true)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">SALIDA</label><input type="text" value={flight.departure} onChange={(e) => updateFlight(index, 'departure', e.target.value, true)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">LLEGADA</label><input type="text" value={flight.arrival} onChange={(e) => updateFlight(index, 'arrival', e.target.value, true)} className={inputClass} /></div>
+                  <div><label className="text-[9px] font-bold text-slate-400">ESTADO</label><input type="text" value={flight.status} onChange={(e) => updateFlight(index, 'status', e.target.value, true)} className={inputClass} /></div>
+                </div>
+              </div>
+            ))}
+        </div>
+
+        <button onClick={handleEmit} disabled={isEmitting} className="w-full bg-[#FF4757] text-white py-4 rounded-xl font-bold disabled:opacity-50 mt-4">
+            {isEmitting ? 'PROCESANDO...' : 'EMITIR Y NOTIFICAR'}
+        </button>
+      </div>
+
+      <div className="w-full lg:w-3/5 bg-slate-800 rounded-xl overflow-hidden">
+        <DynamicPDFWrapper invoiceId={invoiceId} issueDate={issueDate} flights={flights} returnFlights={returnFlights} passengers={passengers} policies={policies} />
       </div>
     </div>
+  );
+}
+
+function EmissionRouter() {
+  const searchParams = useSearchParams();
+  const bookingId = searchParams.get('id');
+  const voucherId = searchParams.get('vid');
+  if (!bookingId && !voucherId) return <EmissionsDashboard />;
+  return <EmissionForm bookingId={bookingId || undefined} voucherId={voucherId || undefined} />;
+}
+
+export default function EmissionPage() {
+  return (
+    <Suspense fallback={<div className="p-10 text-center font-bold text-slate-500">Cargando Módulo...</div>}>
+      <EmissionRouter />
+    </Suspense>
   );
 }

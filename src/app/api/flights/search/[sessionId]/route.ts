@@ -20,6 +20,8 @@
  * Eventually one poll sees status="complete" and returns the results.
  */
 
+import { getRoleAndMarkupPct, applyRoleMarkup } from "@/lib/flights/roleMarkup";
+import { createClient as createServerClient } from '@/lib/supabase/server';
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flightsOrchestrator } from "@/lib/flights/orchestrator/flightsOrchestrator";
@@ -44,8 +46,8 @@ const WORKER_STALE_MS = 60_000;
 /* ---- HELPERS ------------------------------------- */
 /* -------------------------------------------------- */
 
-type FlightRecord = Record<string, unknown>;
-type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
+
+
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -273,6 +275,18 @@ async function executeSearchWorker(
   }
 }
 
+type FlightRecord = Record<string, unknown>;
+type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
+
+function pickNumber(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
 /* -------------------------------------------------- */
 /* ---- HANDLER ------------------------------------- */
 /* -------------------------------------------------- */
@@ -313,6 +327,7 @@ export async function GET(
     }
 
     const session = sessionData as unknown as SessionRow;
+    const { markupPct } = await getRoleAndMarkupPct(supabase);
 
     // ── Expiry check ─────────────────────────────────
     const expiresAt = safeParseDateIso(session.expires_at);
@@ -324,12 +339,12 @@ export async function GET(
     }
 
     // ── Already finished → return immediately ──────────
-    if (session.status === "complete" || session.status === "failed") {
-      const results = normalizeResults(session.results);
-      const payload = buildPayload(session, results);
-      const cc = session.status === "complete" ? CACHE_CONTROL_RESULTS : "no-store";
-      return NextResponse.json(payload, { headers: { "Cache-Control": cc } });
-    }
+   if (session.status === "complete" || session.status === "failed") {
+  const resultsRaw = normalizeResults(session.results);
+  const results = applyRoleMarkup(resultsRaw, markupPct);
+  const payload = buildPayload(session, results);
+  return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
+}
 
     // ── Attempt lightweight lock via RPC ────────────────
     // Using an RPC instead of .in().or() chain because PostgREST
@@ -354,22 +369,20 @@ export async function GET(
     }
 
     // ── Always respond immediately with current state ──
-    const results = normalizeResults(session.results);
-    
-    // Si la sesión original era pending y acabamos de adquirir el lock, decimos running.
-    // De lo contrario, devolvemos el estado que tenga en la DB.
-    const currentStatus = (session.status === "pending" && lockAcquired) 
-      ? "running" 
-      : session.status;
+   const resultsRaw = normalizeResults(session.results);
+const results = applyRoleMarkup(resultsRaw, markupPct);
 
-    const payload = buildPayload(
-      { ...session, status: currentStatus },
-      results
-    );
+const currentStatus =
+  (session.status === "pending" && lockAcquired)
+    ? "running"
+    : session.status;
 
-    return NextResponse.json(payload, {
-      headers: { "Cache-Control": "no-store" },
-    });
+const payload = buildPayload(
+  { ...session, status: currentStatus },
+  results
+);
+
+return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (err: unknown) {
     console.error("[FLIGHT_SEARCH_SESSION_ERROR]", err);
     const msg =

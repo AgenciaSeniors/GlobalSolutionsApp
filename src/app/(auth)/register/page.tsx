@@ -1,20 +1,26 @@
-/**
- * @fileoverview Registration page.
- * @module app/(auth)/register/page
- */
-import type { Metadata } from 'next';
-import RegisterForm from '@/components/forms/RegisterForm';
+import RegisterForm from "@/components/forms/RegisterForm"
+import { Metadata } from "next"
 
-export const metadata: Metadata = { title: 'Crear Cuenta' };
+export const metadata: Metadata = {
+  title: "Crear cuenta | Global Solutions Travel",
+  description: "Crea tu cuenta en Global Solutions Travel",
+}
 
 export default function RegisterPage() {
   return (
     <>
-      <div className="mb-6">
-        <h1 className="font-display text-2xl font-bold text-brand-950">Crear Cuenta</h1>
-        <p className="mt-1 text-sm text-neutral-500">Regístrate para comenzar a viajar</p>
+      {/* Añadimos mb-8 para separar el encabezado del formulario */}
+      <div className="flex flex-col space-y-2 text-center mb-8">
+        {/* Usamos font-bold y text-gray-900 para que el título resalte más */}
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+          Crear cuenta
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Ingresa tus datos para registrarte en la plataforma
+        </p>
       </div>
+      
       <RegisterForm />
     </>
-  );
+  )
 }

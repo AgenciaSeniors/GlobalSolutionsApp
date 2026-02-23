@@ -669,7 +669,8 @@ export default function AdminBookingsPage() {
                           )}
 
                           {b.booking_status === 'pending_emission' && b.payment_status === 'paid' && (
-                            <Link href="/admin/dashboard/emission">
+                            // 🚀 AQUÍ ESTÁ EL CAMBIO MÁGICO: Pasamos el ID por la URL
+                            <Link href={`/admin/dashboard/emission?id=${b.id}`}>
                               <Button size="sm" className="gap-1.5">
                                 <Plane className="h-3.5 w-3.5" /> Ir a Emitir <ArrowRight className="h-3.5 w-3.5" />
                               </Button>
@@ -705,3 +706,4 @@ export default function AdminBookingsPage() {
     </div>
   );
 }
+

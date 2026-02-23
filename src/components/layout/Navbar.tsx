@@ -1,6 +1,6 @@
 /**
  * @fileoverview Main navigation bar with scroll-aware glass morphism,
- *               mobile drawer and role-aware links.
+ * mobile drawer and role-aware links.
  * @module components/layout/Navbar
  */
 'use client';
@@ -29,6 +29,9 @@ export default function Navbar() {
   const { user, profile } = useAuthContext();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  
+  // Estado para la notificación del agente
+  const [showAgentNotification, setShowAgentNotification] = useState(false);
 
   const dashboardRoute: Record<UserRole, string> = {
     admin: ROUTES.ADMIN_DASHBOARD,
@@ -42,6 +45,20 @@ export default function Navbar() {
     onScroll();
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  // Lógica de la Notificación del Agente
+  useEffect(() => {
+    if (profile?.role === 'agent') {
+      const hasSeen = localStorage.getItem('has_seen_agent_welcome');
+      if (!hasSeen) setShowAgentNotification(true);
+    }
+    
+    // Escuchar cuando limpie la notificación desde la otra pantalla
+    const handleSeen = () => setShowAgentNotification(false);
+    window.addEventListener('agent_welcome_seen', handleSeen);
+    
+    return () => window.removeEventListener('agent_welcome_seen', handleSeen);
+  }, [profile?.role]);
 
   // Close drawer on route change
   useEffect(() => setMobileOpen(false), [pathname]);
@@ -66,10 +83,10 @@ export default function Navbar() {
         {/* ── Logo ── */}
         <Link href={ROUTES.HOME} className="flex items-center px-2 py-2">
           <span className="leading-none">
-            <span className="font-display text-xl font-bold tracking-wide text-navy">
+            <span className="font-display text-base font-bold tracking-wide text-navy sm:text-xl">
               GLOBAL SOLUTIONS{' '}
             </span>
-            <span className="font-script text-xl font-bold text-coral">Travel</span>
+            <span className="font-script text-base font-bold text-coral sm:text-xl">Travel</span>
           </span>
         </Link>
 
@@ -104,7 +121,7 @@ export default function Navbar() {
           {user ? (
             <Link
               href={dashboardHref}
-              className="hidden sm:inline-flex items-center gap-2 shrink-0
+              className="relative hidden sm:inline-flex items-center gap-2 shrink-0
                          rounded-full border-2 border-brand-200 bg-white/80
                          px-3 py-2 text-brand-900
                          hover:bg-brand-50 hover:border-brand-300
@@ -112,6 +129,14 @@ export default function Navbar() {
                          hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
               aria-label="Ir a mi panel"
             >
+              {/* Notificación Roja Mágica */}
+              {showAgentNotification && (
+                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border border-white"></span>
+                </span>
+              )}
+
               <span
                 className="flex h-8 w-8 items-center justify-center shrink-0 rounded-full
                            bg-brand-100 text-xs font-bold text-brand-800 ring-1 ring-brand-200"
@@ -166,10 +191,16 @@ export default function Navbar() {
               );
             })}
 
-            <li className="mt-4">
+            <li className="mt-4 relative">
               {user ? (
                 <Link href={dashboardHref}>
-                  <Button className="w-full">Mi Panel</Button>
+                  {showAgentNotification && (
+                    <span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-4 w-4 z-10">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 border-2 border-white"></span>
+                    </span>
+                  )}
+                  <Button className="w-full relative">Mi Panel</Button>
                 </Link>
               ) : (
                 <Link href={ROUTES.LOGIN}>

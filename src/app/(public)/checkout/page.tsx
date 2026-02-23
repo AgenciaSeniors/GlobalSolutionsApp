@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
@@ -18,8 +18,9 @@ import Button from '@/components/ui/Button';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { useAppSettings } from '@/hooks/useAppSettings';
+import { COUNTRIES } from '@/lib/data/countries';
 import PriceBreakdownCard from '@/components/features/checkout/PriceBreakdownCard';
-import type { FlightWithDetails, PriceBreakdown } from '@/types/models';
+import type { FlightWithDetails, PriceBreakdown, SelectedLeg } from '@/types/models';
 import type { SpecialOfferStop } from '@/types/models';
 import {
   CreditCard,
@@ -180,8 +181,10 @@ export default function CheckoutPage() {
   const offerDate = searchParams.get('date');
   const flightId = searchParams.get('flight');
   const passengerCount = parseInt(searchParams.get('passengers') || '1', 10);
+  const checkoutMode = searchParams.get('mode'); // 'multicity' | null
 
   const isOfferMode = Boolean(offerId);
+  const isMulticityMode = checkoutMode === 'multicity';
 
   // --- Offer state ---
   const [offerData, setOfferData] = useState<OfferCheckoutData | null>(null);
@@ -190,6 +193,10 @@ export default function CheckoutPage() {
   const [flight, setFlight] = useState<FlightWithDetails | null>(null);
   const [flightDbId, setFlightDbId] = useState<string | null>(null);
   const [flightProviderId, setFlightProviderId] = useState<string | null>(null);
+
+  // --- Multicity state ---
+  const [multicityLegs, setMulticityLegs] = useState<SelectedLeg[]>([]);
+  const [multicityFlightIds, setMulticityFlightIds] = useState<string[]>([]);
 
   // --- Shared state ---
   const [loading, setLoading] = useState(true);
@@ -205,30 +212,48 @@ export default function CheckoutPage() {
     }>
   >([]);
   const [processing, setProcessing] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [bookingCode, setBookingCode] = useState('');
+  const [serverBreakdown, setServerBreakdown] = useState<PriceBreakdown | null>(null);
+  const [pricingLoading, setPricingLoading] = useState(false);
 
   const hasLoadedRef = useRef(false);
+  const pricingAbortRef = useRef<AbortController | null>(null);
 
   // --- Derived values ---
-  const pricePerPerson = isOfferMode
-    ? (offerData?.offer_price ?? 0)
-    : (flight?.final_price ?? 0);
+  const pricePerPerson = isMulticityMode
+    ? multicityLegs.reduce((acc, leg) => {
+        const raw = leg.rawFlight as Record<string, unknown>;
+        return acc + Number(raw.final_price ?? raw.price ?? 0);
+      }, 0)
+    : isOfferMode
+      ? (offerData?.offer_price ?? 0)
+      : (flight?.final_price ?? 0);
 
-  const isReady = !loading && !settingsLoading && (isOfferMode ? !!offerData : !!flight);
+  // BUG 3b FIX: for multicity, both arrays must be filled and in sync
+  const isReady = !loading && !settingsLoading && (
+    isMulticityMode
+      ? multicityLegs.length > 0 && multicityFlightIds.length === multicityLegs.length
+      : isOfferMode
+        ? !!offerData
+        : !!flight
+  );
 
   // --- Data loading ---
   useEffect(() => {
     if (!user) {
-      const redirectParams = offerId
-        ? `offer=${offerId}&date=${offerDate ?? ''}&passengers=${passengerCount}`
-        : `flight=${flightId ?? ''}&passengers=${passengerCount}`;
+      const redirectParams = isMulticityMode
+        ? `mode=multicity&passengers=${passengerCount}`
+        : offerId
+          ? `offer=${offerId}&date=${offerDate ?? ''}&passengers=${passengerCount}`
+          : `flight=${flightId ?? ''}&passengers=${passengerCount}`;
       router.push(`/login?redirect=${encodeURIComponent(`/checkout?${redirectParams}`)}`);
       return;
     }
 
-    if (!flightId && !offerId) {
+    if (!isMulticityMode && !flightId && !offerId) {
       router.push('/flights');
       return;
     }
@@ -243,7 +268,69 @@ export default function CheckoutPage() {
 
     async function load() {
       try {
-        if (isOfferMode) {
+        if (isMulticityMode) {
+          // ═══════════════════════════════════════
+          // MULTICITY MODE
+          // ═══════════════════════════════════════
+          let legs: SelectedLeg[] = [];
+          try {
+            const raw = sessionStorage.getItem('multicity_selected_legs');
+            if (raw) {
+              const parsed = JSON.parse(raw) as SelectedLeg[];
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                legs = parsed.sort((a, b) => a.legIndex - b.legIndex);
+              }
+            }
+          } catch (e) {
+            console.warn('[Checkout] Failed to read multicity legs from sessionStorage:', e);
+          }
+
+          if (legs.length === 0) {
+            router.push('/flights');
+            return;
+          }
+
+          // Persist each leg to DB to get a stable UUID
+          const resolvedIds: string[] = [];
+          for (const leg of legs) {
+            const raw = leg.rawFlight as Record<string, unknown>;
+            const rawId = String(raw.id ?? '');
+            if (isUuidLike(rawId)) {
+              resolvedIds.push(rawId);
+            } else {
+              try {
+                const { uuid } = await persistFlightToDb(raw);
+                resolvedIds.push(uuid);
+              } catch (err) {
+                console.warn('[Checkout] Failed to persist multicity leg:', err);
+                setError('Error al preparar uno de los vuelos. Vuelve a seleccionar tu itinerario.');
+                setLoading(false);
+                return;
+              }
+            }
+          }
+
+          // Validate seat availability for each leg
+          for (let i = 0; i < resolvedIds.length; i++) {
+            const { data: fl } = await supabase
+              .from('flights')
+              .select('available_seats')
+              .eq('id', resolvedIds[i])
+              .single();
+            if (fl && (fl.available_seats as number) < passengerCount) {
+              setError(
+                `El Tramo ${i + 1} no tiene suficientes asientos disponibles. Por favor, elige otro vuelo.`
+              );
+              setLoading(false);
+              return;
+            }
+          }
+
+          setMulticityLegs(legs);
+          setMulticityFlightIds(resolvedIds);
+          // Clear sessionStorage after loading
+          try { sessionStorage.removeItem('multicity_selected_legs'); } catch { /* ignore */ }
+        } else if (isOfferMode) {
           // ═══════════════════════════════════════
           // OFFER MODE
           // ═══════════════════════════════════════
@@ -420,7 +507,66 @@ export default function CheckoutPage() {
 
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flightId, offerId, user]);
+  }, [flightId, offerId, isMulticityMode, user]);
+
+  // --- Server-side pricing preview (flight mode only) ---
+  const fetchPricingPreview = useCallback(async () => {
+    if (isOfferMode || !flightDbId) return;
+
+    // Only call when ALL passengers have a DOB filled
+    const allDobsFilled = passengers.length > 0 && passengers.every((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.dob));
+    if (!allDobsFilled) return;
+
+    // Abort previous in-flight request
+    if (pricingAbortRef.current) pricingAbortRef.current.abort();
+    const controller = new AbortController();
+    pricingAbortRef.current = controller;
+
+    setPricingLoading(true);
+    try {
+      const res = await fetch('/api/bookings/pricing-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flight_id: flightDbId,
+          passengers: passengers.map((p) => ({ date_of_birth: p.dob })),
+          gateway,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        setPricingLoading(false);
+        return;
+      }
+
+      const data = await res.json();
+      if (data.breakdown) {
+        setServerBreakdown({
+          base_price: data.base_price_per_person ?? 0,
+          markup_amount: data.markup_amount_per_person ?? 0,
+          subtotal: data.breakdown.subtotal ?? 0,
+          volatility_buffer: data.breakdown.volatility_buffer ?? 0,
+          gateway_fee: data.breakdown.gateway_fee ?? 0,
+          gateway_fee_pct: data.breakdown.gateway_fee_pct ?? 0,
+          gateway_fixed_fee: data.breakdown.gateway_fixed_fee ?? 0,
+          total: data.breakdown.total ?? 0,
+          passengers: data.breakdown.passengers ?? passengers.length,
+          passenger_details: data.passenger_details ?? undefined,
+        });
+      }
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      console.warn('[Checkout] Pricing preview failed:', err);
+    } finally {
+      setPricingLoading(false);
+    }
+  }, [isOfferMode, flightDbId, passengers, gateway]);
+
+  useEffect(() => {
+    const timer = setTimeout(fetchPricingPreview, 400);
+    return () => clearTimeout(timer);
+  }, [fetchPricingPreview]);
 
   // --- Loading / error screen ---
   if (!isReady) {
@@ -445,26 +591,36 @@ export default function CheckoutPage() {
   }
 
   // --- Price breakdown ---
-  const subtotal = pricePerPerson * passengerCount;
-  const gatewayFee = calculateGatewayFee(subtotal, gateway);
-  const total = Math.round((subtotal + gatewayFee) * 100) / 100;
+  // Use server breakdown when available (accurate: includes age pricing + volatility buffer).
+  // Fall back to client-side calculation while server response is pending.
+  const breakdown: PriceBreakdown = (() => {
+    if (!isOfferMode && serverBreakdown) {
+      return serverBreakdown;
+    }
 
-  const breakdown: PriceBreakdown = {
-    base_price: pricePerPerson,
-    markup_amount: 0,
-    subtotal,
-    gateway_fee: Math.round(gatewayFee * 100) / 100,
-    gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
-    gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
-    total,
-    passengers: passengerCount,
-  };
+    // Client-side fallback
+    const subtotal = pricePerPerson * passengerCount;
+    const gatewayFee = calculateGatewayFee(subtotal, gateway);
+    const total = Math.round((subtotal + gatewayFee) * 100) / 100;
 
-  // Override for flight mode (has base + markup)
-  if (!isOfferMode && flight) {
-    breakdown.base_price = flight.base_price;
-    breakdown.markup_amount = flight.final_price - flight.base_price;
-  }
+    const fallback: PriceBreakdown = {
+      base_price: pricePerPerson,
+      markup_amount: 0,
+      subtotal,
+      gateway_fee: gateway === 'zelle' ? 0 : Math.round(gatewayFee * 100) / 100,
+      gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
+      gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
+      total: gateway === 'zelle' ? subtotal : total,
+      passengers: passengerCount,
+    };
+
+    if (!isOfferMode && flight) {
+      fallback.base_price = flight.base_price;
+      fallback.markup_amount = flight.final_price - flight.base_price;
+    }
+
+    return fallback;
+  })();
 
   // --- Helpers ---
   function updatePassenger(index: number, field: string, value: string) {
@@ -534,7 +690,106 @@ export default function CheckoutPage() {
     try {
       const newBookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
-      if (isOfferMode && offerData) {
+      if (isMulticityMode && multicityLegs.length > 0 && multicityFlightIds.length > 0) {
+        // ═══ MULTICITY BOOKING ═══
+        const totalSubtotal = multicityLegs.reduce((acc, leg) => {
+          const raw = leg.rawFlight as Record<string, unknown>;
+          return acc + Number(raw.final_price ?? raw.price ?? 0) * passengerCount;
+        }, 0);
+        const gatewayFeeMulticity = calculateGatewayFee(totalSubtotal, gateway);
+        const totalMulticity = Math.round((totalSubtotal + gatewayFeeMulticity) * 100) / 100;
+
+        const { data: booking, error: bookingErr } = await supabase
+          .from('bookings')
+          .insert({
+            booking_code: newBookingCode,
+            user_id: user.id,
+            profile_id: user.id,
+            flight_id: null,
+            trip_type: 'multicity',
+            subtotal: totalSubtotal,
+            payment_gateway_fee: gateway === 'zelle' ? 0 : Math.round(gatewayFeeMulticity * 100) / 100,
+            total_amount: gateway === 'zelle' ? totalSubtotal : totalMulticity,
+            payment_method: gateway,
+            payment_status: 'pending',
+            booking_status: 'pending_emission',
+            currency: 'USD',
+            pricing_breakdown: {
+              base_price: pricePerPerson,
+              markup_amount: 0,
+              subtotal: totalSubtotal,
+              gateway_fee: Math.round(gatewayFeeMulticity * 100) / 100,
+              gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
+              gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
+              total: totalMulticity,
+              passengers: passengerCount,
+            },
+          })
+          .select('id')
+          .single();
+
+        if (bookingErr) {
+          console.error('[Checkout] Multicity booking insert failed:', bookingErr.message);
+          throw bookingErr;
+        }
+
+        // Insert one itinerary row per leg
+        for (let i = 0; i < multicityLegs.length; i++) {
+          const leg = multicityLegs[i];
+          const raw = leg.rawFlight as Record<string, unknown>;
+          const legSubtotal = Number(raw.final_price ?? raw.price ?? 0) * passengerCount;
+
+          const { error: itinErr } = await supabase.from('booking_itineraries').insert({
+            booking_id: booking.id,
+            leg_index: i,
+            flight_id: multicityFlightIds[i] ?? null,
+            origin_iata: leg.legMeta.origin,
+            destination_iata: leg.legMeta.destination,
+            departure_datetime: String(raw.departure_datetime ?? raw.departureTime ?? '') || null,
+            arrival_datetime: String(raw.arrival_datetime ?? raw.arrivalTime ?? '') || null,
+            subtotal: legSubtotal,
+          });
+          if (itinErr) throw itinErr;
+        }
+
+        // Insert passengers
+        for (const p of passengers) {
+          const { error: pErr } = await supabase.from('booking_passengers').insert({
+            booking_id: booking.id,
+            first_name: p.first_name.trim(),
+            last_name: p.last_name.trim(),
+            date_of_birth: p.dob,
+            nationality: p.nationality.trim().toUpperCase(),
+            passport_number: p.passport_number.trim(),
+            passport_expiry_date: p.passport_expiry,
+          });
+          if (pErr) throw pErr;
+        }
+
+        // Decrement available_seats on each leg's flight
+        for (const flightUuid of multicityFlightIds) {
+          const { data: fl } = await supabase
+            .from('flights')
+            .select('available_seats')
+            .eq('id', flightUuid)
+            .single();
+          if (fl) {
+            await supabase
+              .from('flights')
+              .update({ available_seats: (fl.available_seats as number) - passengerCount })
+              .eq('id', flightUuid);
+          }
+        }
+
+        if (gateway === 'zelle') {
+          await requestZelle(booking.id);
+          setBookingCode(newBookingCode);
+          setSuccess(true);
+          return;
+        }
+
+        router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
+      } else if (isOfferMode && offerData) {
         // ═══ OFFER BOOKING ═══
         const { data: booking, error: bookingErr } = await supabase
           .from('bookings')
@@ -545,8 +800,8 @@ export default function CheckoutPage() {
             offer_id: offerData.offer_id,
             selected_date: offerData.selected_date,
             subtotal: breakdown.subtotal,
-            payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
-            total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
+            payment_gateway_fee: breakdown.gateway_fee,
+            total_amount: breakdown.total,
             payment_method: gateway,
             payment_status: 'pending',
             booking_status: 'pending_emission',
@@ -601,11 +856,12 @@ export default function CheckoutPage() {
           .insert({
             booking_code: newBookingCode,
             user_id: user.id,
+            profile_id: user.id,
             flight_id: flightDbId,
             flight_provider_id: flightProviderId,
             subtotal: breakdown.subtotal,
-            payment_gateway_fee: gateway === 'zelle' ? 0 : breakdown.gateway_fee,
-            total_amount: gateway === 'zelle' ? breakdown.subtotal : breakdown.total,
+            payment_gateway_fee: breakdown.gateway_fee,
+            total_amount: breakdown.total,
             payment_method: gateway,
             payment_status: 'pending',
             booking_status: 'pending_emission',
@@ -683,6 +939,7 @@ export default function CheckoutPage() {
   }
 
   // --- Display date ---
+  // BUG 3a FIX: add multicity branch so displayDate is never empty when flight=null
   const displayDate = isOfferMode && offerData
     ? new Date(offerData.selected_date + 'T12:00:00').toLocaleDateString('es', {
         weekday: 'long',
@@ -690,14 +947,16 @@ export default function CheckoutPage() {
         month: 'long',
         year: 'numeric',
       })
-    : flight
-      ? new Date(flight.departure_datetime).toLocaleDateString('es', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        })
-      : '';
+    : isMulticityMode && multicityLegs.length > 0
+      ? multicityLegs[0].legMeta.date
+      : flight
+        ? new Date(flight.departure_datetime).toLocaleDateString('es', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })
+        : '';
 
   // --- Main checkout UI ---
   return (
@@ -705,7 +964,7 @@ export default function CheckoutPage() {
       <Navbar />
       <main className="min-h-screen bg-neutral-50 pb-20 pt-24">
         <div className="mx-auto max-w-5xl px-6">
-          <h1 className="mb-8 font-display text-3xl font-bold">Finalizar Compra</h1>
+          <h1 className="mb-6 font-display text-2xl font-bold sm:mb-8 sm:text-3xl">Finalizar Compra</h1>
 
           {error && (
             <div className="mb-6 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">
@@ -714,11 +973,48 @@ export default function CheckoutPage() {
           )}
 
           <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-              <div className="space-y-6 lg:col-span-2">
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-5 lg:grid-cols-3">
+              <div className="space-y-6 md:col-span-3 lg:col-span-2">
                 {/* Booking summary card */}
                 <Card variant="bordered">
-                  {isOfferMode && offerData ? (
+                  {isMulticityMode && multicityLegs.length > 0 ? (
+                    // === MULTICITY SUMMARY ===
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Plane className="h-5 w-5 text-brand-600" />
+                        <h3 className="font-bold">Itinerario Multidestino</h3>
+                        <span className="rounded-md bg-brand-50 px-2 py-0.5 text-xs font-bold text-brand-700">
+                          {multicityLegs.length} tramos
+                        </span>
+                      </div>
+                      {[...multicityLegs].sort((a, b) => a.legIndex - b.legIndex).map((leg, i) => {
+                        const raw = leg.rawFlight as Record<string, unknown>;
+                        const legPrice = Number(raw.final_price ?? raw.price ?? 0);
+                        return (
+                          <div key={i} className="flex items-center gap-3 rounded-xl bg-neutral-50 px-4 py-3">
+                            <div className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                              {i + 1}
+                            </div>
+                            <Plane className="h-4 w-4 text-brand-400 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <span className="font-bold text-sm">{leg.legMeta.origin}</span>
+                              <span className="text-neutral-400 mx-1 text-sm">→</span>
+                              <span className="font-bold text-sm">{leg.legMeta.destination}</span>
+                              <span className="text-neutral-400 text-xs ml-2">{leg.legMeta.date}</span>
+                            </div>
+                            <div className="text-right text-sm font-bold text-brand-600 flex-shrink-0">
+                              ${legPrice.toFixed(2)}
+                              <span className="text-xs font-normal text-neutral-400">/p</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="border-t pt-2 flex justify-between text-sm font-bold text-neutral-700">
+                        <span>Total por persona</span>
+                        <span>${pricePerPerson.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ) : isOfferMode && offerData ? (
                     // === OFFER SUMMARY (rich flight details) ===
                     <div className="space-y-4">
                       {/* Header row: image + destination + price */}
@@ -902,14 +1198,24 @@ export default function CheckoutPage() {
                         onChange={(e) => updatePassenger(i, 'dob', e.target.value)}
                         required
                       />
-                      <FormField
-                        label="Nacionalidad"
-                        value={p.nationality}
-                        onChange={(e) => updatePassenger(i, 'nationality', e.target.value)}
-                        placeholder="CUB"
-                        maxLength={3}
-                        required
-                      />
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-neutral-700">
+                          Nacionalidad <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={p.nationality}
+                          onChange={(e) => updatePassenger(i, 'nationality', e.target.value)}
+                          required
+                          className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:opacity-50"
+                        >
+                          <option value="">Selecciona un país…</option>
+                          {COUNTRIES.map((c) => (
+                            <option key={c.code} value={c.code}>
+                              {c.name} ({c.code})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                       <FormField
                         label="Número de Pasaporte"
                         value={p.passport_number}
@@ -942,20 +1248,20 @@ export default function CheckoutPage() {
                       {
                         id: 'stripe' as const,
                         icon: CreditCard,
-                        label: 'Tarjeta (Stripe)',
-                        sub: `${settings.stripe_fee_percentage}% + $${settings.stripe_fee_fixed.toFixed(2)}`,
+                        label: 'Tarjeta de Crédito/Débito',
+                        sub: 'Visa, Mastercard, Amex',
                       },
                       {
                         id: 'paypal' as const,
                         icon: Building,
                         label: 'PayPal',
-                        sub: `${settings.paypal_fee_percentage}% + $${settings.paypal_fee_fixed.toFixed(2)}`,
+                        sub: 'Pago con cuenta PayPal',
                       },
                       {
                         id: 'zelle' as const,
                         icon: Banknote,
                         label: 'Zelle',
-                        sub: 'Sin comisión',
+                        sub: 'Transferencia directa',
                       },
                     ] as const).map((m) => (
                       <button
@@ -990,12 +1296,48 @@ export default function CheckoutPage() {
               </div>
 
               {/* Sidebar */}
-              <div className="space-y-4">
+              <div className="space-y-4 md:col-span-2 lg:col-span-1">
                 <PriceBreakdownCard breakdown={breakdown} gateway={gateway} />
 
-                <Button type="submit" isLoading={processing} className="w-full gap-2">
+                {/* Aceptación de Términos y Política de Privacidad */}
+                <label className="flex items-start gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={acceptedTerms}
+                    onChange={e => setAcceptedTerms(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-neutral-300 accent-brand-600 cursor-pointer"
+                  />
+                  <span className="text-xs text-neutral-600 leading-relaxed">
+                    He leído y acepto los{' '}
+                    <a
+                      href="/legal/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 underline hover:text-brand-700 font-medium"
+                    >
+                      Términos y Condiciones
+                    </a>{' '}
+                    y la{' '}
+                    <a
+                      href="/legal/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 underline hover:text-brand-700 font-medium"
+                    >
+                      Política de Privacidad
+                    </a>{' '}
+                    de Global Solutions Travel.
+                  </span>
+                </label>
+
+                <Button
+                  type="submit"
+                  isLoading={processing}
+                  disabled={processing || !acceptedTerms}
+                  className="w-full gap-2"
+                >
                   <Lock className="h-4 w-4" />
-                  {gateway === 'zelle' ? `Reservar $${breakdown.subtotal.toFixed(2)}` : `Continuar a pagar`}
+                  {gateway === 'zelle' ? `Reservar $${breakdown.total.toFixed(2)}` : `Continuar a pagar`}
                 </Button>
 
                 <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">

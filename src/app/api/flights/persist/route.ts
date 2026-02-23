@@ -50,10 +50,7 @@ async function getSupabaseClient(): Promise<{ client: SupabaseClient; source: st
     const admin = createAdminClient();
 
     // Quick smoke test: can we SELECT from airlines?
-    const { error: testErr } = await admin
-      .from('airlines')
-      .select('id')
-      .limit(1);
+    const { error: testErr } = await admin.from('airlines').select('id').limit(1);
 
     if (!testErr) {
       return { client: admin, source: 'service_role (admin)' };
@@ -74,7 +71,9 @@ async function getSupabaseClient(): Promise<{ client: SupabaseClient; source: st
     const server = await createServerClient();
 
     // Verify we have a session
-    const { data: { user } } = await server.auth.getUser();
+    const {
+      data: { user },
+    } = await server.auth.getUser();
     if (!user) {
       throw new Error('No authenticated user in cookies — cannot fall back to server client.');
     }
@@ -99,10 +98,7 @@ export async function POST(req: NextRequest) {
     console.log('[flights/persist] Using client:', clientSource);
   } catch (err) {
     console.error('[flights/persist] ❌ No Supabase client available:', err);
-    return NextResponse.json(
-      { error: 'Server configuration error. No Supabase client available.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Server configuration error. No Supabase client available.' }, { status: 500 });
   }
 
   // ---- Parse body ----
@@ -138,9 +134,7 @@ export async function POST(req: NextRequest) {
   const originAirport = isRecord(flight.origin_airport) ? (flight.origin_airport as AnyRecord) : {};
   const destAirport = isRecord(flight.destination_airport) ? (flight.destination_airport as AnyRecord) : {};
 
-  const originIata = upper(
-    pickString(originAirport.iata_code) ?? pickString(flight.origin_iata) ?? pickString(flight.origin)
-  );
+  const originIata = upper(pickString(originAirport.iata_code) ?? pickString(flight.origin_iata) ?? pickString(flight.origin));
   const destIata = upper(
     pickString(destAirport.iata_code) ?? pickString(flight.destination_iata) ?? pickString(flight.destination)
   );
@@ -163,13 +157,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Price: final_price is GENERATED = base_price * (1 + markup_percentage / 100)
-  // We reverse-engineer base_price from the external price.
-  const externalPrice = pickNumber(flight.final_price) ?? pickNumber(flight.price) ?? 0;
+  // ----------------------------------------------------------------------------
+  // PASO 5 (corregido):
+  // - Usa base_price del payload si viene (mejor, evita errores de redondeo).
+  // - Si no viene, calcula base_price desde externalPrice y markupPct.
+  // - IMPORTANTE: markupPct ya viene según el rol (cliente/gestor) desde el buscador.
+  // ----------------------------------------------------------------------------
+
   const markupPct = pickNumber(flight.markup_percentage) ?? 10;
-  const basePrice = markupPct > 0
-    ? Math.round((externalPrice / (1 + markupPct / 100)) * 100) / 100
-    : externalPrice;
+
+  const baseFromPayload = pickNumber(flight.base_price);
+  const externalPrice = pickNumber(flight.final_price) ?? pickNumber(flight.price) ?? 0;
+
+  const basePrice =
+    baseFromPayload != null
+      ? baseFromPayload
+      : markupPct > 0
+        ? Math.round((externalPrice / (1 + markupPct / 100)) * 100) / 100
+        : externalPrice;
 
   const aircraftType = pickString(flight.aircraft_type);
   const baggage = pickString(flight.baggage_included);
@@ -192,7 +197,12 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (airlineErr || !airlineRow) {
-    console.error('[flights/persist] ❌ Airline upsert failed:', airlineErr?.message, airlineErr?.details, airlineErr?.code);
+    console.error(
+      '[flights/persist] ❌ Airline upsert failed:',
+      airlineErr?.message,
+      airlineErr?.details,
+      airlineErr?.code
+    );
     return NextResponse.json({ error: `Error aerolínea: ${airlineErr?.message}` }, { status: 500 });
   }
 
@@ -239,6 +249,8 @@ export async function POST(req: NextRequest) {
   }
 
   // ---- Check for existing flight ----
+  // PASO 5: para NO mezclar vuelos de cliente vs gestor (o markups distintos),
+  // incluimos markup_percentage y base_price en la comparación.
   const { data: existing } = await supabase
     .from('flights')
     .select('id')
@@ -247,6 +259,8 @@ export async function POST(req: NextRequest) {
     .eq('arrival_datetime', arrival)
     .eq('origin_airport_id', originRow.id)
     .eq('destination_airport_id', destRow.id)
+    .eq('markup_percentage', markupPct)
+    .eq('base_price', basePrice)
     .maybeSingle();
 
   if (existing?.id) {
@@ -283,15 +297,17 @@ export async function POST(req: NextRequest) {
   }
 
   console.log(
-    '[flights/persist] ✅ Flight persisted. UUID:', flightRow.id,
-    '| ext:', externalId,
-    '| base:', basePrice,
-    '| final:', flightRow.final_price,
-    '| via:', clientSource
+    '[flights/persist] ✅ Flight persisted. UUID:',
+    flightRow.id,
+    '| ext:',
+    externalId,
+    '| base:',
+    basePrice,
+    '| final:',
+    flightRow.final_price,
+    '| via:',
+    clientSource
   );
 
-  return NextResponse.json(
-    { id: flightRow.id, external_id: externalId, final_price: flightRow.final_price },
-    { status: 200 }
-  );
+  return NextResponse.json({ id: flightRow.id, external_id: externalId, final_price: flightRow.final_price }, { status: 200 });
 }

@@ -34,16 +34,9 @@ export function useAuth() {
       agent: ROUTES.AGENT_DASHBOARD,
       client: ROUTES.USER_DASHBOARD,
     };
-    // Full page navigation so the middleware sees the fresh cookies
     window.location.href = destination[role] || ROUTES.USER_DASHBOARD;
   }
 
-  /**
-   * Login with email + password.
-   * After signInWithPassword(), @supabase/ssr's createBrowserClient
-   * automatically stores the session in cookies. We just need to
-   * trigger a full-page navigation so the middleware picks them up.
-   */
   async function login(email: string, password: string, redirectTo?: string) {
     setIsLoading(true);
     try {
@@ -53,16 +46,11 @@ export function useAuth() {
       });
       if (error) throw error;
 
-      // NOTE: No /api/auth call needed!
-      // createBrowserClient already stored the session in cookies.
-
-      // If we came from a protected route (?redirect=/...), go back there
       if (redirectTo && redirectTo.startsWith('/')) {
         window.location.href = redirectTo;
         return;
       }
 
-      // Otherwise, fetch role and redirect to the correct dashboard
       const { data: profile } = await supabase
         .from('profiles')
         .select('role')
@@ -101,19 +89,21 @@ export function useAuth() {
   }
 
   /**
-   * Send password recovery email.
-   *
-   * Supabase will email a recovery link. The link should redirect back to your
-   * site so the user can set a new password.
+   * Send customized password recovery email via our own API.
    */
   async function resetPassword(email: string) {
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        // TODO: consider adding a dedicated reset-password page.
-        redirectTo: `${window.location.origin}${ROUTES.LOGIN}`,
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
       });
-      if (error) throw error;
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Error al enviar enlace de recuperación');
+      }
     } catch (error) {
       console.error('Reset password error:', error);
       throw error;
