@@ -391,7 +391,37 @@ export default function CheckoutPage() {
             return;
           }
 
-          // 3) Validate seat availability
+          // Validar oferta activa, fecha válida y fecha no pasada
+          if (offerId) {
+            const { data: activeCheck } = await supabase
+              .from('special_offers')
+              .select('is_active, valid_dates')
+              .eq('id', offerId)
+              .single();
+
+            if (!activeCheck?.is_active) {
+              setError('Esta oferta ya no está disponible. Por favor, elige otra oferta.');
+              setLoading(false);
+              return;
+            }
+
+            const validDates: string[] = activeCheck.valid_dates ?? [];
+            if (offerDate && !validDates.includes(offerDate)) {
+              setError('La fecha seleccionada no es válida para esta oferta. Por favor, vuelve a seleccionar una fecha.');
+              setLoading(false);
+              return;
+            }
+
+            const todayMid = new Date();
+            todayMid.setHours(0, 0, 0, 0);
+            if (offerDate && new Date(offerDate) < todayMid) {
+              setError('La fecha seleccionada ya ha pasado. Por favor, selecciona una fecha futura.');
+              setLoading(false);
+              return;
+            }
+          }
+
+          // Validate seat availability
           const seatsAvailable = offer.max_seats - offer.sold_seats;
           if (seatsAvailable < passengerCount) {
             setError(

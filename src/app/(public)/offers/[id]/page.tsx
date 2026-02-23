@@ -51,6 +51,7 @@ export default function OfferDetailPage() {
 
   const [offer, setOffer] = useState<SpecialOffer | null>(null);
   const [loading, setLoading] = useState(true);
+  const [passengers, setPassengers] = useState(1);
 
   useEffect(() => {
     async function load() {
@@ -74,11 +75,16 @@ export default function OfferDetailPage() {
   }, [offer?.valid_dates]);
 
   function handleSelectDate(date: string) {
+    // Ignorar fechas pasadas
+    const todayMid = new Date();
+    todayMid.setHours(0, 0, 0, 0);
+    if (new Date(date) < todayMid) return;
+
     if (!user) {
       router.push(`/login?redirect=/offers/${params.id}`);
       return;
     }
-    router.push(`/checkout?offer=${params.id}&date=${date}&passengers=1`);
+    router.push(`/checkout?offer=${params.id}&date=${date}&passengers=${passengers}`);
   }
 
   function handleHeroClick() {
@@ -384,11 +390,11 @@ export default function OfferDetailPage() {
                     <div>
                       <p className="font-semibold">Cupos restantes</p>
                       <p className={`font-bold ${seatsLeft <= 5 ? 'text-red-600' : 'text-emerald-600'}`}>
-                        {seatsLeft} disponibles
+                        {seatsLeft > 0 ? `${seatsLeft} disponibles` : 'Agotado'}
                       </p>
                     </div>
                   </div>
-                  {seatsLeft <= 5 && (
+                  {seatsLeft > 0 && seatsLeft <= 5 && (
                     <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2">
                       <p className="text-xs font-semibold text-red-700">
                         Quedan muy pocos cupos. Reserva ahora para asegurar tu lugar.
@@ -397,6 +403,39 @@ export default function OfferDetailPage() {
                   )}
                 </div>
               </Card>
+
+              {/* Selector de pasajeros */}
+              {seatsLeft > 0 && (
+                <Card variant="bordered">
+                  <h3 className="font-bold mb-3 flex items-center gap-2">
+                    <Users className="h-5 w-5 text-brand-600" />
+                    Pasajeros
+                  </h3>
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setPassengers(p => Math.max(1, p - 1))}
+                      disabled={passengers <= 1}
+                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-neutral-300 text-lg font-bold hover:bg-neutral-100 disabled:opacity-40 transition-colors"
+                    >
+                      −
+                    </button>
+                    <span className="w-8 text-center text-xl font-bold text-neutral-900">{passengers}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPassengers(p => Math.min(Math.min(9, seatsLeft), p + 1))}
+                      disabled={passengers >= Math.min(9, seatsLeft)}
+                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-neutral-300 text-lg font-bold hover:bg-neutral-100 disabled:opacity-40 transition-colors"
+                    >
+                      +
+                    </button>
+                    <span className="text-sm text-neutral-500">persona{passengers > 1 ? 's' : ''}</span>
+                  </div>
+                  {seatsLeft < 9 && (
+                    <p className="mt-2 text-xs text-neutral-400">Máx. {seatsLeft} cupo{seatsLeft > 1 ? 's' : ''} disponibles</p>
+                  )}
+                </Card>
+              )}
 
               {/* Tip */}
               <Card variant="bordered" className="bg-amber-50 border-amber-200">
@@ -407,12 +446,16 @@ export default function OfferDetailPage() {
               </Card>
 
               {/* CTA button */}
-              {defaultDate && (
+              {seatsLeft === 0 ? (
+                <Button className="w-full" size="lg" disabled>
+                  Agotado
+                </Button>
+              ) : defaultDate ? (
                 <Button className="w-full gap-2" size="lg" onClick={handleHeroClick}>
                   <Flame className="h-4 w-4" />
-                  Reservar ahora — ${offer.offer_price}
+                  Reservar {passengers > 1 ? `${passengers} pasajeros` : 'ahora'} — ${(offer.offer_price * passengers).toFixed(2)}
                 </Button>
-              )}
+              ) : null}
 
               {!user && (
                 <Card variant="bordered" className="bg-brand-50 border-brand-200">

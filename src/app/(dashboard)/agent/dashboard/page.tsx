@@ -105,7 +105,13 @@ export default function AgentDashboardPage() {
                 <p className="font-bold text-lg">{loading ? '-' : stats.pendingEmission}</p>
               </div>
             </Card>
-            
+            <Card className="p-4 flex items-center gap-3 shadow-sm border border-gray-100">
+              <div className="p-2 bg-yellow-50 text-yellow-600 rounded-lg"><Wallet size={20} /></div>
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Comisión Pendiente</p>
+                <p className="font-bold text-lg">{loading ? '-' : formatCurrency(stats.commissionPending)}</p>
+              </div>
+            </Card>
           </div>
 
           {/* News + Finance + Commissions */}
@@ -133,7 +139,22 @@ export default function AgentDashboardPage() {
                 </div>
               </Card>
 
-             
+              <Card variant="bordered" className="border-yellow-200 bg-yellow-50/30 p-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-yellow-100 rounded-full flex-shrink-0">
+                    <DollarSign className="h-8 w-8 text-yellow-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-yellow-800 font-medium">Comisiones Totales</p>
+                    <p className="text-3xl font-bold text-yellow-700">
+                      {formatCurrency(stats.commissionTotal)}
+                    </p>
+                    <p className="text-xs text-yellow-600 mt-1 font-medium">
+                      {formatCurrency(stats.commissionPending)} pendientes de pago
+                    </p>
+                  </div>
+                </div>
+              </Card>
             </div>
           </div>
 

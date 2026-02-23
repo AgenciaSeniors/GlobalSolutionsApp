@@ -44,6 +44,7 @@ export default function AgentBookingsPage() {
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [filter, setFilter] = useState<
     | 'all'
     | 'pending_emission'
@@ -259,7 +260,10 @@ export default function AgentBookingsPage() {
                       <span className="text-xs text-gray-400">Voucher no disponible</span>
                     )}
 
-                    <button className="text-sm font-medium text-brand-600 hover:text-brand-800 transition">
+                    <button
+                      onClick={() => setSelectedBooking(booking)}
+                      className="text-sm font-medium text-brand-600 hover:text-brand-800 transition"
+                    >
                       Ver detalles completos →
                     </button>
                   </div>
@@ -269,6 +273,83 @@ export default function AgentBookingsPage() {
           )}
         </div>
       </div>
+
+      {/* Modal de detalles */}
+      {selectedBooking && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">
+                Reserva {selectedBooking.booking_code}
+              </h3>
+              <button
+                onClick={() => setSelectedBooking(null)}
+                className="text-gray-400 hover:text-gray-600 text-xl font-bold leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500">Estado</span>
+                <Badge variant={getStatusColor(selectedBooking.booking_status)}>
+                  {getStatusLabel(selectedBooking.booking_status)}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Cliente</span>
+                <span className="font-medium">{selectedBooking.profile?.full_name || 'Sin nombre'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Email</span>
+                <span className="font-medium">{selectedBooking.profile?.email || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Ruta</span>
+                <span className="font-medium">
+                  {selectedBooking.flight?.origin_airport?.iata_code} ➝ {selectedBooking.flight?.destination_airport?.iata_code}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Fecha vuelo</span>
+                <span className="font-medium">
+                  {selectedBooking.flight?.departure_datetime
+                    ? new Date(selectedBooking.flight.departure_datetime).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })
+                    : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Aerolínea</span>
+                <span className="font-medium">{selectedBooking.flight?.airline?.name || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Estado pago</span>
+                <span className="font-medium">{selectedBooking.payment_status || '—'}</span>
+              </div>
+              <div className="flex justify-between border-t pt-3">
+                <span className="text-gray-700 font-semibold">Total</span>
+                <span className="font-bold text-emerald-700">${Number(selectedBooking.total_amount ?? 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Comisión estimada (5%)</span>
+                <span className="font-semibold text-emerald-700">
+                  ${(Number(selectedBooking.total_amount ?? 0) * COMMISSION_RATE).toFixed(2)}
+                </span>
+              </div>
+            </div>
+            {selectedBooking.voucher_pdf_url && (
+              <a
+                href={selectedBooking.voucher_pdf_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 bg-brand-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition"
+              >
+                <Download className="h-4 w-4" /> Descargar Voucher
+              </a>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

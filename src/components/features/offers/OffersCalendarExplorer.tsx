@@ -48,6 +48,8 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
   }, [allOfferDatesSorted, todayMid]);
 
   const [selectedDate, setSelectedDate] = useState<string | null>(defaultSelected);
+  const [passengersByOffer, setPassengersByOffer] = useState<Record<string, number>>({});
+  const getPassengers = (id: string) => passengersByOffer[id] ?? 1;
 
   const [currentMonth, setCurrentMonth] = useState(
     selectedDate ? new Date(selectedDate).getMonth() : today.getMonth()
@@ -105,25 +107,7 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
       return;
     }
 
-    // Store offer data in sessionStorage for checkout to pick up
-    try {
-      sessionStorage.setItem('selectedOfferData', JSON.stringify({
-        offer_id: offer.id,
-        destination: offer.destination,
-        destination_img: offer.destination_img,
-        offer_price: offer.offer_price,
-        original_price: offer.original_price,
-        flight_number: offer.flight_number,
-        selected_date: selectedDate,
-        max_seats: offer.max_seats,
-        sold_seats: offer.sold_seats,
-        tags: offer.tags,
-      }));
-    } catch (e) {
-      console.warn('[OffersCalendarExplorer] sessionStorage set error:', e);
-    }
-
-    router.push(`/checkout?offer=${offer.id}&date=${selectedDate}&passengers=1`);
+    router.push(`/checkout?offer=${offer.id}&date=${selectedDate}&passengers=${getPassengers(offer.id)}`);
   }
 
   return (
@@ -281,11 +265,44 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
                       <span className="text-2xl font-extrabold text-brand-700">
                         {formatCurrency(o.offer_price)}
                       </span>
+                      <span className="text-xs text-neutral-400">/ persona</span>
                     </div>
 
-                    <div className="mt-4">
-                      <Link href={`/offers/${o.id}`}>
-                        <Button className="w-full">Ver oferta</Button>
+                    {/* Selector de pasajeros */}
+                    {seatsLeft > 0 && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <span className="text-xs text-neutral-500">Pasajeros:</span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setPassengersByOffer(p => ({ ...p, [o.id]: Math.max(1, (p[o.id] ?? 1) - 1) })); }}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-300 text-sm font-bold hover:bg-neutral-100 disabled:opacity-40"
+                          disabled={getPassengers(o.id) <= 1}
+                        >
+                          −
+                        </button>
+                        <span className="w-5 text-center text-sm font-bold">{getPassengers(o.id)}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setPassengersByOffer(p => ({ ...p, [o.id]: Math.min(Math.min(9, seatsLeft), (p[o.id] ?? 1) + 1) })); }}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-300 text-sm font-bold hover:bg-neutral-100 disabled:opacity-40"
+                          disabled={getPassengers(o.id) >= Math.min(9, seatsLeft)}
+                        >
+                          +
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => goToCheckout(o)}
+                        disabled={seatsLeft === 0}
+                        className="flex-1 rounded-xl bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {seatsLeft === 0 ? 'Agotado' : `Reservar${getPassengers(o.id) > 1 ? ` (${getPassengers(o.id)})` : ''}`}
+                      </button>
+                      <Link href={`/offers/${o.id}`} className="flex-1">
+                        <Button variant="outline" className="w-full text-sm">Ver detalles</Button>
                       </Link>
                     </div>
                   </div>

@@ -111,11 +111,12 @@ export default function FlightDetailPage() {
 
   const classMultiplier = classMultipliers[flightClass];
   const pricePerPerson = flight.final_price * classMultiplier;
-  const markupAmount = flight.final_price - flight.base_price;
   const subtotal = pricePerPerson * passengers;
-  // Estimate gateway fee (Stripe default)
-  const gatewayFee = subtotal * 0.054 + 0.30;
-  const total = subtotal + gatewayFee;
+  // Gateway fee absorbed in total (Stripe default: 2.9% + $0.30, applied on subtotal + 3% buffer)
+  const volatilityBuffer = subtotal * 0.03;
+  const gatewayBase = subtotal + volatilityBuffer;
+  const gatewayFee = gatewayBase * 0.029 + 0.30;
+  const total = gatewayBase + gatewayFee;
 
   return (
     <>
@@ -337,44 +338,20 @@ export default function FlightDetailPage() {
                   </div>
                 </div>
 
-                {/* §5.1 Price Breakdown — Transparent */}
+                {/* Price Summary */}
                 <div className="space-y-2 rounded-xl bg-neutral-50 p-4 text-sm mb-4">
-                  <div className="flex justify-between">
-                    <span className="text-neutral-600">Precio base (por persona)</span>
-                    <span>${flight.base_price.toFixed(2)}</span>
+                  <div className="flex justify-between text-neutral-600">
+                    <span>Precio por persona</span>
+                    <span>${pricePerPerson.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-neutral-600">Margen de servicio</span>
-                    <span>${markupAmount.toFixed(2)}</span>
-                  </div>
-                  {classMultiplier > 1 && (
-                    <div className="flex justify-between text-brand-600">
-                      <span>Clase {flightClass === 'business' ? 'Business' : 'Primera'}</span>
-                      <span>x{classMultiplier}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between font-semibold">
-                    <span>Subtotal ({passengers} pax)</span>
-                    <span>${subtotal.toFixed(2)}</span>
-                  </div>
-
-                  <button
-                    onClick={() => setShowPricing(!showPricing)}
-                    className="flex items-center gap-1 text-xs text-brand-600 hover:underline"
-                  >
-                    <ChevronDown className={`h-3 w-3 transition-transform ${showPricing ? 'rotate-180' : ''}`} />
-                    {showPricing ? 'Ocultar' : 'Ver'} comisión de pasarela
-                  </button>
-
-                  {showPricing && (
+                  {passengers > 1 && (
                     <div className="flex justify-between text-neutral-500">
-                      <span>Comisión pasarela (est. 5.4%)</span>
-                      <span>${gatewayFee.toFixed(2)}</span>
+                      <span>Pasajeros</span>
+                      <span>x{passengers}</span>
                     </div>
                   )}
-
                   <div className="border-t border-neutral-200 pt-2 flex justify-between text-lg font-bold">
-                    <span>Total estimado</span>
+                    <span>Total</span>
                     <span className="text-brand-700">${total.toFixed(2)}</span>
                   </div>
                 </div>

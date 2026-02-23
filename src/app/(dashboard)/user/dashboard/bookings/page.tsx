@@ -15,6 +15,8 @@ function norm(val: any) {
 
 const STATUS_CONFIG: Record<string, { bg: string, text: string, label: string, icon: any }> = {
   pending_emission: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Procesando Emisión', icon: Clock },
+  confirmed: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Confirmada', icon: CheckCircle },
+  cancellation_requested: { bg: 'bg-orange-100', text: 'text-orange-800', label: 'Cancelación en revisión', icon: Clock },
   completed: { bg: 'bg-green-100', text: 'text-green-800', label: 'Boleto Listo', icon: CheckCircle },
   cancelled: { bg: 'bg-red-100', text: 'text-red-800', label: 'Cancelada', icon: XCircle },
 };
@@ -23,6 +25,24 @@ export default function UserBookingsPage() {
   const [supabase] = useState(() => createClient());
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  async function requestCancellation(bookingId: string, bookingCode: string) {
+    const ok = window.confirm(
+      `¿Solicitar cancelación de la reserva ${bookingCode}?\n\nNuestro equipo revisará tu solicitud y te contactará en un plazo de 24h.`
+    );
+    if (!ok) return;
+    const { error } = await supabase
+      .from('bookings')
+      .update({ booking_status: 'cancellation_requested' })
+      .eq('id', bookingId);
+    if (error) {
+      alert('No se pudo enviar la solicitud. Intenta de nuevo o contáctanos por WhatsApp.');
+    } else {
+      setBookings(prev => prev.map(b =>
+        b.id === bookingId ? { ...b, booking_status: 'cancellation_requested' } : b
+      ));
+    }
+  }
 
   useEffect(() => {
     async function fetchMyBookings() {
@@ -167,6 +187,14 @@ export default function UserBookingsPage() {
                         </>
                       ) : (
                         <p className="text-sm text-slate-500">Estamos gestionando tu reserva.</p>
+                      )}
+                      {['pending_emission', 'confirmed'].includes(statusStr) && (
+                        <button
+                          onClick={() => requestCancellation(booking.id, booking.booking_code)}
+                          className="mt-3 w-full border border-red-200 text-red-600 hover:bg-red-50 py-2 px-4 rounded-xl text-xs font-medium transition-colors"
+                        >
+                          Solicitar Cancelación
+                        </button>
                       )}
                     </div>
 

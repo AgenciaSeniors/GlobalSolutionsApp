@@ -39,7 +39,6 @@ export default function FlightsPage() {
   const router = useRouter();
 
   const { results, isLoading, error, search, clearCache } = useFlightSearch();
-  console.log(`[FlightsPage RENDER] isLoading=${isLoading} results=${results?.length ?? 0} error=${String(error)}`);
 
   const [lastSearch, setLastSearch] = useState<SearchPayload | null>(null);
 
@@ -48,7 +47,6 @@ export default function FlightsPage() {
   useEffect(() => {
     const params = lastSearchRef.current;
     if (!params || isLoadingRef.current || resultsRef.current.length > 0) return;
-    console.log('[FlightsPage] Remount recovery: re-running search for', params.from, '→', params.to);
     runSearch(params, activeLegRef.current);
   // Intencionalmente [] — solo queremos que corra en el mount, no en cada render
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -117,9 +115,7 @@ export default function FlightsPage() {
   // Map results -> FlightOffer para la UI usando el mapper
   const flights: FlightOffer[] = useMemo(() => {
     const rawArr = results ?? [];
-    console.log(`[FlightsPage] mapper input: ${rawArr.length} raw flights`);
     const mapped = rawArr.map((f) => mapApiFlightToOffer(f));
-    console.log(`[FlightsPage] mapper output: ${mapped.length} FlightOffers`, mapped.map(f => ({ id: f.id?.slice(0, 16), price: f.price, segs: f.segments.length })));
 
     // Build a map: mappedId -> raw result data
     const newMap = new Map<string, unknown>();
@@ -170,7 +166,6 @@ export default function FlightsPage() {
 
       return true;
     });
-    console.log(`[FlightsPage] filteredFlights: ${result.length} / ${flights.length} | filters: min=${filters.priceRange.min} max=${filters.priceRange.max} airlines=${JSON.stringify(filters.airlines)} stops=${JSON.stringify(filters.stops)}`);
     return result;
   }, [flights, filters]);
 
