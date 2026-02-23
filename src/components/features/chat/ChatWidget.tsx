@@ -322,7 +322,7 @@ async function handleEscalate() {
                 className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 transition-colors border border-emerald-200"
               >
                 <Headphones className="h-4 w-4" />
-                Hablar con un Agente
+                Hablar con el Soporte
               </button>
             </div>
           )}
