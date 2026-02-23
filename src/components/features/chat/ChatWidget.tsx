@@ -201,26 +201,38 @@ async function handleSend(e: FormEvent) {
 
 
 async function handleEscalate() {
-  setMode('waiting');
-  addMessage('bot', 'Conectándote con un agente humano. Por favor espera un momento...');
-
   if (!user) {
-    addMessage('bot', 'Para conectar con un agente necesitas iniciar sesión.');
-    setMode('bot');
+    addMessage('bot', 'Para hablar con un agente necesitas iniciar sesión.');
     return;
   }
 
+  setMode('waiting');
+  addMessage('bot', 'Abriendo WhatsApp con nuestro agente de soporte...');
+
   try {
+    // Registrar el escalado en DB
     const convId = await ensureConversation();
-    if (!convId) {
-      addMessage('bot', 'No pude abrir la conversación. Intenta nuevamente.');
-      setMode('bot');
-      return;
+    if (convId) {
+      await supabase.from('chat_conversations').update({ status: 'waiting_agent' }).eq('id', convId);
     }
 
-    await supabase.from('chat_conversations').update({ status: 'waiting_agent' }).eq('id', convId);
+    // Construir mensaje prefilled con el contexto de la conversación
+    const userMessages = messages
+      .filter(m => m.sender === 'user')
+      .slice(-3)
+      .map(m => `- ${m.text}`)
+      .join('\n');
 
-    addMessage('bot', 'Listo ✅. En cuanto un agente responda, lo verás aquí en tiempo real.');
+    const whatsappText = userMessages
+      ? `Hola, necesito ayuda con una consulta de viaje.\n\nMi consulta:\n${userMessages}`
+      : 'Hola, necesito hablar con un agente de soporte de Global Solutions Travel.';
+
+    const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER;
+    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(whatsappText)}`;
+
+    window.open(whatsappUrl, '_blank');
+
+    addMessage('bot', '✅ Se abrió WhatsApp con nuestro agente de soporte. ¡Te atenderemos en breve!');
     setMode('agent');
   } catch {
     addMessage('bot', 'No pude conectarte con un agente ahora mismo. Intenta más tarde.');
@@ -251,10 +263,10 @@ async function handleEscalate() {
           </div>
           <div>
             <p className="font-semibold text-white text-sm">
-              {mode === 'agent' ? 'Agente en línea' : 'Asistente Virtual'}
+              {mode === 'agent' ? 'WhatsApp Soporte' : 'Asistente Virtual'}
             </p>
             <p className="text-xs text-brand-200">
-              {mode === 'waiting' ? 'Conectando...' : mode === 'agent' ? 'Conectado' : 'En línea'}
+              {mode === 'waiting' ? 'Abriendo WhatsApp...' : mode === 'agent' ? 'Transferido a WhatsApp' : 'En línea'}
             </p>
           </div>
         </div>
@@ -320,13 +332,13 @@ async function handleEscalate() {
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
-              placeholder={mode === 'waiting' ? 'Esperando agente...' : 'Escribe tu mensaje...'}
-              disabled={mode === 'waiting' || isSending}
+              placeholder={mode === 'waiting' ? 'Abriendo WhatsApp...' : mode === 'agent' ? 'Continúa en WhatsApp...' : 'Escribe tu mensaje...'}
+              disabled={mode === 'waiting' || mode === 'agent' || isSending}
               className="flex-1 rounded-xl border border-neutral-300 px-3 py-2 text-sm disabled:opacity-50"
             />
             <button
               type="submit"
-              disabled={mode === 'waiting' || isSending || !input.trim()}
+              disabled={mode === 'waiting' || mode === 'agent' || isSending || !input.trim()}
               className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white disabled:opacity-50 hover:bg-brand-700 transition-colors"
             >
               <Send className="h-4 w-4" />
