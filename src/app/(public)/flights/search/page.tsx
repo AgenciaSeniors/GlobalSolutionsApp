@@ -263,7 +263,7 @@ export default function FlightSearchResultsPage() {
 
         <section className="bg-neutral-50 py-12">
           <div className="mx-auto max-w-6xl px-6">
-            <h2 className="mb-6 text-3xl font-extrabold text-[#0F2545]">Resultados de Búsqueda</h2>
+            <h2 className="mb-4 text-2xl font-extrabold text-[#0F2545] sm:mb-6 sm:text-3xl">Resultados de Búsqueda</h2>
 
             {legs.length > 0 && (
               <FlightLegTabs
@@ -275,12 +275,12 @@ export default function FlightSearchResultsPage() {
               />
             )}
 
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-              <div className="lg:col-span-4">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-4 lg:grid-cols-12">
+              <div className="md:col-span-1 lg:col-span-4">
                 <FlightFilters onFilterChange={setFilters} />
               </div>
 
-              <div className="lg:col-span-8">
+              <div className="md:col-span-3 lg:col-span-8">
                 <FlightResultsList
                   flights={filteredFlights}
                   isLoading={isLoading}

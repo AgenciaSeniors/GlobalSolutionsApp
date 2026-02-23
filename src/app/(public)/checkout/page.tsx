@@ -18,6 +18,7 @@ import Button from '@/components/ui/Button';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { useAppSettings } from '@/hooks/useAppSettings';
+import { COUNTRIES } from '@/lib/data/countries';
 import PriceBreakdownCard from '@/components/features/checkout/PriceBreakdownCard';
 import type { FlightWithDetails, PriceBreakdown, SelectedLeg } from '@/types/models';
 import type { SpecialOfferStop } from '@/types/models';
@@ -889,7 +890,7 @@ export default function CheckoutPage() {
       <Navbar />
       <main className="min-h-screen bg-neutral-50 pb-20 pt-24">
         <div className="mx-auto max-w-5xl px-6">
-          <h1 className="mb-8 font-display text-3xl font-bold">Finalizar Compra</h1>
+          <h1 className="mb-6 font-display text-2xl font-bold sm:mb-8 sm:text-3xl">Finalizar Compra</h1>
 
           {error && (
             <div className="mb-6 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">
@@ -898,8 +899,8 @@ export default function CheckoutPage() {
           )}
 
           <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-              <div className="space-y-6 lg:col-span-2">
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-5 lg:grid-cols-3">
+              <div className="space-y-6 md:col-span-3 lg:col-span-2">
                 {/* Booking summary card */}
                 <Card variant="bordered">
                   {isMulticityMode && multicityLegs.length > 0 ? (
@@ -1123,14 +1124,24 @@ export default function CheckoutPage() {
                         onChange={(e) => updatePassenger(i, 'dob', e.target.value)}
                         required
                       />
-                      <FormField
-                        label="Nacionalidad"
-                        value={p.nationality}
-                        onChange={(e) => updatePassenger(i, 'nationality', e.target.value)}
-                        placeholder="CUB"
-                        maxLength={3}
-                        required
-                      />
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-neutral-700">
+                          Nacionalidad <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={p.nationality}
+                          onChange={(e) => updatePassenger(i, 'nationality', e.target.value)}
+                          required
+                          className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:opacity-50"
+                        >
+                          <option value="">Selecciona un país…</option>
+                          {COUNTRIES.map((c) => (
+                            <option key={c.code} value={c.code}>
+                              {c.name} ({c.code})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                       <FormField
                         label="Número de Pasaporte"
                         value={p.passport_number}
@@ -1211,7 +1222,7 @@ export default function CheckoutPage() {
               </div>
 
               {/* Sidebar */}
-              <div className="space-y-4">
+              <div className="space-y-4 md:col-span-2 lg:col-span-1">
                 <PriceBreakdownCard breakdown={breakdown} gateway={gateway} />
 
                 <Button type="submit" isLoading={processing} className="w-full gap-2">

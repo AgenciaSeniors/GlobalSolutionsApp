@@ -355,23 +355,24 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
     >
       {/* ── Trip type toggle bar ──────────────────────── */}
       <div className="mb-6 flex flex-wrap items-center gap-2">
-        <div className="inline-flex gap-1 rounded-xl bg-neutral-100 p-1">
+        <div className="inline-flex gap-0.5 rounded-xl bg-neutral-100 p-1 sm:gap-1">
           {([
-            { key: 'roundtrip' as TripType, label: 'Ida y Vuelta' },
-            { key: 'oneway' as TripType, label: 'Solo Ida' },
-            { key: 'multicity' as TripType, label: 'Multidestino' },
-          ]).map(({ key, label }) => (
+            { key: 'roundtrip' as TripType, label: 'Ida y Vuelta', short: 'Ida/Vuelta' },
+            { key: 'oneway' as TripType, label: 'Solo Ida', short: 'Solo Ida' },
+            { key: 'multicity' as TripType, label: 'Multidestino', short: 'Multi' },
+          ]).map(({ key, label, short }) => (
             <button
               key={key}
               type="button"
               onClick={() => handleTripTypeChange(key)}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+              className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all sm:px-4 sm:py-2 sm:text-sm ${
                 tripType === key
                   ? 'bg-white text-brand-600 shadow-sm'
                   : 'text-neutral-500 hover:text-neutral-800'
               }`}
             >
-              {label}
+              <span className="sm:hidden">{short}</span>
+              <span className="hidden sm:inline">{label}</span>
             </button>
           ))}
         </div>
@@ -438,7 +439,7 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
       </div>
 
       {/* ── Dates row ─────────────────────────────────── */}
-      <div className={`mt-5 grid gap-4 ${isRoundtrip ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-1 sm:max-w-xs'}`}>
+      <div className={`mt-5 grid gap-4 ${isRoundtrip ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 max-w-sm'}`}>
         {/* Departure */}
         <div>
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
