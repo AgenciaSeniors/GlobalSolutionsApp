@@ -42,15 +42,15 @@ export default function MulticityItinerarySummary({
   return (
     <div className="mt-6 rounded-2xl border border-blue-200 bg-white shadow-lg overflow-hidden">
       {/* Header */}
-      <div className="bg-[#0F2545] px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Plane className="w-5 h-5 text-[#FF4757]" />
-          <h3 className="text-white font-bold text-base">
+      <div className="bg-[#0F2545] px-4 py-3 flex items-center justify-between gap-2 sm:px-6 sm:py-4">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <Plane className="w-4 h-4 text-[#FF4757] shrink-0 sm:w-5 sm:h-5" />
+          <h3 className="text-white font-bold text-sm sm:text-base truncate">
             Tu itinerario multidestino
           </h3>
         </div>
-        <span className="text-sm text-gray-300">
-          {selectedLegs.length} de {totalLegs} tramos seleccionados
+        <span className="text-xs text-gray-300 shrink-0 sm:text-sm">
+          {selectedLegs.length}/{totalLegs}
         </span>
       </div>
 
@@ -59,20 +59,20 @@ export default function MulticityItinerarySummary({
         {sorted.map((leg) => (
           <div
             key={leg.legIndex}
-            className="flex items-center gap-4 px-6 py-4"
+            className="flex items-center gap-2 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4"
           >
             {/* Leg number */}
-            <div className="w-7 h-7 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+            <div className="w-6 h-6 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 sm:w-7 sm:h-7">
               {leg.legIndex + 1}
             </div>
 
             {/* Route */}
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <span className="font-bold text-sm text-gray-800">
+            <div className="flex items-center gap-1 flex-1 min-w-0 sm:gap-2">
+              <span className="font-bold text-xs text-gray-800 sm:text-sm">
                 {leg.legMeta.origin}
               </span>
-              <ArrowRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="font-bold text-sm text-gray-800">
+              <ArrowRight className="w-3 h-3 text-gray-400 flex-shrink-0 sm:w-4 sm:h-4" />
+              <span className="font-bold text-xs text-gray-800 sm:text-sm">
                 {leg.legMeta.destination}
               </span>
               <span className="text-xs text-gray-400 ml-1 hidden sm:inline">
@@ -81,7 +81,7 @@ export default function MulticityItinerarySummary({
             </div>
 
             {/* Airline + flight */}
-            <div className="hidden md:block text-sm text-gray-500 flex-shrink-0 max-w-[160px] truncate">
+            <div className="hidden lg:block text-sm text-gray-500 flex-shrink-0 max-w-[140px] truncate">
               {leg.flightData.airline}
               {leg.flightData.flightNumber
                 ? ` · ${leg.flightData.flightNumber}`
@@ -89,7 +89,7 @@ export default function MulticityItinerarySummary({
             </div>
 
             {/* Price */}
-            <div className="text-sm font-bold text-[#0F2545] flex-shrink-0">
+            <div className="text-xs font-bold text-[#0F2545] flex-shrink-0 sm:text-sm">
               ${leg.flightData.price.toFixed(2)}
               <span className="text-xs font-normal text-gray-400">/p</span>
             </div>
@@ -109,12 +109,12 @@ export default function MulticityItinerarySummary({
         {pendingIndices.map((pendingIndex) => (
           <div
             key={`pending-${pendingIndex}`}
-            className="flex items-center gap-4 px-6 py-4 opacity-40"
+            className="flex items-center gap-2 px-3 py-3 opacity-40 sm:gap-4 sm:px-6 sm:py-4"
           >
-            <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 text-xs font-bold flex items-center justify-center flex-shrink-0">
+            <div className="w-6 h-6 rounded-full bg-gray-200 text-gray-500 text-xs font-bold flex items-center justify-center flex-shrink-0 sm:w-7 sm:h-7">
               {pendingIndex + 1}
             </div>
-            <span className="text-sm text-gray-400 italic">
+            <span className="text-xs text-gray-400 italic sm:text-sm">
               Pendiente de selección
             </span>
           </div>
@@ -122,19 +122,19 @@ export default function MulticityItinerarySummary({
       </div>
 
       {/* Footer */}
-      <div className="bg-gray-50 px-6 py-4 flex items-center justify-between gap-4">
+      <div className="bg-gray-50 px-3 py-3 flex items-center justify-between gap-3 sm:px-6 sm:py-4 sm:gap-4">
         <div>
           <p className="text-xs text-gray-500">
-            Total estimado ({passengerCount}{' '}
-            {passengerCount === 1 ? 'pasajero' : 'pasajeros'})
+            Total ({passengerCount}{' '}
+            {passengerCount === 1 ? 'pas.' : 'pas.'})
           </p>
-          <p className="text-xl font-extrabold text-[#0F2545]">
+          <p className="text-lg font-extrabold text-[#0F2545] sm:text-xl">
             ${totalAll.toFixed(2)}{' '}
             <span className="text-xs font-normal text-gray-400">USD</span>
           </p>
           {passengerCount > 1 && (
             <p className="text-xs text-gray-400">
-              ${totalPerPerson.toFixed(2)} por persona
+              ${totalPerPerson.toFixed(2)}/persona
             </p>
           )}
         </div>
@@ -142,15 +142,15 @@ export default function MulticityItinerarySummary({
         <Button
           onClick={onContinue}
           disabled={!allSelected}
-          className={`px-8 py-3 rounded-xl font-bold text-sm transition-all ${
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-all sm:px-8 sm:py-3 sm:text-sm ${
             allSelected
               ? 'bg-[#FF4757] hover:bg-[#e03e4e] text-white shadow-md'
               : 'bg-gray-200 text-gray-400 cursor-not-allowed'
           }`}
         >
           {allSelected
-            ? 'Continuar al checkout'
-            : `Faltan ${totalLegs - selectedLegs.length} tramo${totalLegs - selectedLegs.length > 1 ? 's' : ''}`}
+            ? 'Ir al checkout'
+            : `Faltan ${totalLegs - selectedLegs.length}`}
         </Button>
       </div>
     </div>

@@ -66,10 +66,10 @@ export default function Navbar() {
         {/* ── Logo ── */}
         <Link href={ROUTES.HOME} className="flex items-center px-2 py-2">
           <span className="leading-none">
-            <span className="font-display text-xl font-bold tracking-wide text-navy">
+            <span className="font-display text-base font-bold tracking-wide text-navy sm:text-xl">
               GLOBAL SOLUTIONS{' '}
             </span>
-            <span className="font-script text-xl font-bold text-coral">Travel</span>
+            <span className="font-script text-base font-bold text-coral sm:text-xl">Travel</span>
           </span>
         </Link>
 
