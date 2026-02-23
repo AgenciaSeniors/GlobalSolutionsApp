@@ -7,7 +7,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { pdf } from '@react-pdf/renderer';
 import { BookingVoucher } from '@/lib/pdf/bookingVoucher';
 import { createClient } from '@/lib/supabase/client';
-import { Clock, Plane, ArrowRight, User, Calendar, Search, Edit, CheckCircle, FileText } from 'lucide-react';
+import { Clock, Plane, ArrowRight, Search, Edit, CheckCircle, FileText } from 'lucide-react';
 import type { FlightSegment, Passenger } from '@/lib/pdf/bookingVoucher';
 
 const DynamicPDFWrapper = dynamic(
@@ -74,6 +74,11 @@ type BookingWithRelations = {
   passengers: BookingPassengerRow[] | null;
   flight: OneOrMany<FlightDetailsRow> | null;
 };
+
+const DEFAULT_POLICIES = `✈️ Política de Cancelación: Consulte términos y condiciones.
+💼 Equipaje: 1 pieza de 23kg incluida.
+⏰ Presentación: 2 horas antes de vuelo internacional.
+📋 Documentos: Pasaporte válido requerido.`;
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
