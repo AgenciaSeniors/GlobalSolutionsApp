@@ -11,18 +11,22 @@ interface Props {
   flights: FlightSegment[];
   returnFlights?: FlightSegment[];
   passengers: Passenger[];
+  policies?: string; // 🚀 Permite pasar las políticas al PDF
 }
 
-export default function PDFWrapper({ invoiceId, issueDate, flights, returnFlights, passengers }: Props) {
+const PDFWrapper: React.FC<Props> = ({ invoiceId, issueDate, flights, returnFlights, passengers, policies }) => {
   return (
     <PDFViewer className="w-full h-full border-none">
       <BookingVoucher 
         invoiceId={invoiceId} 
         issueDate={issueDate} 
         outboundFlights={flights} 
-        returnFlights={returnFlights}
-        passengers={passengers} 
+        returnFlights={returnFlights} 
+        passengers={passengers}
+        policies={policies}
       />
     </PDFViewer>
   );
-}
+};
+
+export default PDFWrapper;

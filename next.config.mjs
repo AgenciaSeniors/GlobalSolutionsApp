@@ -23,10 +23,9 @@ const nextConfig = {
                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                         "img-src 'self' data: https: blob:; " +
                         "font-src 'self' https://fonts.gstatic.com; " +
-                        /* 🚨 AQUÍ ESTÁ EL FIX: Añadimos 'self' y blob: al frame-src */
                         "frame-src 'self' blob: https://js.stripe.com https://hooks.stripe.com https://www.paypal.com https://www.sandbox.paypal.com; " +
-                        /* 🚨 AQUÍ ESTÁ EL FIX: Añadimos data: al connect-src */
-                        "connect-src 'self' data: https://api.stripe.com https://www.paypal.com https://www.sandbox.paypal.com https://*.supabase.co https://flights-sky.p.rapidapi.com;",
+                        /* 🚨 FIX: Añadimos fonts.gstatic.com para descargar la fuente del PDF */
+                        "connect-src 'self' data: blob: https://api.stripe.com https://www.paypal.com https://www.sandbox.paypal.com https://*.supabase.co https://flights-sky.p.rapidapi.com https://fonts.googleapis.com https://fonts.gstatic.com;",
                 },
             ],
         }, ];

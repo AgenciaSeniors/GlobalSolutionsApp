@@ -64,7 +64,7 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
 
   return (
     <article className="group rounded-2xl border-2 border-transparent bg-white p-4 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:border-brand-200 hover:shadow-lg hover:shadow-brand-600/[0.06] sm:p-6">
-      <div className="grid grid-cols-1 items-center gap-6 sm:grid-cols-[1fr_2fr_1fr]">
+      <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_2fr_1fr] sm:gap-6">
         {/* Airline */}
         <div>
           <span className="mb-2 flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 text-brand-600">
@@ -90,10 +90,10 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
         </div>
 
         {/* Times */}
-        <div className="grid grid-cols-3 items-center gap-4">
+        <div className="grid grid-cols-3 items-center gap-2 sm:gap-4">
           <div className="text-left">
-            <p className="text-2xl font-bold text-neutral-900">{departureTime}</p>
-            <p className="text-sm text-neutral-500">{originCode}</p>
+            <p className="text-xl font-bold text-neutral-900 sm:text-2xl">{departureTime}</p>
+            <p className="text-xs text-neutral-500 sm:text-sm">{originCode}</p>
           </div>
 
           <div className="flex flex-col items-center">
@@ -108,18 +108,18 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
               {!isDirect ? (
                 <button
                   onClick={() => setShowStopsDetails(!showStopsDetails)}
-                  className="group/badge flex max-w-[240px] items-center gap-2 rounded-full bg-amber-100 px-3 py-1 transition-all hover:bg-amber-200 hover:shadow-md"
+                  className="group/badge flex max-w-full items-center gap-1 rounded-full bg-amber-100 px-2 py-1 transition-all hover:bg-amber-200 hover:shadow-md sm:max-w-[240px] sm:gap-2 sm:px-3"
                   title={`Vía ${stopAirports}`}
                   type="button"
                 >
                   <span className="text-xs font-semibold text-amber-700">{stopsLabel}</span>
-                  <span className="max-w-[140px] truncate text-[10px] text-amber-700/80">
+                  <span className="hidden max-w-[140px] truncate text-[10px] text-amber-700/80 sm:inline">
                     vía {stopAirportsShort}
                   </span>
                   {showStopsDetails ? (
-                    <ChevronUp className="h-3.5 w-3.5 text-amber-700 transition-transform group-hover/badge:scale-110" />
+                    <ChevronUp className="h-3 w-3 text-amber-700 transition-transform group-hover/badge:scale-110 sm:h-3.5 sm:w-3.5" />
                   ) : (
-                    <ChevronDown className="h-3.5 w-3.5 text-amber-700 transition-transform group-hover/badge:scale-110" />
+                    <ChevronDown className="h-3 w-3 text-amber-700 transition-transform group-hover/badge:scale-110 sm:h-3.5 sm:w-3.5" />
                   )}
                 </button>
               ) : (
@@ -129,22 +129,22 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
           </div>
 
           <div className="text-right">
-            <p className="text-2xl font-bold text-neutral-900">{arrivalTime}</p>
-            <p className="text-sm text-neutral-500">{destinationCode}</p>
+            <p className="text-xl font-bold text-neutral-900 sm:text-2xl">{arrivalTime}</p>
+            <p className="text-xs text-neutral-500 sm:text-sm">{destinationCode}</p>
           </div>
         </div>
 
         {/* Price + CTA */}
         <div className="flex flex-row items-center justify-between gap-4 sm:flex-col sm:items-end sm:justify-center">
-          <div className="text-right">
+          <div className="sm:text-right">
             <span className="text-xs text-neutral-400">Total por pasajero</span>
-            <p className="text-3xl font-extrabold text-[#FF4757]">${flight.price}</p>
+            <p className="text-2xl font-extrabold text-[#FF4757] sm:text-3xl">${flight.price}</p>
           </div>
 
           <Button
             onClick={() => onSelect?.(flight.id)}
             variant="primary"
-            className="w-full sm:w-auto"
+            className="shrink-0 sm:w-auto"
           >
             Seleccionar
           </Button>
