@@ -1014,20 +1014,20 @@ export default function CheckoutPage() {
                       {
                         id: 'stripe' as const,
                         icon: CreditCard,
-                        label: 'Tarjeta (Stripe)',
-                        sub: `${settings.stripe_fee_percentage}% + $${settings.stripe_fee_fixed.toFixed(2)}`,
+                        label: 'Tarjeta de Crédito/Débito',
+                        sub: 'Visa, Mastercard, Amex',
                       },
                       {
                         id: 'paypal' as const,
                         icon: Building,
                         label: 'PayPal',
-                        sub: `${settings.paypal_fee_percentage}% + $${settings.paypal_fee_fixed.toFixed(2)}`,
+                        sub: 'Pago con cuenta PayPal',
                       },
                       {
                         id: 'zelle' as const,
                         icon: Banknote,
                         label: 'Zelle',
-                        sub: 'Sin comisión',
+                        sub: 'Transferencia directa',
                       },
                     ] as const).map((m) => (
                       <button
@@ -1063,7 +1063,7 @@ export default function CheckoutPage() {
 
               {/* Sidebar */}
               <div className="space-y-4">
-                <PriceBreakdownCard breakdown={breakdown} gateway={gateway} />
+                <PriceBreakdownCard breakdown={breakdown} />
 
                 <Button type="submit" isLoading={processing || pricingLoading} className="w-full gap-2">
                   <Lock className="h-4 w-4" />

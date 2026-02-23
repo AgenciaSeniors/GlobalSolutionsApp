@@ -1,7 +1,7 @@
 /**
- * @fileoverview Price Breakdown Card — Transparent commission display.
- * Per spec §5.1: "The price breakdown must be FULLY VISIBLE to the client
- * before paying." Shows: Base + Markup + Age pricing + Volatility + Gateway Fee = Total.
+ * @fileoverview Price Breakdown Card — Clean price display for clients.
+ * Shows: Base + Markup + Age pricing + Volatility = Total.
+ * Gateway fees are included silently in the total (not itemized).
  * @module components/features/checkout/PriceBreakdownCard
  */
 import Card from '@/components/ui/Card';
@@ -10,7 +10,6 @@ import { Receipt, Info, Users } from 'lucide-react';
 
 interface Props {
   breakdown: PriceBreakdown;
-  gateway?: 'stripe' | 'paypal' | 'zelle';
 }
 
 const passengerTypeLabel: Record<string, string> = {
@@ -19,12 +18,7 @@ const passengerTypeLabel: Record<string, string> = {
   infant: 'Infante (0-1)',
 };
 
-export default function PriceBreakdownCard({ breakdown, gateway = 'stripe' }: Props) {
-  const gatewayLabel: Record<string, string> = {
-    stripe: 'Stripe',
-    paypal: 'PayPal',
-    zelle: 'Zelle (sin comision)',
-  };
+export default function PriceBreakdownCard({ breakdown }: Props) {
 
   const hasPassengerDetails = breakdown.passenger_details && breakdown.passenger_details.length > 0;
 
@@ -93,23 +87,7 @@ export default function PriceBreakdownCard({ breakdown, gateway = 'stripe' }: Pr
           </div>
         )}
 
-        {/* Gateway fee */}
-        <div className="flex justify-between">
-          <span className="flex items-center gap-1 text-neutral-600">
-            Comision {gatewayLabel[gateway]}
-            <Info className="h-3 w-3 text-neutral-400" />
-          </span>
-          <span className="font-medium">
-            {gateway === 'zelle' ? '$0.00' : `$${breakdown.gateway_fee.toFixed(2)}`}
-          </span>
-        </div>
-        {gateway !== 'zelle' && (
-          <p className="text-xs text-neutral-400">
-            ({breakdown.gateway_fee_pct}% + ${breakdown.gateway_fixed_fee.toFixed(2)})
-          </p>
-        )}
-
-        {/* TOTAL */}
+        {/* TOTAL (includes gateway fee silently) */}
         <div className="flex justify-between border-t-2 border-brand-200 pt-3">
           <span className="text-lg font-bold text-neutral-900">TOTAL A PAGAR</span>
           <span className="text-lg font-bold text-brand-600">
