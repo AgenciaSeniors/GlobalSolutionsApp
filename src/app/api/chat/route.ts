@@ -573,23 +573,33 @@ export async function POST(req: Request) {
     (kbSnippets ? `\n[BASE DE CONOCIMIENTO]\n${kbSnippets}\n` : '');
 
   let assistantText = '';
-  try {
-    assistantText = await openaiChatCompletion({
-      system,
-      messages: [...history, { role: 'user', content: message }],
-      maxTokens: 220,
-    });
-  } catch (e: unknown) {
-    const raw = e instanceof Error ? e.message : String(e);
-    // If no credit/quota: fall back to KB (no 500)
-    if (raw.includes('429') || raw.includes('insufficient_quota')) {
-      assistantText =
-        'Ahora mismo el asistente IA no tiene cuota/crédito para responder con IA avanzada.\n\n' +
-        (kbSnippets ? `Esto es lo más relevante según nuestra base de conocimiento:\n${kbSnippets}\n\n` : '') +
-        'Si necesitas, escribe “Hablar con un agente” para escalar.';
-    } else {
-      // Don’t leak internals to client; return a friendly message
-      assistantText = 'Ocurrió un error procesando tu solicitud. Intenta de nuevo o escribe “Hablar con un agente”.';
+
+  // Si no hay crédito/API key de OpenAI, responder solo con la KB local
+  const openaiEnabled = !!(process.env.OPENAI_API_KEY?.startsWith('sk-'));
+
+  if (!openaiEnabled) {
+    assistantText = kbSnippets
+      ? `Aquí tienes información relevante:\n\n${kbSnippets}\n\n¿Necesitas más ayuda? Puedes escribir "Hablar con un agente" o usar el botón de WhatsApp.`
+      : 'Por el momento el asistente IA avanzado no está disponible. ¿Deseas hablar con un agente? Haz clic en "Hablar con un Agente".';
+  } else {
+    try {
+      assistantText = await openaiChatCompletion({
+        system,
+        messages: [...history, { role: 'user', content: message }],
+        maxTokens: 220,
+      });
+    } catch (e: unknown) {
+      const raw = e instanceof Error ? e.message : String(e);
+      // If no credit/quota: fall back to KB (no 500)
+      if (raw.includes('429') || raw.includes('insufficient_quota')) {
+        assistantText =
+          'Ahora mismo el asistente IA no tiene cuota/crédito para responder con IA avanzada.\n\n' +
+          (kbSnippets ? `Esto es lo más relevante según nuestra base de conocimiento:\n${kbSnippets}\n\n` : '') +
+          'Si necesitas, escribe "Hablar con un agente" para escalar.';
+      } else {
+        // Don't leak internals to client; return a friendly message
+        assistantText = 'Ocurrió un error procesando tu solicitud. Intenta de nuevo o escribe "Hablar con un agente".';
+      }
     }
   }
 
