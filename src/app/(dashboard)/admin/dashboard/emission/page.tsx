@@ -4,7 +4,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { PDFDownloadLink, pdf } from '@react-pdf/renderer'; 
+import { pdf } from '@react-pdf/renderer';
 import { BookingVoucher } from '@/lib/pdf/bookingVoucher';
 import { createClient } from '@/lib/supabase/client';
 import { Clock, Plane, ArrowRight, User, Calendar, Search, Edit, CheckCircle, FileText } from 'lucide-react';
@@ -15,13 +15,75 @@ const DynamicPDFWrapper = dynamic(
   { ssr: false, loading: () => <div className="h-full flex items-center justify-center text-slate-500 font-bold animate-pulse">Cargando Motor de PDF...</div> }
 );
 
-function norm(val: any) {
-  if (Array.isArray(val)) return val[0] || null;
+type OneOrMany<T> = T | T[];
+
+function norm<T>(val: OneOrMany<T> | null | undefined): T | null {
+  if (!val) return null;
+  if (Array.isArray(val)) return val[0] ?? null;
   return val;
 }
 
-// 🚀 POLÍTICAS POR DEFECTO
-const DEFAULT_POLICIES = "1. Boletos No Reembolsables, No Transferibles.\n2. Presentar formularios migratorios (D'Viajeros, E-Ticket) obligatorios según el destino.\n3. Llegar al aeropuerto con al menos 3 horas de antelación para vuelos internacionales.";
+type ProfileRow = { full_name: string | null; email: string | null };
+type AirlineRow = { name: string | null };
+type FlightRow = {
+  flight_number: string | null;
+  airline: OneOrMany<AirlineRow> | null;
+};
+
+type PendingBookingRow = {
+  id: string;
+  booking_code: string | null;
+  created_at: string;
+  payment_status: string | null;
+  profile: OneOrMany<ProfileRow> | null;
+  flight: OneOrMany<FlightRow> | null;
+};
+
+type VoucherRow = {
+  id: string;
+  created_at: string;
+  invoice_id: string | null;
+  client_email: string | null;
+  passengers: Passenger[] | null;
+  pdf_url: string | null;
+  outbound_flights?: FlightSegment[] | null;
+  return_flights?: FlightSegment[] | null;
+  issue_date?: string | null;
+};
+
+type BookingPassengerRow = {
+  first_name: string | null;
+  last_name: string | null;
+  ticket_number: string | null;
+};
+
+type AirportRow = { iata_code: string | null };
+type FlightDetailsRow = {
+  departure_datetime: string;
+  arrival_datetime: string;
+  flight_number: string | null;
+  airline: OneOrMany<AirlineRow> | null;
+  origin: OneOrMany<AirportRow> | null;
+  dest: OneOrMany<AirportRow> | null;
+};
+
+type BookingWithRelations = {
+  booking_code: string | null;
+  user_id: string | null;
+  airline_pnr: string | null;
+  passengers: BookingPassengerRow[] | null;
+  flight: OneOrMany<FlightDetailsRow> | null;
+};
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return 'Unknown error';
+  }
+}
 
 // ==========================================
 // COMPONENTE 1: EL CENTRO DE EMISIONES
@@ -30,8 +92,8 @@ function EmissionsDashboard() {
   const [supabase] = useState(() => createClient());
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
-  const [pending, setPending] = useState<any[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
+  const [pending, setPending] = useState<PendingBookingRow[]>([]);
+  const [history, setHistory] = useState<VoucherRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -39,12 +101,27 @@ function EmissionsDashboard() {
     async function fetchData() {
       setLoading(true);
       if (activeTab === 'pending') {
-        const { data, error } = await supabase.from('bookings').select(`id, booking_code, created_at, payment_status, booking_status, profile:profiles!bookings_user_id_fkey(full_name, email), flight:flights!bookings_flight_id_fkey(flight_number, airline:airlines!flights_airline_id_fkey(name))`).eq('booking_status', 'pending_emission').order('created_at', { ascending: false });
-        if (error) console.error("Error cargando pendientes:", error);
-        setPending((data || []).filter(b => String(b.payment_status).trim() === 'paid'));
+        const { data, error } = await supabase
+          .from('bookings')
+          .select(`
+            id, booking_code, created_at, payment_status, booking_status,
+            profile:profiles!bookings_user_id_fkey(full_name, email),
+            flight:flights!bookings_flight_id_fkey(flight_number, airline:airlines!flights_airline_id_fkey(name))
+          `)
+          .eq('booking_status', 'pending_emission')
+          .order('created_at', { ascending: false });
+        
+        if (error) console.error("Error buscando pendientes:", error.message);
+        const validBookings = ((data as PendingBookingRow[]) || []).filter(b => String(b.payment_status).trim() === 'paid');
+        setPending(validBookings);
       } else {
-        const { data } = await supabase.from('vouchers').select('*').order('created_at', { ascending: false });
-        setHistory(data || []);
+        const { data, error } = await supabase
+          .from('vouchers')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (error) console.error("Error buscando historial:", error.message);
+        setHistory((data as VoucherRow[]) || []);
       }
       setLoading(false);
     }
@@ -91,8 +168,12 @@ function EmissionsDashboard() {
             <div key={voucher.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
               <div><h3 className="font-mono text-lg font-bold text-brand-600 mb-2">{voucher.invoice_id}</h3><p className="text-sm text-slate-600 truncate">{voucher.client_email}</p></div>
               <div className="flex gap-2 mt-5">
-                <button onClick={() => window.open(voucher.pdf_url, '_blank')} className="flex-1 bg-slate-100 text-slate-700 py-2 rounded-lg text-xs font-bold">Ver PDF</button>
-                <button onClick={() => router.push(`/admin/dashboard/emission?vid=${voucher.id}`)} className="flex-1 bg-brand-600 text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1"><Edit className="h-3 w-3" /> Editar</button>
+                <button onClick={() => voucher.pdf_url && window.open(voucher.pdf_url, '_blank')} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg text-xs font-bold transition-colors">
+                  Ver PDF
+                </button>
+                <button onClick={() => router.push(`/admin/dashboard/emission?vid=${voucher.id}`)} className="flex-1 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1">
+                  <Edit className="h-3 w-3" /> Editar
+                </button>
               </div>
             </div>
           ))}
@@ -108,6 +189,7 @@ function EmissionsDashboard() {
 function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?: string }) {
   const [supabase] = useState(() => createClient());
   const router = useRouter();
+  
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isEmitting, setIsEmitting] = useState(false);
   
@@ -131,25 +213,66 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
         if (voucherId) {
           const { data } = await supabase.from('vouchers').select('*').eq('id', voucherId).single();
           if (data) {
-            setInvoiceId(data.invoice_id);
-            setClientEmail(data.client_email);
-            setPassengers(data.passengers);
-            setFlights(data.outbound_flights);
-            setReturnFlights(data.return_flights || []);
+            const voucher = data as VoucherRow;
+            setInvoiceId(voucher.invoice_id || '');
+            setClientEmail(voucher.client_email || '');
+            setPassengers(voucher.passengers || [{ fullName: '', baggage: '1x23kg', pnr: '', ticketNumber: '' }]);
+            setFlights(voucher.outbound_flights || [{ airline: '', flightNumber: '', date: '', origin: '', destination: '', departure: '', arrival: '', cabinClass: 'ECONÓMICA', status: 'HK' }]);
+            setReturnFlights(voucher.return_flights || []);
           }
-        } else if (bookingId) {
-          const { data: booking, error } = await supabase.from('bookings').select(`*, profile:profiles!bookings_user_id_fkey(email), passengers:booking_passengers!booking_passengers_booking_id_fkey(*), flight:flights!bookings_flight_id_fkey(*, airline:airlines!flights_airline_id_fkey(name), origin:airports!flights_origin_airport_id_fkey(iata_code), dest:airports!flights_destination_airport_id_fkey(iata_code))`).eq('id', bookingId).single();
-          
-          if (error) console.error("Error al traer info de BD:", error.message);
+        } 
+        // 🚀 MODO NUEVO: Cargamos desde la reserva virgen
+        else if (bookingId) {
+          const { data: booking, error } = await supabase
+            .from('bookings')
+            .select(`
+              *,
+              passengers:booking_passengers!booking_passengers_booking_id_fkey(*),
+              flight:flights!bookings_flight_id_fkey(*, airline:airlines!flights_airline_id_fkey(name), origin:airports!flights_origin_airport_id_fkey(iata_code), dest:airports!flights_destination_airport_id_fkey(iata_code))
+            `)
+            .eq('id', bookingId)
+            .single();
 
-          if (booking) {
-            setInvoiceId(booking.booking_code);
-            setClientEmail(norm(booking.profile)?.email || '');
-            setPassengers(booking.passengers.map((p: any) => ({ fullName: `${p.first_name} ${p.last_name}`.toUpperCase(), ticketNumber: p.ticket_number || '', baggage: '1x23kg', pnr: booking.airline_pnr || '' })));
-            const flightData = norm(booking.flight);
-            if (flightData) {
-              setFlights([{ airline: norm(flightData.airline)?.name || '', flightNumber: flightData.flight_number, date: new Date(flightData.departure_datetime).toLocaleDateString('es-ES'), origin: norm(flightData.origin)?.iata_code, destination: norm(flightData.dest)?.iata_code, departure: '10:00 AM', arrival: '12:00 PM', cabinClass: 'ECONÓMICA', status: 'HK' }]);
-            }
+          if (error) throw error;
+
+          const bookingData = booking as BookingWithRelations;
+
+          if (bookingData.user_id) {
+            const { data: profile } = await supabase.from('profiles').select('email').eq('id', bookingData.user_id).single();
+            if (profile) setClientEmail(profile.email);
+          }
+
+          setInvoiceId(bookingData.booking_code || '');
+
+          const mappedPassengers = Array.isArray(bookingData.passengers) ? bookingData.passengers : [];
+          if (mappedPassengers.length > 0) {
+            setPassengers(mappedPassengers.map((p: BookingPassengerRow) => ({
+              fullName: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim().toUpperCase(),
+              pnr: bookingData.airline_pnr || '',
+              ticketNumber: p.ticket_number || '',
+              baggage: '1x23kg'
+            })));
+          } else {
+            setPassengers([{ fullName: '', baggage: '1x23kg', pnr: '', ticketNumber: '' }]);
+          }
+
+          const flightData = norm(bookingData.flight);
+          if (flightData) {
+            const dObj = new Date(flightData.departure_datetime);
+            const aObj = new Date(flightData.arrival_datetime);
+            setFlights([{
+              airline: norm(flightData.airline)?.name || '',
+              flightNumber: flightData.flight_number || '',
+              date: dObj.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase(),
+              origin: norm(flightData.origin)?.iata_code || '',
+              destination: norm(flightData.dest)?.iata_code || '',
+              departure: dObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              arrival: aObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              cabinClass: 'ECONÓMICA',
+              status: 'HK'
+            }]);
+          } else {
+            setFlights([{ airline: '', flightNumber: '', date: '', origin: '', destination: '', departure: '', arrival: '', cabinClass: 'ECONÓMICA', status: 'HK' }]);
           }
         }
       } catch (e) {
@@ -167,16 +290,28 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
   const updateFlight = (index: number, field: keyof FlightSegment, value: string, isReturn: boolean = false) => {
     const targetArray = isReturn ? [...returnFlights] : [...flights];
     targetArray[index] = { ...targetArray[index], [field]: value.toUpperCase() };
-    isReturn ? setReturnFlights(targetArray) : setFlights(targetArray);
+    if (isReturn) {
+      setReturnFlights(targetArray);
+    } else {
+      setFlights(targetArray);
+    }
   };
   const addPassenger = () => setPassengers([...passengers, { fullName: '', baggage: '1x23kg', pnr: '', ticketNumber: '' }]);
   const removePassenger = (index: number) => setPassengers(passengers.filter((_, i) => i !== index));
   const addFlight = (isReturn: boolean = false) => {
     const newFlight = { airline: '', flightNumber: '', date: '', origin: '', destination: '', departure: '', arrival: '', cabinClass: 'Económica', status: 'HK' };
-    isReturn ? setReturnFlights([...returnFlights, newFlight]) : setFlights([...flights, newFlight]);
+    if (isReturn) {
+      setReturnFlights([...returnFlights, newFlight]);
+    } else {
+      setFlights([...flights, newFlight]);
+    }
   };
   const removeFlight = (index: number, isReturn: boolean = false) => {
-    isReturn ? setReturnFlights(returnFlights.filter((_, i) => i !== index)) : setFlights(flights.filter((_, i) => i !== index));
+    if (isReturn) {
+      setReturnFlights(returnFlights.filter((_, i) => i !== index));
+    } else {
+      setFlights(flights.filter((_, i) => i !== index));
+    }
   };
 
   const handleEmit = async () => {
@@ -231,12 +366,11 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
 
       alert("✅ ¡Boleto emitido y guardado con éxito!");
       router.push('/admin/dashboard/emission');
-      
-    } catch (err: any) { 
-        console.error(err);
-        alert("Error: " + err.message); 
-    } finally { 
-        setIsEmitting(false); 
+
+    } catch (err: unknown) {
+      alert("❌ Ocurrió un error: " + getErrorMessage(err));
+    } finally {
+      setIsEmitting(false);
     }
   };
 
@@ -283,7 +417,7 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <div className="col-span-2"><label className="block text-[10px] font-bold text-slate-500">NOMBRE</label><input type="text" value={pax.fullName} onChange={(e) => updatePassenger(index, 'fullName', e.target.value)} className={inputClass} /></div>
                   <div><label className="block text-[10px] font-bold text-slate-500">PNR</label><input type="text" value={pax.pnr} onChange={(e) => updatePassenger(index, 'pnr', e.target.value)} className={inputClass} /></div>
-                  <div><label className="block text-[10px] font-bold text-brand-600">TICKET</label><input type="text" value={pax.ticketNumber} onChange={(e) => updatePassenger(index, 'ticketNumber', e.target.value)} className={inputClass} /></div>
+                    <div><label className="block text-[10px] font-bold text-brand-600">NÚMERO DE TICKET</label><input type="text" value={pax.ticketNumber} onChange={(e) => updatePassenger(index, 'ticketNumber', e.target.value)} className={inputClass} placeholder="Requerido" /></div>
                 </div>
               </div>
             ))}
