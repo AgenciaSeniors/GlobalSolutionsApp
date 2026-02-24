@@ -14,7 +14,6 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
-import { useAuthContext } from '@/components/providers/AuthProvider';
 import { Star, CheckCircle, XCircle, Sparkles, AlertCircle } from 'lucide-react';
 
 /* ---------- Types ---------- */
@@ -52,7 +51,6 @@ type FilterKey = 'all' | 'pending_approval' | 'approved' | 'rejected';
 
 export default function AdminReviewsPage() {
   const supabase = createClient();
-  const { user } = useAuthContext();
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('pending_approval');
@@ -114,26 +112,23 @@ export default function AdminReviewsPage() {
     setActionLoading(id);
 
     try {
-      const { error } = await supabase
-        .from('reviews')
-        .update({
-          status,
-          moderated_by: user?.id || null,
-          moderated_at: new Date().toISOString(),
-        })
-        .eq('id', id);
+      const res = await fetch('/api/admin/reviews', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      });
 
-      if (error) {
-        console.error(`[AdminReviews] ${actionLabel} error:`, error.message, error.details, error.hint);
-        if (error.message.includes('row-level security') || error.code === '42501') {
-          alert('Solo administradores pueden moderar reseñas.');
-        } else {
-          alert(`Error al ${actionLabel}: ${error.message}`);
-        }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error(`[AdminReviews] ${actionLabel} error:`, res.status, data);
+        alert(`Error al ${actionLabel}: ${(data as { error?: string }).error ?? res.statusText}`);
         return;
       }
 
       await fetchReviews();
+    } catch (err) {
+      console.error(`[AdminReviews] ${actionLabel} unexpected error:`, err);
+      alert(`Error inesperado al ${actionLabel}.`);
     } finally {
       setActionLoading(null);
     }
