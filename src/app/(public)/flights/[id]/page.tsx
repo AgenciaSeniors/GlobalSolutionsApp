@@ -22,7 +22,7 @@ import { useAuthContext } from '@/components/providers/AuthProvider';
 import type { FlightWithDetails } from '@/types/models';
 import {
   Plane, MapPin, Calendar, Users, Shield,
-  Luggage, ArrowRight, ArrowLeft, CreditCard, ChevronDown, Briefcase, Crown, Armchair
+  ArrowRight, ArrowLeft, CreditCard
 } from 'lucide-react';
 
 export default function FlightDetailPage() {
@@ -37,8 +37,6 @@ export default function FlightDetailPage() {
   const [passengers, setPassengers] = useState(
     parseInt(searchParams.get('passengers') || '1', 10)
   );
-  const [showPricing, setShowPricing] = useState(false);
-  const [flightClass, setFlightClass] = useState<'economy' | 'business' | 'first'>('economy');
 
   useEffect(() => {
   async function load() {
@@ -69,7 +67,7 @@ export default function FlightDetailPage() {
       router.push(`/login?redirect=/flights/${params.id}`);
       return;
     }
-    router.push(`/checkout?flight=${params.id}&passengers=${passengers}&class=${flightClass}`);
+    router.push(`/checkout?flight=${params.id}&passengers=${passengers}`);
   }
 
   if (loading) {
@@ -103,20 +101,8 @@ export default function FlightDetailPage() {
   const durationH = Math.floor(durationMs / 3600000);
   const durationM = Math.round((durationMs % 3600000) / 60000);
 
-  const classMultipliers = {
-    economy: 1.0,
-    business: 2.5,
-    first: 4.0
-  };
-
-  const classMultiplier = classMultipliers[flightClass];
-  const pricePerPerson = flight.final_price * classMultiplier;
-  const subtotal = pricePerPerson * passengers;
-  // Gateway fee absorbed in total (Stripe default: 2.9% + $0.30, applied on subtotal + 3% buffer)
-  const volatilityBuffer = subtotal * 0.03;
-  const gatewayBase = subtotal + volatilityBuffer;
-  const gatewayFee = gatewayBase * 0.029 + 0.30;
-  const total = gatewayBase + gatewayFee;
+  const pricePerPerson = flight.final_price;
+  const total = pricePerPerson * passengers;
 
   return (
     <>
@@ -228,39 +214,6 @@ export default function FlightDetailPage() {
                 </div>
               </Card>
 
-              {/* Baggage Info */}
-              <Card variant="bordered">
-                <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
-                  <Luggage className="h-5 w-5 text-brand-500" /> Equipaje Permitido
-                </h2>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-sm">
-                  <div className="flex items-center gap-3 rounded-xl bg-emerald-50 p-3 border border-emerald-100">
-                    <span className="text-xl">🎒</span>
-                    <div>
-                      <p className="font-semibold">Personal</p>
-                      <p className="text-xs text-neutral-500">1 artículo personal (bajo asiento)</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 rounded-xl bg-blue-50 p-3 border border-blue-100">
-                    <span className="text-xl">💼</span>
-                    <div>
-                      <p className="font-semibold">Mano</p>
-                      <p className="text-xs text-neutral-500">1 maleta de mano (8-10 kg)</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 rounded-xl bg-purple-50 p-3 border border-purple-100">
-                    <span className="text-xl">🧳</span>
-                    <div>
-                      <p className="font-semibold">Bodega</p>
-                      <p className="text-xs text-neutral-500">1 maleta (23 kg) — sujeto a aerolínea</p>
-                    </div>
-                  </div>
-                </div>
-                <p className="mt-3 text-xs text-neutral-400">
-                  * El equipaje permitido puede variar según la aerolínea y clase de tarifa.
-                  Consulta las condiciones de {flight.airline.name} para detalles específicos.
-                </p>
-              </Card>
             </div>
 
             {/* ── Right: Booking Card ── */}
@@ -282,60 +235,6 @@ export default function FlightDetailPage() {
                       <option key={i + 1} value={i + 1}>{i + 1} pasajero{i > 0 ? 's' : ''}</option>
                     ))}
                   </select>
-                </div>
-
-                {/* Clase de vuelo */}
-                <div className="mb-4">
-                  <label className="text-sm font-medium text-neutral-700 mb-2 block">
-                    Clase de Vuelo
-                  </label>
-                  <div className="space-y-2">
-                    {([
-                      { id: 'economy' as const, name: 'Económica', icon: Armchair, multiplier: 1.0 },
-                      { id: 'business' as const, name: 'Business', icon: Briefcase, multiplier: 2.5 },
-                      { id: 'first' as const, name: 'Primera', icon: Crown, multiplier: 4.0 }
-                    ]).map(option => {
-                      const Icon = option.icon;
-                      const classPrice = flight.final_price * option.multiplier;
-                      const isSelected = flightClass === option.id;
-                      
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={() => setFlightClass(option.id)}
-                          className={`w-full rounded-lg border-2 p-3 text-left transition-all ${
-                            isSelected
-                              ? 'border-brand-500 bg-brand-50'
-                              : 'border-neutral-200 hover:border-neutral-300'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-                                isSelected ? 'bg-brand-600 text-white' : 'bg-neutral-100 text-neutral-600'
-                              }`}>
-                                <Icon className="h-4 w-4" />
-                              </div>
-                              <div>
-                                <p className={`text-sm font-semibold ${isSelected ? 'text-brand-900' : 'text-neutral-900'}`}>
-                                  {option.name}
-                                </p>
-                                {option.multiplier > 1 && (
-                                  <p className="text-xs text-neutral-500">
-                                    {option.multiplier}x precio base
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                            <p className={`text-sm font-bold ${isSelected ? 'text-brand-600' : 'text-neutral-700'}`}>
-                              ${classPrice.toFixed(2)}
-                            </p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
                 </div>
 
                 {/* Price Summary */}
