@@ -20,7 +20,7 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 /* ---- CONSTANTS ----------------------------------- */
 /* -------------------------------------------------- */
 
-const CACHE_TTL_MINUTES = 15;
+const CACHE_TTL_MINUTES = 3;
 const CACHE_CONTROL_RESULTS = "public, s-maxage=300, stale-while-revalidate=600";
 
 // Rate limiting — permisivo para humanos, bloquea bots

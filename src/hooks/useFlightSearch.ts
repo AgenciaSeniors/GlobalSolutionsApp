@@ -99,12 +99,6 @@ export function useFlightSearch(): UseFlightSearchResult {
     async (params: FlightSearchParams): Promise<void> => {
       const key = stableRequestKey(params);
 
-      // Dedup: skip if this key already completed successfully
-      if (completedKeysRef.current.has(key) && !errorRef.current) {
-        console.log(`[useFlightSearch] SKIP (already completed): ${key}`);
-        return;
-      }
-
       // Dedup: skip if same key is currently in-flight
       if (activeKeyRef.current === key && !errorRef.current) {
         console.log(`[useFlightSearch] SKIP (in-flight): ${key}`);
