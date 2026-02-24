@@ -18,7 +18,9 @@
         "test": "vitest",
         "test:ui": "vitest --ui",
         "test:coverage": "vitest run --coverage",
-        "test:e2e": "playwright test"
+        "test:e2e": "playwright test",
+        "cap:sync": "npx cap sync",
+        "cap:open:android": "npx cap open android"
     },
     "dependencies": {
         "@capacitor/android": "^8.0.2",

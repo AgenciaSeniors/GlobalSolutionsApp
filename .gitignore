@@ -39,3 +39,7 @@ aux
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Capacitor native projects
+/android/
+/ios/
