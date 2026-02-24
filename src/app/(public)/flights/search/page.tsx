@@ -1,7 +1,9 @@
 //C:\Users\Eduardo\GlobalSolutionsApp\src\app\(public)\flights\search
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+export const dynamic = 'force-dynamic';
+
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 import Navbar from '@/components/layout/Navbar';
@@ -38,7 +40,7 @@ function toStopsCountFilter(stops: string[]): number | null {
   return null;
 }
 
-export default function FlightSearchResultsPage() {
+function FlightSearchResultsInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -348,5 +350,13 @@ export default function FlightSearchResultsPage() {
       </main>
       <Footer />
     </>
+  );
+}
+
+export default function FlightSearchResultsPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><p className="text-neutral-500 animate-pulse">Buscando vuelos...</p></div>}>
+      <FlightSearchResultsInner />
+    </Suspense>
   );
 }

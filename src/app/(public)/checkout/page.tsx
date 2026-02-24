@@ -8,7 +8,9 @@
 
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+export const dynamic = 'force-dynamic';
+
+import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
@@ -169,7 +171,7 @@ async function persistFlightToDb(
   return { uuid: json.id, externalId: externalId || null };
 }
 
-export default function CheckoutPage() {
+function CheckoutPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
@@ -1388,5 +1390,13 @@ export default function CheckoutPage() {
       </main>
       <Footer />
     </>
+  );
+}
+
+export default function CheckoutPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><p className="text-neutral-500 animate-pulse">Cargando...</p></div>}>
+      <CheckoutPageInner />
+    </Suspense>
   );
 }

@@ -1,7 +1,9 @@
 // src/app/auth/callback/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+export const dynamic = 'force-dynamic';
+
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
@@ -19,7 +21,7 @@ function parseHashParams() {
   };
 }
 
-export default function AuthCallbackPage() {
+function AuthCallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -138,5 +140,13 @@ export default function AuthCallbackPage() {
     <div className="flex min-h-[200px] items-center justify-center">
       <p className="text-neutral-500 animate-pulse">Autenticando...</p>
     </div>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-[200px] items-center justify-center"><p className="text-neutral-500 animate-pulse">Autenticando...</p></div>}>
+      <AuthCallbackInner />
+    </Suspense>
   );
 }

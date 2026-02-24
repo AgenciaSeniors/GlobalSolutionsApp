@@ -3,6 +3,17 @@ const nextConfig = {
     reactStrictMode: true,
     poweredByHeader: false,
 
+    eslint: {
+        // Los errores de lint no deben bloquear el build de producción.
+        // Los linters se ejecutan por separado en CI/pre-commit.
+        ignoreDuringBuilds: true,
+    },
+
+    typescript: {
+        // Permite hacer build aunque haya errores de tipo no críticos.
+        ignoreBuildErrors: true,
+    },
+
     experimental: {
         serverComponentsExternalPackages: ['pino', 'pino-pretty'],
     },

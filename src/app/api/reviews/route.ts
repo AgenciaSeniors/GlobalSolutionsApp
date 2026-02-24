@@ -1,4 +1,6 @@
 // src/app/api/reviews/route.ts
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 

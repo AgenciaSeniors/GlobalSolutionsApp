@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 /**
  * /pay — Checkout page
  *
@@ -7,6 +9,7 @@
  * PayPal:  create-order  → user approves    → capture-order (server-side) → webhook safety net
  */
 
+import { Suspense } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
@@ -33,7 +36,7 @@ function getStr(obj: unknown, key: string): string | null {
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "");
 
-export default function PayPage() {
+function PayPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const bookingId = searchParams.get("booking_id");
@@ -265,5 +268,13 @@ export default function PayPage() {
       </div>
       <Footer />
     </>
+  );
+}
+
+export default function PayPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><p className="text-neutral-500 animate-pulse">Cargando...</p></div>}>
+      <PayPageInner />
+    </Suspense>
   );
 }

@@ -2,7 +2,7 @@
  * @fileoverview Service layer for booking CRUD operations.
  * @module services/bookings.service
  */
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/client';
 import type { CreateBookingPayload } from '@/types/api.types';
 import type { Booking, BookingWithDetails } from '@/types/models';
 
@@ -12,7 +12,7 @@ function generateBookingCode(): string {
 }
 
 async function create(payload: CreateBookingPayload): Promise<Booking> {
-  const supabase = await createClient();
+  const supabase = createClient();
   
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Debes iniciar sesión para reservar.');
@@ -85,7 +85,7 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
 }
 
 async function listForCurrentUser(): Promise<Booking[]> {
-  const supabase = await createClient();
+  const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) return [];
@@ -101,7 +101,7 @@ async function listForCurrentUser(): Promise<Booking[]> {
 }
 
 async function getById(id: string): Promise<Booking | null> {
-  const supabase = await createClient();
+  const supabase = createClient();
 
   const { data, error } = await supabase
     .from('bookings')
@@ -114,7 +114,7 @@ async function getById(id: string): Promise<Booking | null> {
 }
 
 async function listWithDetails(): Promise<BookingWithDetails[]> {
-  const supabase = await createClient();
+  const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
