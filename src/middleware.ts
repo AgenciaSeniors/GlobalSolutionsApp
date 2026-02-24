@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from "uuid"; // 🚀 NUEVO: Importamos uuid para el trac
 
 // 🛡️ Rate Limiting (best-effort, in-memory — complementa el rate limit en DB)
 const rateLimitMap = new Map<string, { count: number; lastReset: number }>();
-const RATE_LIMIT_THRESHOLD = 20;
+const RATE_LIMIT_THRESHOLD = 50;  // 50 intentos auth/minuto — protege login sin molestar humanos
 const RATE_LIMIT_WINDOW = 60_000;
 
 const PROTECTED_PREFIXES = ["/user", "/admin", "/agent", "/checkout", "/api/agent", "/api/admin"];

@@ -23,9 +23,10 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 const CACHE_TTL_MINUTES = 15;
 const CACHE_CONTROL_RESULTS = "public, s-maxage=300, stale-while-revalidate=600";
 
-// Rate limiting
-const RATE_LIMIT_MAX = 30; // max searches per window
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute window
+// Rate limiting — permisivo para humanos, bloquea bots
+// Un humano difícilmente hace más de 200 búsquedas en 10 minutos
+const RATE_LIMIT_MAX = 200;        // max búsquedas por ventana
+const RATE_LIMIT_WINDOW_MS = 600_000; // ventana de 10 minutos
 
 /* -------------------------------------------------- */
 /* ---- TYPES & HELPERS ----------------------------- */
@@ -141,12 +142,12 @@ export async function POST(req: NextRequest) {
 
   if (withinWindow && (rateRow?.search_count ?? 0) >= RATE_LIMIT_MAX) {
     return NextResponse.json(
-      { error: "Demasiadas búsquedas. Intenta de nuevo en un minuto." },
+      { error: "Demasiadas búsquedas. Intenta de nuevo en unos minutos." },
       {
         status: 429,
         headers: {
           "Cache-Control": "no-store",
-          "Retry-After": "60",
+          "Retry-After": "600",
         },
       }
     );
