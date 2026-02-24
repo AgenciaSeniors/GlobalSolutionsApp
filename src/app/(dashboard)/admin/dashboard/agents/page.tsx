@@ -184,10 +184,7 @@ export default function AdminAgentsPage() {
     setToast({ ok: null, error: null });
     
     // 1. Convertir a agente y activarlo en perfiles
-    const { error: profileErr } = await supabase
-      .from('profiles')
-      .update({ role: 'agent', is_active: true })
-      .eq('id', req.user_id);
+    const { error: profileErr } =await supabase.from('profiles').update({ role: 'agent', is_active: true }).eq('id', req.user_id);
       
     if (profileErr) {
       setToast({ ok: null, error: 'Error al cambiar el rol del usuario.' });
