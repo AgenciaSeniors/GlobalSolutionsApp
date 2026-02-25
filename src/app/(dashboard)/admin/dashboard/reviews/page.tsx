@@ -14,6 +14,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
+import { Capacitor } from '@capacitor/core';
 import { Star, CheckCircle, XCircle, Sparkles, AlertCircle } from 'lucide-react';
 
 /* ---------- Types ---------- */
@@ -112,9 +113,19 @@ export default function AdminReviewsPage() {
     setActionLoading(id);
 
     try {
+      // En app nativa, las cookies de sesión pueden no llegar al servidor Next.js.
+      // Enviamos el access_token en el header Authorization como fallback.
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (Capacitor.isNativePlatform()) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+      }
+
       const res = await fetch('/api/admin/reviews', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ id, status }),
       });
 
