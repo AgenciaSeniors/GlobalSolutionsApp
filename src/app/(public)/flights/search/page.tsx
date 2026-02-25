@@ -44,7 +44,7 @@ function FlightSearchResultsInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const { results, resultsByLeg, isLoading, error, search } = useFlightSearch();
+  const { results, resultsByLeg, isLoading, error, search, hasMore, loadMore } = useFlightSearch();
 
   const passengerCount = Number(searchParams.get('passengers')) || 1;
 
@@ -194,18 +194,29 @@ function FlightSearchResultsInner() {
     return mapped;
   }, [isMulticity, resultsByLeg, activeLeg, results, tripTypeForMapper]);
 
+  // Build the list of airlines available in the current results (by name, for display + filtering)
+  const availableAirlines = useMemo(() => {
+    const seen = new Set<string>();
+    for (const f of flights) {
+      const name = f.segments[0]?.airline?.name || f.airline_code || '';
+      if (name) seen.add(name);
+    }
+    return Array.from(seen).sort();
+  }, [flights]);
+
   // Apply client-side filters
   const filteredFlights: FlightOffer[] = useMemo(() => {
     const min = Number(filters.priceRange.min ?? 0);
     const max = Number(filters.priceRange.max ?? Number.MAX_SAFE_INTEGER);
-    const allowedAirlines = new Set(filters.airlines.map((a) => a.toUpperCase()));
+    const allowedAirlines = new Set(filters.airlines);
     const maxStops = toStopsCountFilter(filters.stops);
 
     return flights.filter((f) => {
       const priceOk = typeof f.price === 'number' ? f.price >= min && f.price <= max : true;
 
-      const airlineCode = (f.airline_code ?? '').toUpperCase();
-      const airlineOk = allowedAirlines.size ? allowedAirlines.has(airlineCode) : true;
+      // Match by airline name (same value shown in filter checkboxes)
+      const airlineName = f.segments[0]?.airline?.name || f.airline_code || '';
+      const airlineOk = allowedAirlines.size ? allowedAirlines.has(airlineName) : true;
 
       const stopsCount =
         typeof f.stops_count === 'number'
@@ -279,7 +290,7 @@ function FlightSearchResultsInner() {
 
             <div className="grid grid-cols-1 gap-6 md:grid-cols-4 lg:grid-cols-12">
               <div className="md:col-span-1 lg:col-span-4">
-                <FlightFilters onFilterChange={setFilters} />
+                <FlightFilters onFilterChange={setFilters} availableAirlines={availableAirlines} />
               </div>
 
               <div className="md:col-span-3 lg:col-span-8">
@@ -287,6 +298,8 @@ function FlightSearchResultsInner() {
                   flights={filteredFlights}
                   isLoading={isLoading}
                   error={error}
+                  hasMore={hasMore}
+                  onLoadMore={loadMore}
                   onSelectFlight={async (flightId) => {
                     // ── Multicity: confirm leg, stay on page ──────────────────
                     if (isMulticity) {

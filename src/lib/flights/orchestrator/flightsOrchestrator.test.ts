@@ -16,18 +16,18 @@ describe('flightDedupeKey', () => {
 
     const key = flightDedupeKey(mockFlight);
 
-    // AA|1234|HAV|MAD|2026-05-01T14:30|0
-    expect(key).toBe('AA|1234|HAV|MAD|2026-05-01T14:30|0');
+    // UTC 14:30 → Cuba time (UTC-4 en mayo, DST) = 10:30
+    expect(key).toBe('AA|1234|HAV|MAD|2026-05-01T10:30');
   });
 
   it('Debe usar fallbacks (NAIR, NFN) si faltan datos', () => {
     const emptyFlight = {} as unknown as Flight;
     const key = flightDedupeKey(emptyFlight);
 
-    expect(key).toBe('NAIR|NFN|NORIG|NDEST||0');
+    expect(key).toBe('NAIR|NFN|NORIG|NDEST|');
   });
 
-  it('Dos itinerarios del mismo vuelo con diferente precio deben tener llaves distintas', () => {
+  it('Dos itinerarios del mismo vuelo con diferente precio deben tener la MISMA llave (precio no forma parte de la clave)', () => {
     const base = {
       airline: { iata_code: 'CM' },
       flight_number: 'CM201',
@@ -38,6 +38,7 @@ describe('flightDedupeKey', () => {
     const cheap = { ...base, final_price: 180 } as unknown as Flight;
     const pricier = { ...base, final_price: 220 } as unknown as Flight;
 
-    expect(flightDedupeKey(cheap)).not.toBe(flightDedupeKey(pricier));
+    // Sin precio en la clave → mismo vuelo físico → misma clave → se deduplica
+    expect(flightDedupeKey(cheap)).toBe(flightDedupeKey(pricier));
   });
 });

@@ -163,6 +163,7 @@ function buildPayload(
     status: session.status,
     source: session.source ?? "live",
     results,
+    displayCap: 20,
     providersUsed: session.providers_used ?? extractProvidersUsed(results),
   };
   if (session.error) payload.error = session.error;

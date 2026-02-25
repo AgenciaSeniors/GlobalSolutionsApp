@@ -187,6 +187,7 @@ return NextResponse.json(
     status: "complete",
     source: "cache",
     results,
+    displayCap: 20,
     providersUsed: extractProvidersUsed(resultsRaw),
   },
   { headers: { "Cache-Control": "no-store" } }
@@ -233,6 +234,7 @@ const staleResults = applyRoleMarkup(staleResultsRaw, markupPct);
       status: session.status,
       source: session.source ?? (staleResults.length ? "cache" : "live"),
       results: staleResults,
+      displayCap: 20,
       providersUsed: session.providers_used ?? extractProvidersUsed(staleResultsRaw),
     },
     { headers: { "Cache-Control": "no-store" } }

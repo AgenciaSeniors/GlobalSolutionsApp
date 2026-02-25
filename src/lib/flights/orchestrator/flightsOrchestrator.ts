@@ -1,10 +1,9 @@
 /**
- * flightsOrchestrator — Agency-first orchestrator.
+ * flightsOrchestrator — SkyScrapper-only orchestrator.
  *
- * v6 — Improvements:
- *   1. Cleaner logging with timing breakdowns
- *   2. Expose search metadata (timings, providers used)
- *   3. Improved type safety in sort/merge
+ * v7 — Removed agency-inventory provider. All results come exclusively
+ *      from the SkyScrapper/RapidAPI pipeline. Results are returned
+ *      without slicing so the UI can apply a "Load More" pattern.
  */
 
 import type {
@@ -13,7 +12,6 @@ import type {
   ProviderSearchResponse,
 } from "@/lib/flights/providers/types";
 import { logger } from "@/lib/observability/logger";
-import { agencyInventoryProvider } from "@/lib/flights/providers/agencyInventoryProvider";
 import { skyScrapperProvider } from "@/lib/flights/providers/skyScrapperProvider";
 import {
   isCircuitOpen,
@@ -21,7 +19,8 @@ import {
   recordProviderSuccess,
 } from "@/lib/flights/orchestrator/providerCircuitBreaker";
 
-const TARGET_RESULTS_PER_LEG = 20;
+/** Number of flights shown initially in the UI — frontend uses this as the first page size. */
+export const INITIAL_DISPLAY_CAP = 20;
 const EXTERNAL_TIMEOUT_MS = 40_000;
 
 /* -------------------------------------------------- */
@@ -120,49 +119,21 @@ function getDestinationIata(f: Flight): string {
   return getAirportCode(rec["destination_airport"]) ?? "NDEST";
 }
 
-function normalizePrice(f: Flight): string {
-  const rec = f as unknown as Record<string, unknown>;
-  const p = Number(rec["final_price"] ?? rec["price"] ?? 0);
-  return Number.isFinite(p) ? String(Math.round(p)) : "0";
-}
-
 export function flightDedupeKey(f: Flight): string {
-  return `${normalizeAirlineCode(f)}|${normalizeFlightNumber(f)}|${getOriginIata(f)}|${getDestinationIata(f)}|${normalizeDepartureDatetime(f)}|${normalizePrice(f)}`;
+  return `${normalizeAirlineCode(f)}|${normalizeFlightNumber(f)}|${getOriginIata(f)}|${getDestinationIata(f)}|${normalizeDepartureDatetime(f)}`;
 }
 
 /* -------------------------------------------------- */
 /* ---- SORT + MERGE -------------------------------- */
 /* -------------------------------------------------- */
 
-function sortFlightsAgencyFirst(a: Flight, b: Flight): number {
+function sortFlightsByPrice(a: Flight, b: Flight): number {
+  // Exclusive offers always first
   if (a.is_exclusive_offer !== b.is_exclusive_offer)
     return a.is_exclusive_offer ? -1 : 1;
 
-  const sourcePriority: Record<string, number> = {
-    agency: 1,
-    "agency-inventory": 1,
-    "sky-scrapper": 2,
-    external: 2,
-  };
   const aRec = a as unknown as Record<string, unknown>;
   const bRec = b as unknown as Record<string, unknown>;
-
-  const sourceA =
-    typeof aRec["offerSource"] === "string"
-      ? aRec["offerSource"]
-      : typeof aRec["provider"] === "string"
-        ? aRec["provider"]
-        : "external";
-  const sourceB =
-    typeof bRec["offerSource"] === "string"
-      ? bRec["offerSource"]
-      : typeof bRec["provider"] === "string"
-        ? bRec["provider"]
-        : "external";
-
-  const pA = sourcePriority[sourceA] ?? 99;
-  const pB = sourcePriority[sourceB] ?? 99;
-  if (pA !== pB) return pA - pB;
 
   const priceA = Number(aRec["final_price"] ?? a.price ?? 0);
   const priceB = Number(bRec["final_price"] ?? b.price ?? 0);
@@ -173,22 +144,17 @@ function sortFlightsAgencyFirst(a: Flight, b: Flight): number {
   return depA - depB;
 }
 
-function mergeDedupeAndRank(
-  primary: Flight[],
-  secondary: Flight[]
-): Flight[] {
+function dedupeAndRank(flights: Flight[]): Flight[] {
   const bestByKey = new Map<string, Flight>();
-  const consider = (f: Flight) => {
+  for (const f of flights) {
     const key = flightDedupeKey(f);
     const existing = bestByKey.get(key);
-    if (!existing || sortFlightsAgencyFirst(f, existing) < 0)
+    if (!existing || sortFlightsByPrice(f, existing) < 0)
       bestByKey.set(key, f);
-  };
-  primary.forEach(consider);
-  secondary.forEach(consider);
-  const merged = Array.from(bestByKey.values());
-  merged.sort(sortFlightsAgencyFirst);
-  return merged;
+  }
+  const result = Array.from(bestByKey.values());
+  result.sort(sortFlightsByPrice);
+  return result;
 }
 
 /* -------------------------------------------------- */
@@ -212,7 +178,7 @@ function totalFlights(res: ProviderSearchResponse): number {
 /* -------------------------------------------------- */
 
 export const flightsOrchestrator = {
-  id: "agency-first-orchestrator",
+  id: "skyscrapper-orchestrator",
 
   async search(
     req: ProviderSearchRequest,
@@ -220,34 +186,8 @@ export const flightsOrchestrator = {
   ): Promise<ProviderSearchResponse> {
     const t0 = Date.now();
 
-    // ── 1. Agency (DB, fast) ─────────────────────────
-    const agencyRes = await agencyInventoryProvider.search(req);
-    const agencyByLeg = mapByLegIndex(agencyRes);
-    const agencyMs = Date.now() - t0;
-    const agencyTotal = totalFlights(agencyRes);
-    console.log(
-      `[Orchestrator] Agency: ${agencyTotal} flights in ${agencyMs}ms`
-    );
-
-    // ── 2. Need external? ────────────────────────────
-    const needsExternal = req.legs.some(
-      (_, idx) =>
-        (agencyByLeg.get(idx) ?? []).length < TARGET_RESULTS_PER_LEG
-    );
-
-    if (!needsExternal) {
-      logger.info({ metric: 'cache_hit_rate', status: 'agency_sufficient' }, 'Agency has enough results, skipping external');
-      return req.legs.map((_, idx) => ({
-        legIndex: idx,
-        flights: (agencyByLeg.get(idx) ?? [])
-          .sort(sortFlightsAgencyFirst)
-          .slice(0, TARGET_RESULTS_PER_LEG),
-      }));
-    }
-
-    // ── 3. SkyScrapper ───────────────────────────────
+    // ── SkyScrapper ──────────────────────────────────
     let externalRes: ProviderSearchResponse = [];
-    const tSkyScrapper = Date.now(); // 🚀 Tiempo específico de SkyScrapper
     try {
       const allowExternal = opts?.allowExternal !== false;
       if (!allowExternal) {
@@ -269,9 +209,7 @@ export const flightsOrchestrator = {
           if (opts?.signal) {
             if (opts.signal.aborted) controller.abort();
             else
-              opts.signal.addEventListener("abort", onAbort, {
-                once: true,
-              });
+              opts.signal.addEventListener("abort", onAbort, { once: true });
           }
 
           try {
@@ -292,10 +230,9 @@ export const flightsOrchestrator = {
         }
       }
 
-      const externalMs = Date.now() - t0 - agencyMs;
       const externalTotal = totalFlights(externalRes);
       console.log(
-        `[Orchestrator] SkyScrapper: ${externalTotal} flights in ~${externalMs}ms`
+        `[Orchestrator] SkyScrapper: ${externalTotal} flights in ${Date.now() - t0}ms`
       );
     } catch (err: unknown) {
       console.warn(
@@ -304,18 +241,18 @@ export const flightsOrchestrator = {
       await recordProviderFailure("sky-scrapper");
     }
 
-    const externalByLeg = mapByLegIndex(externalRes);
-    console.log(
-      `[Orchestrator] Total search time: ${Date.now() - t0}ms`
+    logger.info(
+      { totalMs: Date.now() - t0 },
+      "[Orchestrator] Search complete"
     );
 
-    // ── 4. Merge + Rank ──────────────────────────────
+    const externalByLeg = mapByLegIndex(externalRes);
+
+    // Return ALL flights — no slice. The UI applies INITIAL_DISPLAY_CAP
+    // and shows a "Load More" button for the rest.
     return req.legs.map((_, idx) => ({
       legIndex: idx,
-      flights: mergeDedupeAndRank(
-        agencyByLeg.get(idx) ?? [],
-        externalByLeg.get(idx) ?? []
-      ).slice(0, TARGET_RESULTS_PER_LEG),
+      flights: dedupeAndRank(externalByLeg.get(idx) ?? []),
     }));
   },
 };
