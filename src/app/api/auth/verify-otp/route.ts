@@ -102,8 +102,10 @@ export async function POST(req: Request) {
       });
     }
 
-    // 5) LOGIN: Generar link de sesión con Supabase Admin
+    // 5) Generar sesión o link según plataforma
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const isNativeApp = req.headers.get('X-App-Platform') === 'android';
+
     const { data, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
       type: 'magiclink',
       email: normalizedEmail,
@@ -130,6 +132,31 @@ export async function POST(req: Request) {
       console.error('[verify-otp] Audit log failed:', auditErr);
     }
 
+    // En app nativa: crear sesión directamente y retornar tokens.
+    // Esto evita que el WebView navegue a supabase.co (dominio externo).
+    if (isNativeApp) {
+      const { data: sessionData, error: sessionErr } = await supabaseAdmin.auth.admin.createSession({
+        userId: data.user!.id,
+      });
+
+      if (sessionErr || !sessionData.session) {
+        console.error('[verify-otp] Failed to create native session:', sessionErr);
+        return NextResponse.json(
+          { error: 'No se pudo crear la sesión para app móvil.' },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        verified: true,
+        // Tokens para que el cliente haga supabase.auth.setSession() directamente
+        access_token: sessionData.session.access_token,
+        refresh_token: sessionData.session.refresh_token,
+      });
+    }
+
+    // En web: retornar el sessionLink (magic link) como antes
     const sessionLink =
       data?.properties?.action_link && typeof data.properties.action_link === 'string'
         ? data.properties.action_link

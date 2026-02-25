@@ -20,13 +20,16 @@
         "test:coverage": "vitest run --coverage",
         "test:e2e": "playwright test",
         "cap:sync": "npx cap sync",
-        "cap:open:android": "npx cap open android"
+        "cap:open:android": "npx cap open android",
+        "cap:assets": "npx capacitor-assets generate --iconBackgroundColor '#0F172A' --splashBackgroundColor '#0F172A'"
     },
     "dependencies": {
         "@capacitor/android": "^8.0.2",
         "@capacitor/cli": "^8.0.2",
         "@capacitor/core": "^8.0.2",
         "@capacitor/ios": "^8.0.2",
+        "@capacitor/splash-screen": "^8.0.1",
+        "@codetrix-studio/capacitor-google-auth": "^3.4.0-rc.4",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/exporter-trace-otlp-http": "^0.212.0",
         "@opentelemetry/resources": "^2.5.1",
@@ -58,6 +61,7 @@
         "zod": "^3.23.8"
     },
     "devDependencies": {
+        "@capacitor/assets": "^3.0.5",
         "@playwright/test": "^1.58.2",
         "@sentry/wizard": "^6.11.0",
         "@testing-library/jest-dom": "^6.9.1",

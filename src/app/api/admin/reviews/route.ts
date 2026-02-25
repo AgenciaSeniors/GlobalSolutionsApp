@@ -22,18 +22,29 @@ const BodySchema = z.object({
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
-    // 1. Authenticate user via session cookies
+    // 1. Authenticate user: primero via cookies (web), luego via Bearer token (app móvil).
+    // En WebView remoto las cookies de sesión pueden no propagarse al servidor Next.js.
+    const supabaseAdmin = createAdminClient();
+    let user = null;
+
     const supabaseAuth = await createClient();
-    const {
-      data: { user },
-    } = await supabaseAuth.auth.getUser();
+    const { data: { user: cookieUser } } = await supabaseAuth.auth.getUser();
+
+    if (cookieUser) {
+      user = cookieUser;
+    } else {
+      // Fallback: Authorization: Bearer <access_token> (enviado por la app nativa)
+      const authHeader = req.headers.get('Authorization');
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.slice(7);
+        const { data: { user: tokenUser } } = await supabaseAdmin.auth.getUser(token);
+        user = tokenUser;
+      }
+    }
 
     if (!user) {
       return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
     }
-
-    // 2. Verify admin role from profiles table (using admin client to avoid RLS on profiles)
-    const supabaseAdmin = createAdminClient();
     const { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('role')
