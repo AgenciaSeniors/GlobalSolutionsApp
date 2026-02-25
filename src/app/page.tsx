@@ -13,6 +13,7 @@ import AboutSection from '@/components/features/home/AboutSection';
 import ServicesSection from '@/components/features/home/ServicesSection';
 import HomeOffersCarousel from '@/components/features/home/HomeOffersCarousel';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type { SpecialOffer } from '@/types/models';
 
 /** Build initials from a full name like "María García" → "MG" */
@@ -44,6 +45,9 @@ function getDestination(review: Record<string, unknown>): string {
 
 export default async function HomePage() {
   const supabase = await createClient();
+  // Admin client bypasses RLS — needed to read approved reviews publicly
+  // (the reviews table has no SELECT policy for anonymous users).
+  const supabaseAdmin = createAdminClient();
 
   // Fetch offers and approved reviews in parallel
   const [offersRes, reviewsRes] = await Promise.all([
@@ -53,10 +57,10 @@ export default async function HomePage() {
       .eq('is_active', true)
       .order('created_at', { ascending: false })
       .limit(8),
-    supabase
+    supabaseAdmin
       .from('reviews')
       .select(`
-        id, rating, comment, created_at,
+        id, profile_id, rating, comment, created_at,
         profile:profiles!reviews_user_id_fkey(full_name, avatar_url),
         booking:bookings!reviews_booking_id_fkey(
           booking_code,

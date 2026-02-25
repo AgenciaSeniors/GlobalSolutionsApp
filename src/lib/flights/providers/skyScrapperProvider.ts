@@ -29,7 +29,7 @@ import {
 const LEG_TIMEOUT_MS = 35_000;
 const SEARCH_ONE_WAY_TIMEOUT_MS = 30_000;
 const POLLING_BUDGET_MS = 60_000;
-const POLL_CALL_TIMEOUT_MS = 6_000;
+const POLL_CALL_TIMEOUT_MS = 12_000;
 const AUTOCOMPLETE_TIMEOUT_MS = 15_000;
 
 /** Backoff per audit spec C1.1: 1.5s, 3s, 6s */
@@ -438,17 +438,36 @@ async function resolvePlaceIdInternal(
   upper: string,
   signal?: AbortSignal
 ): Promise<string> {
-  // Try /flights/auto-complete with IATA code (primary)
-  try {
-    const entityId = await resolveViaAutoComplete(client, upper, signal);
-    setCachedPlaceId(upper, entityId);
+  // Try /flights/auto-complete with IATA code (primary).
+  // RapidAPI occasionally returns HTTP 400 wrapping a 502 proxy error (transient).
+  // We retry once with 800ms backoff before falling through to city-name fallback.
+  let autoCompleteEntityId: string | null = null;
+  for (let attempt = 0; attempt < 2 && !autoCompleteEntityId; attempt++) {
+    try {
+      if (attempt > 0) await sleepWithSignal(800, signal);
+      autoCompleteEntityId = await resolveViaAutoComplete(client, upper, signal);
+    } catch (err: unknown) {
+      if (
+        attempt === 0 &&
+        err instanceof SkyScrapperHttpError &&
+        err.statusCode === 400
+      ) {
+        console.warn(
+          `[SkyScrapper] auto-complete HTTP 400 for ${upper} (transient proxy error), retrying...`
+        );
+        continue;
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[SkyScrapper] auto-complete failed for ${upper}: ${msg}`);
+      break;
+    }
+  }
+  if (autoCompleteEntityId) {
+    setCachedPlaceId(upper, autoCompleteEntityId);
     console.log(
-      `[SkyScrapper] Resolved ${upper} via auto-complete: ${entityId}`
+      `[SkyScrapper] Resolved ${upper} via auto-complete: ${autoCompleteEntityId}`
     );
-    return entityId;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[SkyScrapper] auto-complete failed for ${upper}: ${msg}`);
+    return autoCompleteEntityId;
   }
 
   // Fallback 1: retry auto-complete with city name instead of IATA code

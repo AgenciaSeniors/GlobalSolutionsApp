@@ -25,6 +25,10 @@ export type UseFlightSearchResult = {
   search: (params: FlightSearchParams) => Promise<void>;
   /** Clears the completed-keys cache so the same search can be re-triggered */
   clearCache: () => void;
+  /** True when there are more flights beyond the current visible set */
+  hasMore: boolean;
+  /** Show the next page of flights */
+  loadMore: () => void;
 };
 
 /* ------------------------------------------------------------------ */
@@ -80,11 +84,14 @@ function extractFlights(results: ResultsByLeg | undefined): FlightWithDetails[] 
 /*  Hook                                                              */
 /* ------------------------------------------------------------------ */
 
+const DISPLAY_CAP = 20;
+
 export function useFlightSearch(): UseFlightSearchResult {
-  const [results, setResults] = useState<FlightWithDetails[]>([]);
+  const [allResults, setAllResults] = useState<FlightWithDetails[]>([]);
   const [resultsByLeg, setResultsByLeg] = useState<ResultsByLeg>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState<number>(DISPLAY_CAP);
 
   // ── Refs for dedup & abort ──
   const activeKeyRef = useRef<string | null>(null);
@@ -94,6 +101,13 @@ export function useFlightSearch(): UseFlightSearchResult {
   // ── Ref mirror of `error` so `search` can read it without being a dep ──
   const errorRef = useRef<string | null>(null);
   errorRef.current = error;
+
+  // ── Derived: visible slice + pagination ──
+  const results = allResults.slice(0, visibleCount);
+  const hasMore = allResults.length > visibleCount;
+  const loadMore = useCallback(() => {
+    setVisibleCount((prev) => prev + DISPLAY_CAP);
+  }, []);
 
   const search = useCallback(
     async (params: FlightSearchParams): Promise<void> => {
@@ -119,6 +133,7 @@ export function useFlightSearch(): UseFlightSearchResult {
       console.log(`[useFlightSearch] START search: ${key}`);
       setIsLoading(true);
       setError(null);
+      setVisibleCount(DISPLAY_CAP); // reset pagination on new search
 
       try {
         // ── Phase 1: POST to create session ──
@@ -140,7 +155,7 @@ export function useFlightSearch(): UseFlightSearchResult {
         setResultsByLeg(allInitialResults);
         const initialFlights = extractFlights(allInitialResults);
         if (initialFlights.length > 0) {
-          setResults(initialFlights);
+          setAllResults(initialFlights);
           console.log(
             `[useFlightSearch] Initial results (from cache): ${initialFlights.length} flights`
           );
@@ -172,7 +187,7 @@ export function useFlightSearch(): UseFlightSearchResult {
             `[useFlightSearch] Poll complete: ${finalFlights.length} flights, status=${final?.status}`,
             allFinalResults.map(l => ({ legIndex: l.legIndex, count: l.flights?.length ?? 0 }))
           );
-          setResults(finalFlights);
+          setAllResults(finalFlights);
         } else if (status === 'complete') {
           console.log(`[useFlightSearch] Session returned complete immediately (cache hit)`);
         }
@@ -193,7 +208,7 @@ export function useFlightSearch(): UseFlightSearchResult {
         const msg = e instanceof Error ? e.message : 'Error buscando vuelos';
         console.error(`[useFlightSearch] ERROR: ${msg}`);
         setError(msg);
-        setResults([]);
+        setAllResults([]);
         setResultsByLeg([]);
         setIsLoading(false);
         activeKeyRef.current = null;
@@ -222,5 +237,5 @@ export function useFlightSearch(): UseFlightSearchResult {
     };
   }, []);
 
-  return { results, resultsByLeg, isLoading, error, search, clearCache };
+  return { results, resultsByLeg, isLoading, error, search, clearCache, hasMore, loadMore };
 }

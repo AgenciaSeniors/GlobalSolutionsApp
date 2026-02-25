@@ -14,12 +14,14 @@
 import { getRoleAndMarkupPct, applyRoleMarkup } from "@/lib/flights/roleMarkup";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 /* -------------------------------------------------- */
 /* ---- CONSTANTS ----------------------------------- */
 /* -------------------------------------------------- */
 
 const CACHE_TTL_MINUTES = 3;
+const CACHE_CONTROL_RESULTS = "public, s-maxage=300, stale-while-revalidate=600";
 
 // Rate limiting — permisivo para humanos, bloquea bots
 // Un humano difícilmente hace más de 200 búsquedas en 10 minutos
@@ -79,6 +81,14 @@ function stableStringify(value: unknown): string {
 type FlightRecord = Record<string, unknown>;
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
 
+function pickNumber(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
 
 /* -------------------------------------------------- */
 /* ---- HANDLER ------------------------------------- */
@@ -177,6 +187,7 @@ return NextResponse.json(
     status: "complete",
     source: "cache",
     results,
+    displayCap: 20,
     providersUsed: extractProvidersUsed(resultsRaw),
   },
   { headers: { "Cache-Control": "no-store" } }
@@ -222,9 +233,8 @@ const staleResults = applyRoleMarkup(staleResultsRaw, markupPct);
       sessionId: session.session_id,
       status: session.status,
       source: session.source ?? (staleResults.length ? "cache" : "live"),
-      // ✅ No mostrar resultados cuando es una búsqueda nueva (pending).
-      // Si hay caché previo, permitimos mostrarlo como "refreshing".
-      results: status === "refreshing" ? staleResults : [],
+      results: staleResults,
+      displayCap: 20,
       providersUsed: session.providers_used ?? extractProvidersUsed(staleResultsRaw),
     },
     { headers: { "Cache-Control": "no-store" } }

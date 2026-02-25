@@ -456,9 +456,12 @@ export async function GET(req: NextRequest) {
     // Step 1: Always search local DB first (fast, <50ms)
     const localResults = await searchLocalAirports(query);
 
-    // Step 2: If local results are sparse, also hit the external API
+    // Step 2: If local results are sparse, also hit the external API.
+    // Require at least 3 characters before calling external API — shorter queries
+    // always return HTTP 400 from the external provider and waste a round-trip.
     let apiResults: AutocompleteResult[] = [];
-    const needsExternalSearch = localResults.length < LOCAL_RESULTS_THRESHOLD;
+    const needsExternalSearch =
+      localResults.length < LOCAL_RESULTS_THRESHOLD && query.length >= 3;
 
     if (needsExternalSearch && RAPIDAPI_KEY) {
       apiResults = await searchExternalAPI(query);

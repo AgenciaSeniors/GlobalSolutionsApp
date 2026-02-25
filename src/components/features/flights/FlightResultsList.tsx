@@ -8,6 +8,8 @@ interface FlightResultsListProps {
   error?: string | null;
   onSelectFlight?: (flightId: string) => void;
   onRetry?: () => void;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 export default function FlightResultsList({
@@ -16,6 +18,8 @@ export default function FlightResultsList({
   error = null,
   onSelectFlight,
   onRetry,
+  hasMore = false,
+  onLoadMore,
 }: FlightResultsListProps) {
   console.log(`[FlightResultsList] isLoading=${isLoading} flights=${flights?.length ?? 0} error=${String(error)}`);
 
@@ -72,12 +76,20 @@ export default function FlightResultsList({
   return (
     <div className="space-y-4">
       {flights.map((flight) => (
-        <FlightCard 
-          key={flight.id} 
-          flight={flight} 
+        <FlightCard
+          key={flight.id}
+          flight={flight}
           onSelect={onSelectFlight}
         />
       ))}
+      {hasMore && onLoadMore && (
+        <button
+          onClick={onLoadMore}
+          className="w-full py-3 rounded-xl border border-brand-200 text-brand-600 text-sm font-medium hover:bg-brand-50 transition-colors"
+        >
+          Ver más vuelos
+        </button>
+      )}
     </div>
   );
 }
