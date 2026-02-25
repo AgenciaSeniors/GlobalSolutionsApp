@@ -21,8 +21,8 @@ import {
   recordProviderSuccess,
 } from "@/lib/flights/orchestrator/providerCircuitBreaker";
 
-const TARGET_RESULTS_PER_LEG = 20;
-const EXTERNAL_TIMEOUT_MS = 40_000;
+const TARGET_RESULTS_PER_LEG = 80;
+const EXTERNAL_TIMEOUT_MS = 120_000;
 
 /* -------------------------------------------------- */
 /* ---- TYPE HELPERS -------------------------------- */
@@ -64,10 +64,30 @@ function getAirportCode(airportLike: unknown): string | null {
 
 function normalizeDepartureDatetime(f: Flight): string {
   const raw = safeString(f.departure_datetime);
+  if (!raw) return raw;
+
   const parsed = Date.parse(raw);
-  return !Number.isNaN(parsed)
-    ? new Date(parsed).toISOString().slice(0, 16)
-    : raw;
+  if (Number.isNaN(parsed)) {
+    // If provider accidentally sent an ISO without offset, keep it (best-effort).
+    return raw.length >= 16 ? raw.slice(0, 16) : raw;
+  }
+
+  // Always present departure time in Cuba timezone (America/Havana)
+  const utcMillis = parsed;
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Havana",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const parts = dtf.formatToParts(new Date(utcMillis));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
 function normalizeAirlineCode(f: Flight): string {
@@ -237,17 +257,42 @@ export const flightsOrchestrator = {
 
     if (!needsExternal) {
       logger.info({ metric: 'cache_hit_rate', status: 'agency_sufficient' }, 'Agency has enough results, skipping external');
-      return req.legs.map((_, idx) => ({
-        legIndex: idx,
-        flights: (agencyByLeg.get(idx) ?? [])
-          .sort(sortFlightsAgencyFirst)
-          .slice(0, TARGET_RESULTS_PER_LEG),
-      }));
+      return req.legs.map((_, idx) => {
+  const merged = mergeDedupeAndRank(
+    agencyByLeg.get(idx) ?? [],
+    externalByLeg.get(idx) ?? []
+  );
+
+  // 1️⃣ Agrupar por aerolínea para no perder diversidad
+  const byCarrier = new Map<string, Flight[]>();
+
+  for (const f of merged) {
+    const carrier = normalizeAirlineCode(f);
+    if (!byCarrier.has(carrier)) {
+      byCarrier.set(carrier, []);
+    }
+    byCarrier.get(carrier)!.push(f);
+  }
+
+  // 2️⃣ Tomar hasta 3 vuelos por aerolínea (ajustable)
+  const diversified: Flight[] = [];
+
+  for (const flights of byCarrier.values()) {
+    diversified.push(...flights.slice(0, 3));
+  }
+
+  // 3️⃣ Ordenar nuevamente
+  diversified.sort(sortFlightsAgencyFirst);
+
+  return {
+    legIndex: idx,
+    flights: diversified.slice(0, TARGET_RESULTS_PER_LEG),
+  };
+});
     }
 
     // ── 3. SkyScrapper ───────────────────────────────
     let externalRes: ProviderSearchResponse = [];
-    const tSkyScrapper = Date.now(); // 🚀 Tiempo específico de SkyScrapper
     try {
       const allowExternal = opts?.allowExternal !== false;
       if (!allowExternal) {
@@ -310,12 +355,37 @@ export const flightsOrchestrator = {
     );
 
     // ── 4. Merge + Rank ──────────────────────────────
-    return req.legs.map((_, idx) => ({
-      legIndex: idx,
-      flights: mergeDedupeAndRank(
-        agencyByLeg.get(idx) ?? [],
-        externalByLeg.get(idx) ?? []
-      ).slice(0, TARGET_RESULTS_PER_LEG),
-    }));
+    return req.legs.map((_, idx) => {
+  const merged = mergeDedupeAndRank(
+    agencyByLeg.get(idx) ?? [],
+    externalByLeg.get(idx) ?? []
+  );
+
+  // 1️⃣ Agrupar por aerolínea para no perder diversidad
+  const byCarrier = new Map<string, Flight[]>();
+
+  for (const f of merged) {
+    const carrier = normalizeAirlineCode(f);
+    if (!byCarrier.has(carrier)) {
+      byCarrier.set(carrier, []);
+    }
+    byCarrier.get(carrier)!.push(f);
+  }
+
+  // 2️⃣ Tomar hasta 3 vuelos por aerolínea (ajustable)
+  const diversified: Flight[] = [];
+
+  for (const flights of byCarrier.values()) {
+    diversified.push(...flights.slice(0, 3));
+  }
+
+  // 3️⃣ Ordenar nuevamente
+  diversified.sort(sortFlightsAgencyFirst);
+
+  return {
+    legIndex: idx,
+    flights: diversified.slice(0, TARGET_RESULTS_PER_LEG),
+  };
+});
   },
 };

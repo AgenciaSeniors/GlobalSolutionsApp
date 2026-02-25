@@ -21,7 +21,6 @@
  */
 
 import { getRoleAndMarkupPct, applyRoleMarkup } from "@/lib/flights/roleMarkup";
-import { createClient as createServerClient } from '@/lib/supabase/server';
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flightsOrchestrator } from "@/lib/flights/orchestrator/flightsOrchestrator";
@@ -37,7 +36,6 @@ export const revalidate = 0;
 
 const CACHE_TTL_MINUTES = 15;
 const FRESH_WINDOW_MS = 5 * 60 * 1000; // 5 min
-const CACHE_CONTROL_RESULTS = "public, s-maxage=300, stale-while-revalidate=600";
 
 /** If a worker hasn't sent a heartbeat in this window, consider it dead. */
 const WORKER_STALE_MS = 60_000;
@@ -169,6 +167,15 @@ function buildPayload(
   return payload;
 }
 
+function buildProgress(session: SessionRow, resultsRaw: ResultsByLeg) {
+  const totalFlights = resultsRaw.reduce((s, r) => s + r.flights.length, 0);
+  return {
+    // Para UI: sirve para mostrar "vamos por X opciones" sin enseñar vuelos incompletos
+    knownFlights: totalFlights,
+    providersUsed: session.providers_used ?? extractProvidersUsed(resultsRaw),
+  };
+}
+
 /* -------------------------------------------------- */
 /* ---- BACKGROUND WORKER --------------------------- */
 /* -------------------------------------------------- */
@@ -278,14 +285,6 @@ async function executeSearchWorker(
 type FlightRecord = Record<string, unknown>;
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
 
-function pickNumber(v: unknown): number | null {
-  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
-  return Number.isFinite(n) ? n : null;
-}
-
-function round2(n: number) {
-  return Math.round(n * 100) / 100;
-}
 
 /* -------------------------------------------------- */
 /* ---- HANDLER ------------------------------------- */
@@ -339,12 +338,12 @@ export async function GET(
     }
 
     // ── Already finished → return immediately ──────────
-   if (session.status === "complete" || session.status === "failed") {
-  const resultsRaw = normalizeResults(session.results);
-  const results = applyRoleMarkup(resultsRaw, markupPct);
-  const payload = buildPayload(session, results);
-  return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
-}
+    if (session.status === "complete" || session.status === "failed") {
+      const resultsRaw = normalizeResults(session.results);
+      const results = applyRoleMarkup(resultsRaw, markupPct);
+      const payload = buildPayload(session, results);
+      return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
+    }
 
     // ── Attempt lightweight lock via RPC ────────────────
     // Using an RPC instead of .in().or() chain because PostgREST
@@ -357,7 +356,9 @@ export async function GET(
       p_stale_threshold: heartbeatStaleIso,
     });
 
-    if (lockAcquired === true) {
+    const acquired = lockAcquired === true;
+
+    if (acquired) {
       // ── We own the lock — start worker in BACKGROUND ──
       // Fire-and-forget: do NOT await. The worker updates the DB when done.
       // Subsequent polls will see status="complete" once the worker finishes.
@@ -369,20 +370,30 @@ export async function GET(
     }
 
     // ── Always respond immediately with current state ──
-   const resultsRaw = normalizeResults(session.results);
-const results = applyRoleMarkup(resultsRaw, markupPct);
+    const resultsRaw = normalizeResults(session.results);
+    const currentStatus: SessionStatus =
+      session.status === "pending" && acquired ? "running" : session.status;
 
-const currentStatus =
-  (session.status === "pending" && lockAcquired)
-    ? "running"
-    : session.status;
+    // ✅ Política: NO devolver lista de vuelos cuando el estado NO es complete.
+    // Excepción opcional: si hay caché (refreshing) podemos devolverlo como "stale".
+    const canShowStale = currentStatus === "refreshing" && resultsRaw.length > 0;
+    const resultsForClient = canShowStale ? applyRoleMarkup(resultsRaw, markupPct) : [];
 
-const payload = buildPayload(
-  { ...session, status: currentStatus },
-  results
-);
+    const payload: Record<string, unknown> = {
+      sessionId: session.session_id,
+      status: currentStatus,
+      source: session.source ?? "live",
+      ...(canShowStale
+        ? { results: resultsForClient, providersUsed: extractProvidersUsed(resultsRaw) }
+        : { progress: buildProgress({ ...session, status: currentStatus }, resultsRaw) }),
+    };
 
-return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
+    // 202 mientras está en progreso, 200 si devolvemos caché stale
+    const httpStatus = canShowStale ? 200 : 202;
+    return NextResponse.json(payload, {
+      status: httpStatus,
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (err: unknown) {
     console.error("[FLIGHT_SEARCH_SESSION_ERROR]", err);
     const msg =
