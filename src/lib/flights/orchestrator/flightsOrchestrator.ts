@@ -22,6 +22,7 @@ import {
 } from "@/lib/flights/orchestrator/providerCircuitBreaker";
 
 const TARGET_RESULTS_PER_LEG = 80;
+const MAX_PER_CARRIER = 10;        // max flights shown per airline (was hardcoded 3 — too low, caused missing flights)
 const EXTERNAL_TIMEOUT_MS = 120_000;
 
 /* -------------------------------------------------- */
@@ -140,14 +141,11 @@ function getDestinationIata(f: Flight): string {
   return getAirportCode(rec["destination_airport"]) ?? "NDEST";
 }
 
-function normalizePrice(f: Flight): string {
-  const rec = f as unknown as Record<string, unknown>;
-  const p = Number(rec["final_price"] ?? rec["price"] ?? 0);
-  return Number.isFinite(p) ? String(Math.round(p)) : "0";
-}
-
 export function flightDedupeKey(f: Flight): string {
-  return `${normalizeAirlineCode(f)}|${normalizeFlightNumber(f)}|${getOriginIata(f)}|${getDestinationIata(f)}|${normalizeDepartureDatetime(f)}|${normalizePrice(f)}`;
+  // Price intentionally excluded: same physical flight with different pricing options
+  // (codeshares, agency vs SkyScrapper markup differences) must not produce duplicates.
+  // The merge keeps the best-priced variant via sortFlightsAgencyFirst.
+  return `${normalizeAirlineCode(f)}|${normalizeFlightNumber(f)}|${getOriginIata(f)}|${getDestinationIata(f)}|${normalizeDepartureDatetime(f)}`;
 }
 
 /* -------------------------------------------------- */
@@ -228,6 +226,36 @@ function totalFlights(res: ProviderSearchResponse): number {
 }
 
 /* -------------------------------------------------- */
+/* ---- DIVERSIFY + CAP ----------------------------- */
+/* -------------------------------------------------- */
+
+/**
+ * Groups flights by airline, takes up to `maxPerCarrier` per airline,
+ * re-sorts by agency-first priority, and caps the final list to `cap`.
+ *
+ * Extracted from both branches of the orchestrator to avoid code
+ * duplication and fix the ReferenceError on the !needsExternal path.
+ */
+function diversifyAndCap(
+  flights: Flight[],
+  maxPerCarrier: number,
+  cap: number
+): Flight[] {
+  const byCarrier = new Map<string, Flight[]>();
+  for (const f of flights) {
+    const carrier = normalizeAirlineCode(f);
+    if (!byCarrier.has(carrier)) byCarrier.set(carrier, []);
+    byCarrier.get(carrier)!.push(f);
+  }
+  const diversified: Flight[] = [];
+  for (const group of byCarrier.values()) {
+    diversified.push(...group.slice(0, maxPerCarrier));
+  }
+  diversified.sort(sortFlightsAgencyFirst);
+  return diversified.slice(0, cap);
+}
+
+/* -------------------------------------------------- */
 /* ---- ORCHESTRATOR -------------------------------- */
 /* -------------------------------------------------- */
 
@@ -257,38 +285,16 @@ export const flightsOrchestrator = {
 
     if (!needsExternal) {
       logger.info({ metric: 'cache_hit_rate', status: 'agency_sufficient' }, 'Agency has enough results, skipping external');
-      return req.legs.map((_, idx) => {
-  const merged = mergeDedupeAndRank(
-    agencyByLeg.get(idx) ?? [],
-    externalByLeg.get(idx) ?? []
-  );
-
-  // 1️⃣ Agrupar por aerolínea para no perder diversidad
-  const byCarrier = new Map<string, Flight[]>();
-
-  for (const f of merged) {
-    const carrier = normalizeAirlineCode(f);
-    if (!byCarrier.has(carrier)) {
-      byCarrier.set(carrier, []);
-    }
-    byCarrier.get(carrier)!.push(f);
-  }
-
-  // 2️⃣ Tomar hasta 3 vuelos por aerolínea (ajustable)
-  const diversified: Flight[] = [];
-
-  for (const flights of byCarrier.values()) {
-    diversified.push(...flights.slice(0, 3));
-  }
-
-  // 3️⃣ Ordenar nuevamente
-  diversified.sort(sortFlightsAgencyFirst);
-
-  return {
-    legIndex: idx,
-    flights: diversified.slice(0, TARGET_RESULTS_PER_LEG),
-  };
-});
+      // FIX: was referencing externalByLeg here (undefined) → ReferenceError.
+      // When agency is sufficient, simply diversify and return agency-only results.
+      return req.legs.map((_, idx) => ({
+        legIndex: idx,
+        flights: diversifyAndCap(
+          agencyByLeg.get(idx) ?? [],
+          MAX_PER_CARRIER,
+          TARGET_RESULTS_PER_LEG
+        ),
+      }));
     }
 
     // ── 3. SkyScrapper ───────────────────────────────
@@ -355,37 +361,16 @@ export const flightsOrchestrator = {
     );
 
     // ── 4. Merge + Rank ──────────────────────────────
-    return req.legs.map((_, idx) => {
-  const merged = mergeDedupeAndRank(
-    agencyByLeg.get(idx) ?? [],
-    externalByLeg.get(idx) ?? []
-  );
-
-  // 1️⃣ Agrupar por aerolínea para no perder diversidad
-  const byCarrier = new Map<string, Flight[]>();
-
-  for (const f of merged) {
-    const carrier = normalizeAirlineCode(f);
-    if (!byCarrier.has(carrier)) {
-      byCarrier.set(carrier, []);
-    }
-    byCarrier.get(carrier)!.push(f);
-  }
-
-  // 2️⃣ Tomar hasta 3 vuelos por aerolínea (ajustable)
-  const diversified: Flight[] = [];
-
-  for (const flights of byCarrier.values()) {
-    diversified.push(...flights.slice(0, 3));
-  }
-
-  // 3️⃣ Ordenar nuevamente
-  diversified.sort(sortFlightsAgencyFirst);
-
-  return {
-    legIndex: idx,
-    flights: diversified.slice(0, TARGET_RESULTS_PER_LEG),
-  };
-});
+    return req.legs.map((_, idx) => ({
+      legIndex: idx,
+      flights: diversifyAndCap(
+        mergeDedupeAndRank(
+          agencyByLeg.get(idx) ?? [],
+          externalByLeg.get(idx) ?? []
+        ),
+        MAX_PER_CARRIER,
+        TARGET_RESULTS_PER_LEG
+      ),
+    }));
   },
 };

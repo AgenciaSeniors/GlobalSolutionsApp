@@ -5,7 +5,14 @@ interface InputAirline { id?: string; iata_code?: string; name?: string; logo_ur
 interface InputAirport { iata_code?: string; name?: string; }
 interface DuffelCarrier { iata_code?: string; name?: string; logo_symbol_url?: string; logo_url?: string; }
 interface DuffelSegment { marketing_carrier?: DuffelCarrier; operating_carrier?: DuffelCarrier; marketing_carrier_iata_code?: string; marketing_carrier_flight_number?: string; operating_carrier_flight_number?: string; flight_number?: string; departing_at?: string; arriving_at?: string; duration?: number; origin?: { iata_code?: string }; destination?: { iata_code?: string }; origin_iata_code?: string; destination_iata_code?: string; airline_logo_url?: string; }
-interface SkySegment { origin_iata: string; origin_name: string; destination_iata: string; destination_name: string; departure: string; arrival: string; duration_minutes: number; flight_number: string; airline_name: string; airline_code: string; airline_logo_url: string | null; }
+interface SkySegment {
+  origin_iata: string; origin_name: string; destination_iata: string; destination_name: string;
+  departure: string; arrival: string; duration_minutes: number; flight_number: string;
+  airline_name: string; airline_code: string; airline_logo_url: string | null;
+  // Cuba-normalized fields added by skyScrapperProvider (optional for backward compat)
+  departure_cuba?: string | null; arrival_cuba?: string | null;
+  departure_utc?: string | null; arrival_utc?: string | null;
+}
 interface StopEntry { airport?: string; duration_minutes?: number; }
 
 interface InputFlight {
@@ -39,8 +46,20 @@ function toUiSegment(seg: DuffelSegment, offerId: string, i: number): FlightSegm
 
 function skySegmentToUi(s: SkySegment, offerId: string, i: number): FlightSegment {
   const logo = s.airline_logo_url ?? gstaticLogo(s.airline_code);
-  const dur = s.duration_minutes > 0 ? formatDurationFromMinutes(s.duration_minutes) : s.departure && s.arrival ? formatDurationFromDates(s.departure, s.arrival) : "—";
-  return { id: `${offerId}-seg-${i + 1}`, origin: s.origin_iata, destination: s.destination_iata, originName: s.origin_name, destinationName: s.destination_name, departureTime: s.departure, arrivalTime: s.arrival, flightNumber: s.flight_number || "—", duration: dur, airline: { id: s.airline_code || "UNKNOWN", name: s.airline_name, code: s.airline_code, logoUrl: logo } };
+  // Prefer Cuba-normalized timestamps (ISO with -05:00 or -04:00 offset) so the UI
+  // always shows Cuba wall-clock time regardless of the user's browser timezone.
+  // Fall back to airport-local (no offset) for backwards compatibility.
+  const depTime = s.departure_cuba ?? s.departure;
+  const arrTime = s.arrival_cuba ?? s.arrival;
+  // Compute duration from UTC instants when available (avoids DST distortion).
+  const dur = s.duration_minutes > 0
+    ? formatDurationFromMinutes(s.duration_minutes)
+    : s.departure_utc && s.arrival_utc
+      ? formatDurationFromDates(s.departure_utc, s.arrival_utc)
+      : depTime && arrTime
+        ? formatDurationFromDates(depTime, arrTime)
+        : "—";
+  return { id: `${offerId}-seg-${i + 1}`, origin: s.origin_iata, destination: s.destination_iata, originName: s.origin_name, destinationName: s.destination_name, departureTime: depTime, arrivalTime: arrTime, flightNumber: s.flight_number || "—", duration: dur, airline: { id: s.airline_code || "UNKNOWN", name: s.airline_name, code: s.airline_code, logoUrl: logo } };
 }
 
 export function mapApiFlightToOffer(
