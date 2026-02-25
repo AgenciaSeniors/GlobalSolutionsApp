@@ -16,6 +16,7 @@ function sha256(input: string) {
 type VerifyOtpBody = {
   email?: unknown;
   code?: unknown;
+  mode?: unknown; // "login" | "register"
 };
 
 export async function POST(req: Request) {
@@ -23,6 +24,8 @@ export async function POST(req: Request) {
     const body: VerifyOtpBody = await req.json();
     const email = typeof body.email === 'string' ? body.email : '';
     const code = typeof body.code === 'string' ? body.code : '';
+    const modeRaw = typeof body.mode === 'string' ? body.mode : 'login';
+    const mode: 'login' | 'register' = modeRaw === 'register' ? 'register' : 'login';
 
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedCode = code.trim();
@@ -55,7 +58,7 @@ export async function POST(req: Request) {
 
     // 2) Validar expiración
     if (new Date(otpRow.expires_at) < now) {
-      // 🔧 FIX: Marcar como usado para que no se pueda reintentar
+      // Marcar expirado como usado para que no se pueda reintentar con el mismo
       await supabaseAdmin
         .from('auth_otps')
         .update({ used_at: now.toISOString() })
@@ -72,16 +75,34 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) 🔧 FIX: Marcar como usado Y verificado (antes solo se marcaba verified_at)
-    await supabaseAdmin
-      .from('auth_otps')
-      .update({
-        verified_at: now.toISOString(),
-        used_at: now.toISOString(),
-      })
-      .eq('id', otpRow.id);
+    // 4) Marcar verificado (y usado solo si es login)
+    if (mode === 'login') {
+      await supabaseAdmin
+        .from('auth_otps')
+        .update({
+          verified_at: now.toISOString(),
+          used_at: now.toISOString(),
+        })
+        .eq('id', otpRow.id);
+    } else {
+      // register: NO consumimos el OTP aquí, para que complete-register lo pueda validar
+      await supabaseAdmin
+        .from('auth_otps')
+        .update({
+          verified_at: now.toISOString(),
+        })
+        .eq('id', otpRow.id);
+    }
 
-    // 5) Generar link de sesión con Supabase Admin
+    // ✅ REGISTER: no generar sessionLink (solo validar código)
+    if (mode === 'register') {
+      return NextResponse.json({
+        ok: true,
+        verified: true,
+      });
+    }
+
+    // 5) LOGIN: Generar link de sesión con Supabase Admin
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const { data, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
       type: 'magiclink',
@@ -93,7 +114,7 @@ export async function POST(req: Request) {
 
     if (linkErr) throw linkErr;
 
-    // --- AUDITORÍA DE SEGURIDAD ---
+    // --- AUDITORÍA DE SEGURIDAD (solo login) ---
     try {
       await auditService.log({
         userId: data.user?.id,
@@ -106,11 +127,9 @@ export async function POST(req: Request) {
         },
       });
     } catch (auditErr) {
-      // No bloquear el login si la auditoría falla
       console.error('[verify-otp] Audit log failed:', auditErr);
     }
 
-    // 🔧 FIX: Extraer session link de forma robusta
     const sessionLink =
       data?.properties?.action_link && typeof data.properties.action_link === 'string'
         ? data.properties.action_link

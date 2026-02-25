@@ -10,13 +10,12 @@ const TRUSTED_DEVICE_PREFIX = "gst_trusted_v2_";
  * Usa un hash simple para no guardar el email en claro.
  */
 function trustedKey(email: string): string {
-  // Simple hash para localStorage (no necesita ser criptográfico)
   let hash = 0;
   const normalized = email.trim().toLowerCase();
   for (let i = 0; i < normalized.length; i++) {
     const char = normalized.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
-    hash |= 0; // Convert to 32bit integer
+    hash |= 0;
   }
   return `${TRUSTED_DEVICE_PREFIX}${Math.abs(hash).toString(36)}`;
 }
@@ -32,16 +31,7 @@ function markTrustedDevice(email: string) {
 }
 
 /**
- * LOGIN - PASO 1:
- * 
- * 🔧 FIX PRINCIPAL: Ya NO hacemos signInWithPassword en el cliente para dispositivos nuevos.
- * En su lugar, validamos credenciales server-side via /api/auth/validate-credentials.
- * Esto evita crear/destruir sesiones que disparan onAuthStateChange.
- * 
- * Flujo:
- * - Si ya hay sesión activa → retorna inmediatamente
- * - Si dispositivo confiable → login directo con password (sesión se crea y queda)
- * - Si dispositivo nuevo → valida password server-side → envía OTP por Resend → NO crea sesión
+ * LOGIN - PASO 1
  */
 async function signInStepOne(email: string, pass: string) {
   const supabase = createClient();
@@ -55,7 +45,7 @@ async function signInStepOne(email: string, pass: string) {
     return { success: true, message: "ALREADY_AUTHENTICATED" };
   }
 
-  // 🔧 FIX: Si este dispositivo ya se confió para ESTE email, login directo
+  // 🔧 Si este dispositivo ya se confió para ESTE email, login directo
   if (isTrustedDevice(normalizedEmail)) {
     const { error } = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
@@ -65,7 +55,7 @@ async function signInStepOne(email: string, pass: string) {
     return { success: true, message: "SIGNED_IN_TRUSTED_DEVICE" };
   }
 
-  // 🔧 FIX: Dispositivo NUEVO — validar credenciales SERVER-SIDE sin crear sesión en el browser
+  // 🔧 Dispositivo NUEVO — validar credenciales SERVER-SIDE sin crear sesión en el browser
   const validateRes = await fetch("/api/auth/validate-credentials", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -77,7 +67,7 @@ async function signInStepOne(email: string, pass: string) {
     throw new Error(validateData?.error ?? "Credenciales inválidas.");
   }
 
-  // 🔧 FIX: Ahora pedimos OTP — NO hay sesión activa en el browser, no hay signOut() que rompa nada
+  // Pedir OTP por Resend — NO hay sesión activa en el browser
   const otpRes = await fetch("/api/auth/request-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -91,11 +81,7 @@ async function signInStepOne(email: string, pass: string) {
 }
 
 /**
- * LOGIN - PASO 2 (solo para dispositivo nuevo):
- * Verifica OTP → recibe sessionLink → navega a él para establecer sesión.
- * 
- * 🔧 FIX: Ahora retorna el sessionLink para que el componente navegue a él.
- * El componente DEBE hacer window.location.href = sessionLink (no '/')
+ * LOGIN - PASO 2 (solo dispositivo nuevo)
  */
 async function verifyLoginOtp(email: string, code: string) {
   const normalizedEmail = email.trim().toLowerCase();
@@ -103,7 +89,7 @@ async function verifyLoginOtp(email: string, code: string) {
   const res = await fetch("/api/auth/verify-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: normalizedEmail, code }),
+    body: JSON.stringify({ email: normalizedEmail, code, mode: "login" }),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -119,35 +105,77 @@ async function verifyLoginOtp(email: string, code: string) {
   return data as { ok: true; verified: true; sessionLink: string };
 }
 
-async function signUpStepOne(email: string, password: string, fullName: string) {
-  const supabase = createClient();
+/**
+ * SIGNUP - PASO 1:
+ * Enviar OTP por Resend (NO Supabase signUp).
+ */
+async function signUpStepOne(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
 
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { full_name: fullName, role: "client" },
-    },
+  const otpRes = await fetch("/api/auth/request-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: normalizedEmail }),
   });
 
-  if (error) throw error;
+  const otpData = await otpRes.json().catch(() => ({}));
+  if (!otpRes.ok) throw new Error(otpData?.error ?? "No se pudo enviar el código.");
+
   return { ok: true, message: "OTP_SENT" };
 }
 
-async function verifySignupOtp(email: string, code: string) {
+/**
+ * SIGNUP - PASO 2:
+ * Verifica OTP (modo register) -> crea usuario -> inicia sesión.
+ */
+async function verifySignupOtp(email: string, code: string, fullName: string, password: string) {
   const supabase = createClient();
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedName = fullName?.trim() ?? "";
 
-  const { data, error } = await supabase.auth.verifyOtp({
-    email,
-    token: code,
-    type: "signup",
+  if (!normalizedName) throw new Error("Nombre completo es requerido.");
+  if (!password) throw new Error("Contraseña es requerida.");
+
+  // 1) Verificar OTP en modo register (NO genera sessionLink)
+  const vRes = await fetch("/api/auth/verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: normalizedEmail, code, mode: "register" }),
   });
 
-  if (error) throw error;
+  const vData = await vRes.json().catch(() => ({}));
+  if (!vRes.ok) throw new Error(vData?.error ?? "Código inválido.");
 
-  markTrustedDevice(email.trim().toLowerCase());
+  // 2) Crear usuario (server) usando tu endpoint
+  // Debe setear email_confirm: true en admin.createUser (según tu implementación)
+  const cRes = await fetch("/api/auth/complete-register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: normalizedEmail,
+      fullName: normalizedName,
+      password,
+    }),
+  });
 
-  return { ok: true, session: data.session };
+  const cData = await cRes.json().catch(() => ({}));
+  if (!cRes.ok) throw new Error(cData?.error ?? "No se pudo crear la cuenta.");
+
+  // 3) Iniciar sesión con password (ya debe poder porque el user quedó confirmado)
+  const { error: signInErr } = await supabase.auth.signInWithPassword({
+    email: normalizedEmail,
+    password,
+  });
+
+  if (signInErr) {
+    // Mensaje más útil por si el user ya existía o no quedó confirmado
+    throw new Error(signInErr.message || "No se pudo iniciar sesión.");
+  }
+
+  // 4) Confiar este dispositivo para este email
+  markTrustedDevice(normalizedEmail);
+
+  return { ok: true };
 }
 
 async function getCurrentProfile(): Promise<Profile | null> {
@@ -162,6 +190,7 @@ async function getCurrentProfile(): Promise<Profile | null> {
     .select("*")
     .eq("id", user.id)
     .maybeSingle();
+
   return (data as Profile) ?? null;
 }
 
@@ -181,7 +210,6 @@ async function updateProfile(
   if (error) throw error;
 }
 
-// 🔧 FIX: signOut NO borra el trusted device flag — es intencional
 async function signOut() {
   const supabase = createClient();
   const { error } = await supabase.auth.signOut();
