@@ -132,7 +132,14 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
           </div>
 
           <div className="text-right">
-            <p className="text-xl font-bold text-neutral-900 sm:text-2xl">{arrivalTime}</p>
+            <p className="text-xl font-bold text-neutral-900 sm:text-2xl">
+              {arrivalTime}
+              {flight.arrivalDayDiff && flight.arrivalDayDiff > 0 && (
+                <sup className="ml-1 text-xs font-semibold text-coral">
+                  +{flight.arrivalDayDiff}
+                </sup>
+              )}
+            </p>
             <p className="text-xs text-neutral-500 sm:text-sm">{destinationCode}</p>
           </div>
         </div>

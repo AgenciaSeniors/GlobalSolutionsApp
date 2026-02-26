@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import { createClient } from '@/lib/supabase/client';
+import PageLoader from '@/components/ui/PageLoader';
 import { Plane, Calendar, Download, User as UserIcon, Clock, CheckCircle, XCircle } from 'lucide-react';
 
 // Función para desempacar arreglos de Supabase
@@ -98,9 +99,7 @@ export default function UserBookingsPage() {
         
         <div className="p-6 lg:p-8 max-w-5xl mx-auto">
           {loading ? (
-            <div className="flex justify-center items-center py-20 text-slate-500">
-              <div className="animate-spin text-3xl mr-3">⏳</div> Cargando tu historial...
-            </div>
+            <PageLoader message="Cargando tu historial..." />
           ) : bookings.length === 0 ? (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
               <Plane className="mx-auto h-16 w-16 text-slate-200 mb-4" />

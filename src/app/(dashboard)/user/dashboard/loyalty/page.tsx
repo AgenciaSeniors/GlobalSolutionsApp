@@ -5,6 +5,7 @@ import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import PageLoader from '@/components/ui/PageLoader';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { loyaltyService, type LoyaltyBalance } from '@/services/loyalty.service';
 import type { LoyaltyTransaction } from '@/types/models';
@@ -78,7 +79,7 @@ export default function UserLoyaltyPage() {
 
         <div className="p-6 md:p-8 space-y-6 max-w-4xl">
           {loading ? (
-            <Card className="p-6 text-gray-500">Cargando tu programa de lealtad...</Card>
+            <PageLoader message="Cargando tu programa de lealtad..." />
           ) : (
             <>
               {/* Hero Card - Points + Tier */}
