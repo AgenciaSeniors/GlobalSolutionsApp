@@ -423,6 +423,8 @@ export interface FlightOffer {
   currency: string;
   segments: FlightSegment[];
   totalDuration: string;
+  /** Number of days between departure and arrival (0 = same day, 1 = next day, etc.) */
+  arrivalDayDiff?: number;
   type: 'oneway' | 'roundtrip' | 'multicity';
   airline_code?: string;
   stops_count?: number;

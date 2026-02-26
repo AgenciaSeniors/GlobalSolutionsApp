@@ -1,14 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+// useRouter removed — we use window.location.href for full reload (ensures session cookies are sent)
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import { authService } from "@/services/auth.service";
 
 export default function RegisterForm() {
-  const router = useRouter();
-
   const [step, setStep] = React.useState<"form" | "otp">("form");
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -54,8 +52,8 @@ export default function RegisterForm() {
     try {
       await authService.verifySignupOtp(normalizedEmail, code.trim(), fullName.trim(), password);
 
-      // ✅ Cuenta creada + sesión iniciada
-      router.push("/user/dashboard");
+      // ✅ Cuenta creada + sesión iniciada — full reload para que las cookies se envíen al middleware
+      window.location.href = "/user/dashboard";
     } catch (err: any) {
       setErrorMsg(err?.message ?? "No se pudo completar el registro.");
     } finally {
@@ -101,6 +99,7 @@ export default function RegisterForm() {
             <Input
               id="password"
               type="password"
+              showPasswordToggle
               value={password}
               onChange={(e: any) => setPassword(e.target.value)}
               disabled={isLoading}

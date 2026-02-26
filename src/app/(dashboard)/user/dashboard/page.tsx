@@ -6,10 +6,11 @@ import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import PageLoader from '@/components/ui/PageLoader';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
-  Plane, Star, Clock, ArrowRight,
+  Plane, Star, ArrowRight,
   DollarSign,Trophy,
 } from 'lucide-react';
 
@@ -41,7 +42,7 @@ interface RecentBooking {
 
 export default function UserDashboardPage() {
   const supabase = createClient();
-  const { user } = useAuthContext();
+  const { user, isLoading: authLoading } = useAuthContext();
 
   const [stats, setStats] = useState<DashboardStats>({
     totalBookings: 0,
@@ -156,13 +157,8 @@ export default function UserDashboardPage() {
         />
 
         <div className="p-6 space-y-6">
-          {loading ? (
-            <Card className="p-6">
-              <div className="flex items-center gap-2 text-sm opacity-80">
-                <Clock size={16} />
-                Cargando tus datos…
-              </div>
-            </Card>
+          {(authLoading || loading) ? (
+            <PageLoader message="Cargando tus datos..." />
           ) : (
             <>
               {/* KPIs */}

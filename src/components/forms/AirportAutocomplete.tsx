@@ -274,7 +274,9 @@ export default function AirportAutocomplete({
               <span className="ml-1 text-neutral-500">
                 ({option.code})
               </span>
-              <span className="ml-1 text-neutral-400">– {option.country}</span>
+              {option.country && option.country.toUpperCase() !== 'N/A' && (
+                <span className="ml-1 text-neutral-400">– {option.country}</span>
+              )}
               <div className="text-xs text-neutral-400">{option.name}</div>
             </li>
           ))}
