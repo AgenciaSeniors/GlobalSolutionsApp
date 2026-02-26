@@ -68,7 +68,23 @@ export async function POST(req: Request) {
     });
 
     if (createErr) {
-      return NextResponse.json({ error: createErr.message }, { status: 400 });
+      // Traducir errores de Supabase Auth a mensajes profesionales en español
+      const errMsg = (createErr.message ?? '').toLowerCase();
+      let userMessage = 'No se pudo crear la cuenta. Por favor intenta de nuevo.';
+
+      if (errMsg.includes('already registered') || errMsg.includes('already exists') || errMsg.includes('duplicate')) {
+        userMessage = 'Ya existe una cuenta con este correo electrónico. Intenta iniciar sesión.';
+      } else if (errMsg.includes('password') && errMsg.includes('weak')) {
+        userMessage = 'La contraseña es muy débil. Usa al menos 8 caracteres con letras y números.';
+      } else if (errMsg.includes('password')) {
+        userMessage = 'La contraseña no cumple los requisitos mínimos de seguridad.';
+      } else if (errMsg.includes('invalid') && errMsg.includes('email')) {
+        userMessage = 'El correo electrónico no es válido.';
+      } else if (errMsg.includes('rate') || errMsg.includes('limit')) {
+        userMessage = 'Demasiados intentos. Espera unos minutos antes de intentar de nuevo.';
+      }
+
+      return NextResponse.json({ error: userMessage }, { status: 400 });
     }
 
     // ✅ Marcar OTP como consumido (used_at) para que no se pueda reutilizar

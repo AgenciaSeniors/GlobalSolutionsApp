@@ -202,6 +202,9 @@ function countryDisplayName(code: string): string {
 }
 
 function buildLabel(city: string, iata: string, country: string): string {
+  if (!country || country.toUpperCase() === 'N/A') {
+    return `${city} (${iata})`;
+  }
   return `${city} (${iata}) – ${country}`;
 }
 
@@ -335,8 +338,10 @@ async function searchExternalAPI(query: string): Promise<AutocompleteResult[]> {
 
       // Extract city/country from subtitle (format: "City, Country")
       const subtitleParts = subtitle.split(',').map((s) => s.trim());
-      const city = subtitleParts[0] ?? title;
-      const country = subtitleParts.slice(1).join(', ') || '';
+      const city = subtitleParts[0] || title;
+      const rawCountry = subtitleParts.slice(1).join(', ') || '';
+      // Clean up "N/A" values from external API
+      const country = (rawCountry && rawCountry.toUpperCase() !== 'N/A') ? rawCountry : '';
 
       results.push({
         code: iata,
@@ -420,7 +425,7 @@ async function upsertAirportsInBackground(apiResults: AutocompleteResult[]): Pro
         iata_code: r.code,
         name: r.name,
         city: r.city,
-        country: r.countryCode ?? r.code,
+        country: r.countryCode || '',
       }));
 
     if (rows.length === 0) return;

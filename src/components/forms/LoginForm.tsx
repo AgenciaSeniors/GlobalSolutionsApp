@@ -160,6 +160,7 @@ export default function LoginForm() {
             <label className="text-sm font-medium text-neutral-700">Contraseña</label>
             <Input
               type="password"
+              showPasswordToggle
               placeholder="••••••••"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}

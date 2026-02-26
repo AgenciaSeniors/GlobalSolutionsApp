@@ -137,7 +137,7 @@ async function signUpStepOne(email: string) {
   const otpRes = await fetch("/api/auth/request-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: normalizedEmail }),
+    body: JSON.stringify({ email: normalizedEmail, mode: "register" }),
   });
 
   const otpData = await otpRes.json().catch(() => ({}));
