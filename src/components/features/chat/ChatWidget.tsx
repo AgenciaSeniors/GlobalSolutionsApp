@@ -227,9 +227,16 @@ async function handleEscalate() {
       ? `Hola, necesito ayuda con una consulta de viaje.\n\nMi consulta:\n${userMessages}`
       : 'Hola, necesito hablar con un agente de soporte de Global Solutions Travel.';
 
-    const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER;
-    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(whatsappText)}`;
+    const rawPhone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '';
+    const phone = rawPhone.replace(/[\s+\-()]/g, '');
 
+    if (!phone) {
+      addMessage('bot', 'El número de WhatsApp no está configurado. Por favor, contacta al soporte por email.');
+      setMode('bot');
+      return;
+    }
+
+    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(whatsappText)}`;
     window.open(whatsappUrl, '_blank');
 
     addMessage('bot', '✅ Se abrió WhatsApp con nuestro agente de soporte. ¡Te atenderemos en breve!');

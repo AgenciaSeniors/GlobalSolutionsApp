@@ -169,7 +169,7 @@ export default function AdminBookingsPage() {
         .select(
           `
           id, booking_code, booking_status, payment_status, payment_method, payment_gateway,
-          total_amount, subtotal, payment_gateway_fee, airline_pnr,
+          total_amount, subtotal, payment_gateway_fee, airline_pnr, zelle_proof_url,
           created_at, paid_at, return_date, emitted_at, offer_id, selected_date,
           profile:profiles!bookings_user_id_fkey(full_name, email, phone, loyalty_points),
           flight:flights!bookings_flight_id_fkey(
@@ -592,6 +592,16 @@ export default function AdminBookingsPage() {
                                 <p className="text-xs text-neutral-400">
                                   Pagado: {new Date(b.paid_at).toLocaleString('es')}
                                 </p>
+                              )}
+                              {b.zelle_proof_url && (
+                                <a
+                                  href={b.zelle_proof_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-blue-50 border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                                >
+                                  📎 Ver comprobante Zelle
+                                </a>
                               )}
                             </div>
                           </div>

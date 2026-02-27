@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * PayPal:  create-order  → user approves    → capture-order (server-side) → webhook safety net
  */
 
-import { Suspense } from "react";
+import { Suspense, useRef } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
@@ -21,6 +21,7 @@ import Footer from "@/components/layout/Footer";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import PaymentForm from "@/components/features/payments/PaymentForm";
+import { useAppSettings } from "@/hooks/useAppSettings";
 
 type PaymentMethod = "stripe" | "paypal" | "zelle";
 
@@ -147,41 +148,9 @@ function PayPageInner() {
     );
   }
 
-  /* ── Zelle: show confirmation message ── */
+  /* ── Zelle: payment details + upload proof ── */
   if (selectedMethod === "zelle") {
-    return (
-      <>
-        <Navbar />
-        <div className="mx-auto max-w-3xl p-6 pt-24">
-          <Card variant="bordered" className="p-6 space-y-4">
-            <h1 className="text-xl font-semibold">Pago por Zelle</h1>
-            <p className="text-sm text-neutral-500">
-              Booking: <span className="font-mono">{bookingId}</span>
-            </p>
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 space-y-2">
-              <p className="font-semibold">Tu reserva ha sido registrada exitosamente.</p>
-              <p>
-                Para completar el pago, realiza una transferencia por Zelle a la cuenta indicada
-                en tu correo de confirmación o contacta a nuestro equipo.
-              </p>
-              <p>
-                Una vez recibido tu pago, un administrador lo verificará y tu reserva será confirmada.
-                Recibirás una notificación cuando esto suceda.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Button onClick={() => router.push("/user/dashboard/bookings")}>
-                Ver mis reservas
-              </Button>
-              <Button variant="outline" onClick={() => router.push("/")}>
-                Volver al inicio
-              </Button>
-            </div>
-          </Card>
-        </div>
-        <Footer />
-      </>
-    );
+    return <ZellePaySection bookingId={bookingId} />;
   }
 
   return (
@@ -264,6 +233,137 @@ function PayPageInner() {
               />
             </PayPalScriptProvider>
           )}
+        </Card>
+      </div>
+      <Footer />
+    </>
+  );
+}
+
+/* ── Zelle Payment Section ── */
+function ZellePaySection({ bookingId }: { bookingId: string }) {
+  const router = useRouter();
+  const { settings } = useAppSettings();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+
+  async function handleUpload() {
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("booking_id", bookingId);
+      formData.append("file", file);
+
+      const res = await fetch("/api/payments/zelle/upload-proof", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "Error al subir comprobante");
+
+      setProofUrl(data.proof_url);
+      setFileName(file.name);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : "Error al subir archivo");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <>
+      <Navbar />
+      <div className="mx-auto max-w-3xl p-6 pt-24">
+        <Card variant="bordered" className="p-6 space-y-5">
+          <h1 className="text-xl font-semibold">Pago por Zelle</h1>
+          <p className="text-sm text-neutral-500">
+            Booking: <span className="font-mono">{bookingId}</span>
+          </p>
+
+          {/* Step 1: Payment Details */}
+          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-5 space-y-3">
+            <h2 className="font-bold text-emerald-800">Paso 1: Realiza la transferencia</h2>
+            <p className="text-sm text-emerald-700">
+              Envía el monto total por Zelle a la siguiente cuenta:
+            </p>
+            <div className="rounded-lg bg-white p-4 border border-emerald-200">
+              <p className="text-sm text-neutral-600">Enviar Zelle a:</p>
+              <p className="text-lg font-bold text-neutral-900 font-mono">
+                {settings.business_email}
+              </p>
+              <p className="mt-1 text-xs text-neutral-500">
+                {settings.business_name} · {settings.business_phone}
+              </p>
+            </div>
+          </div>
+
+          {/* Step 2: Upload Proof */}
+          <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-5 space-y-3">
+            <h2 className="font-bold text-blue-800">Paso 2: Sube tu comprobante</h2>
+            <p className="text-sm text-blue-700">
+              Sube una captura de pantalla o foto del comprobante de tu transferencia Zelle.
+            </p>
+
+            {proofUrl ? (
+              <div className="rounded-lg bg-white p-4 border border-emerald-300 space-y-2">
+                <p className="text-sm font-semibold text-emerald-700">
+                  ✅ Comprobante subido exitosamente
+                </p>
+                <p className="text-xs text-neutral-500">{fileName}</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="block w-full text-sm text-neutral-600
+                    file:mr-4 file:rounded-lg file:border-0
+                    file:bg-blue-600 file:px-4 file:py-2
+                    file:text-sm file:font-semibold file:text-white
+                    hover:file:bg-blue-700 file:cursor-pointer"
+                />
+                {uploadError && (
+                  <p className="text-sm text-red-600">{uploadError}</p>
+                )}
+                <Button
+                  onClick={handleUpload}
+                  isLoading={uploading}
+                  disabled={uploading}
+                  className="w-full"
+                >
+                  Subir Comprobante
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Info */}
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <p>
+              <strong>¿Qué sucede después?</strong> Un administrador verificará tu pago y
+              confirmará tu reserva. Recibirás una notificación por correo cuando esté listo.
+              Tiempo estimado: <strong>2–4 horas</strong>.
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <Button onClick={() => router.push("/user/dashboard/bookings")}>
+              Ver mis reservas
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/")}>
+              Volver al inicio
+            </Button>
+          </div>
         </Card>
       </div>
       <Footer />

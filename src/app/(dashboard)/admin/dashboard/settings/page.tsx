@@ -130,22 +130,29 @@ export default function AdminSettingsPage() {
         throw new Error(`El markup por defecto (${def}%) debe estar entre ${min}% y ${max}%`);
       }
 
-      // Save each changed setting
+      // Build list of changed settings with proper types
       const changed = Object.keys(settings).filter((k) => settings[k] !== original[k]);
-      for (const key of changed) {
-        let jsonValue: string | number;
-        // Determine if number or string
-        const numKeys = [...MARKUP_KEYS, ...STRIPE_KEYS, ...PAYPAL_KEYS, ...ZELLE_KEYS, ...SLA_KEYS];
-        if (numKeys.some((nk) => nk.key === key)) {
-          jsonValue = parseFloat(settings[key]) || 0;
-        } else {
-          jsonValue = settings[key];
-        }
+      if (changed.length === 0) {
+        setSuccess('No hay cambios que guardar.');
+        return;
+      }
 
-        const { error: err } = await supabase
-          .from('app_settings')
-          .upsert({ key, value: jsonValue, updated_at: new Date().toISOString() });
-        if (err) throw err;
+      const numKeys = [...MARKUP_KEYS, ...STRIPE_KEYS, ...PAYPAL_KEYS, ...ZELLE_KEYS, ...SLA_KEYS];
+      const payload = changed.map((key) => {
+        const isNum = numKeys.some((nk) => nk.key === key);
+        return { key, value: isNum ? (parseFloat(settings[key]) || 0) : settings[key] };
+      });
+
+      // Use server API route (bypasses RLS via service role)
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: payload }),
+      });
+
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(body?.error || 'Error al guardar configuración');
       }
 
       setOriginal({ ...settings });
