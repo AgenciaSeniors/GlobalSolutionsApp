@@ -42,7 +42,8 @@ export default function ReserveWhatsApp({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER;
+  const rawPhone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '';
+  const phone = rawPhone.replace(/[\s+\-()]/g, '') || null;
 
   const today = todayISO();
   const minEnd = startDate ? addDaysISO(startDate, 1) : today;
