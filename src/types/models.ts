@@ -80,6 +80,7 @@ export interface Flight {
   total_seats: number;
   available_seats: number;
   aircraft_type: string | null;
+  baggage_included?: string | null;
   is_exclusive_offer: boolean;
   offer_expires_at: string | null;
   stops?: Array<{ airport: string; duration_minutes: number }> | null;

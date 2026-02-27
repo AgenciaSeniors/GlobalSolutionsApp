@@ -82,6 +82,19 @@ interface OfferCheckoutData {
   stops: SpecialOfferStop[];
 }
 
+/** Extra display data for flight mode — extracted from raw sessionStorage or derived from DB */
+interface FlightDisplayData {
+  departure_time: string | null;
+  arrival_time: string | null;
+  flight_duration: string | null;
+  stops_display: Array<{
+    airport_code: string;
+    airport_name: string;
+    duration: string;
+  }>;
+  airline_logo_url: string | null;
+}
+
 function cabinLabel(cabin: string | null) {
   if (!cabin) return 'Económica';
   const map: Record<string, string> = {
@@ -143,6 +156,99 @@ function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: str
   } as FlightWithDetails;
 }
 
+/** Format ISO datetime to HH:MM in Cuba timezone */
+function formatTime(isoStr: string | null | undefined): string | null {
+  if (!isoStr) return null;
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString('es', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'America/Havana',
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Compute duration string from two ISO datetimes */
+function computeDuration(dep: string | null | undefined, arr: string | null | undefined): string | null {
+  if (!dep || !arr) return null;
+  try {
+    const ms = new Date(arr).getTime() - new Date(dep).getTime();
+    if (ms <= 0 || isNaN(ms)) return null;
+    const totalMin = Math.round(ms / 60000);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    if (h <= 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${m}m`;
+  } catch {
+    return null;
+  }
+}
+
+/** Format minutes into human-readable duration */
+function fmtMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h <= 0) return `${m} min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+/** Extract display-ready data from raw sessionStorage (preferred) or FlightWithDetails (fallback) */
+function extractFlightDisplayData(
+  rawParsed: Record<string, unknown> | null,
+  flightData: FlightWithDetails,
+): FlightDisplayData {
+  if (rawParsed) {
+    const rawStops = rawParsed.stops as Array<Record<string, unknown>> | undefined;
+    const airline = rawParsed.airline as Record<string, unknown> | undefined;
+
+    const depTime = String(rawParsed.departure_datetime ?? '');
+    const arrTime = String(rawParsed.arrival_datetime ?? '');
+    const depUtc = rawParsed.departure_datetime_utc as string | undefined;
+    const arrUtc = rawParsed.arrival_datetime_utc as string | undefined;
+    const duration = computeDuration(depUtc ?? depTime, arrUtc ?? arrTime);
+
+    const stopsDisplay = Array.isArray(rawStops)
+      ? rawStops.map((s) => ({
+          airport_code: String(s.airport ?? ''),
+          airport_name: String(s.airport_name ?? s.airport ?? ''),
+          duration: fmtMinutes(Number(s.duration_minutes ?? 0)),
+        }))
+      : [];
+
+    return {
+      departure_time: formatTime(depTime),
+      arrival_time: formatTime(arrTime),
+      flight_duration: duration,
+      stops_display: stopsDisplay,
+      airline_logo_url: (airline?.logo_url as string) ?? null,
+    };
+  }
+
+  // Fallback: derive from FlightWithDetails (DB data)
+  const stopsDisplay = Array.isArray(flightData.stops)
+    ? flightData.stops.map((s) => ({
+        airport_code: s.airport,
+        airport_name: s.airport,
+        duration: fmtMinutes(s.duration_minutes),
+      }))
+    : [];
+
+  return {
+    departure_time: formatTime(flightData.departure_datetime),
+    arrival_time: formatTime(flightData.arrival_datetime),
+    flight_duration: computeDuration(flightData.departure_datetime, flightData.arrival_datetime),
+    stops_display: stopsDisplay,
+    airline_logo_url: flightData.airline.logo_url,
+  };
+}
+
 function isUuidLike(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
@@ -195,6 +301,7 @@ function CheckoutPageInner() {
   const [flight, setFlight] = useState<FlightWithDetails | null>(null);
   const [flightDbId, setFlightDbId] = useState<string | null>(null);
   const [flightProviderId, setFlightProviderId] = useState<string | null>(null);
+  const [flightDisplayData, setFlightDisplayData] = useState<FlightDisplayData | null>(null);
 
   // --- Multicity state ---
   const [multicityLegs, setMulticityLegs] = useState<SelectedLeg[]>([]);
@@ -441,12 +548,14 @@ function CheckoutPageInner() {
           let flightData: FlightWithDetails | null = null;
           let resolvedDbId: string | null = null;
           let resolvedProviderId: string | null = null;
+          let rawParsedForDisplay: Record<string, unknown> | null = null;
 
           // 1) Try sessionStorage
           try {
             const cached = sessionStorage.getItem('selectedFlightData');
             if (cached) {
               const parsed = JSON.parse(cached);
+              rawParsedForDisplay = parsed;
               const rawId = String(parsed.id ?? flightId);
 
               if (isUuidLike(rawId)) {
@@ -515,6 +624,7 @@ function CheckoutPageInner() {
           setFlight(flightData);
           setFlightDbId(resolvedDbId);
           setFlightProviderId(resolvedProviderId);
+          setFlightDisplayData(extractFlightDisplayData(rawParsedForDisplay, flightData));
         }
 
         // Initialize empty passenger forms for both modes
@@ -1168,23 +1278,111 @@ function CheckoutPageInner() {
                       </div>
                     </div>
                   ) : flight ? (
-                    // === FLIGHT SUMMARY ===
-                    <div className="flex items-center gap-4">
-                      <Plane className="h-8 w-8 text-brand-600" />
-                      <div className="flex-1">
-                        <p className="font-bold">
-                          {flight.airline.name} {flight.flight_number}
-                        </p>
-                        <p className="text-sm text-neutral-500">
-                          {flight.origin_airport.city} ({flight.origin_airport.iata_code}) →{' '}
-                          {flight.destination_airport.city} ({flight.destination_airport.iata_code})
-                        </p>
-                        <p className="text-xs text-neutral-400 capitalize">{displayDate}</p>
+                    // === FLIGHT SUMMARY (rich itinerary) ===
+                    <div className="space-y-4">
+                      {/* Header: airline logo + flight info + price */}
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-50 to-brand-100 overflow-hidden">
+                          {(flightDisplayData?.airline_logo_url || flight.airline.logo_url) ? (
+                            <Image
+                              src={(flightDisplayData?.airline_logo_url || flight.airline.logo_url)!}
+                              alt={flight.airline.name}
+                              width={48}
+                              height={48}
+                              className="object-contain"
+                            />
+                          ) : (
+                            <Plane className="h-8 w-8 text-brand-600" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold truncate">
+                            {flight.airline.name}
+                            {flight.flight_number && <> &middot; {flight.flight_number}</>}
+                          </p>
+                          <p className="text-sm text-neutral-500">
+                            {flight.origin_airport.city} &rarr; {flight.destination_airport.city}
+                          </p>
+                          <p className="text-xs text-neutral-400 capitalize">{displayDate}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-lg font-bold text-brand-600">${flight.final_price.toFixed(2)}</p>
+                          <p className="text-xs text-neutral-400">por persona</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-brand-600">${flight.final_price.toFixed(2)}</p>
-                        <p className="text-xs text-neutral-400">por persona</p>
-                      </div>
+
+                      {/* Flight route strip */}
+                      {flightDisplayData?.departure_time && (
+                        <div className="rounded-xl bg-neutral-50 px-4 py-3">
+                          <div className="flex items-center gap-4">
+                            {/* Origin */}
+                            <div className="text-center min-w-[60px]">
+                              <p className="text-lg font-bold text-brand-950">{flightDisplayData.departure_time}</p>
+                              <p className="text-sm font-bold text-brand-700">{flight.origin_airport.iata_code}</p>
+                              <p className="text-[10px] text-neutral-500 truncate max-w-[80px]">{flight.origin_airport.city}</p>
+                            </div>
+
+                            {/* Flight path */}
+                            <div className="flex flex-1 flex-col items-center gap-0.5">
+                              {flightDisplayData.flight_duration && (
+                                <p className="text-[10px] text-neutral-500">{flightDisplayData.flight_duration}</p>
+                              )}
+                              <div className="relative flex w-full items-center">
+                                <div className="h-[2px] flex-1 bg-brand-200" />
+                                {flightDisplayData.stops_display.map((stop, i) => (
+                                  <div key={i} className="relative mx-1 flex flex-col items-center">
+                                    <CircleDot className="h-2.5 w-2.5 text-amber-500" />
+                                    <span className="absolute top-3 whitespace-nowrap text-[9px] font-semibold text-amber-600">
+                                      {stop.airport_code}
+                                    </span>
+                                  </div>
+                                ))}
+                                <div className="h-[2px] flex-1 bg-brand-200" />
+                                <Plane className="-ml-1 h-3.5 w-3.5 text-brand-600" />
+                              </div>
+                              <p className="text-[10px] font-medium text-brand-600">
+                                {flightDisplayData.stops_display.length === 0
+                                  ? 'Vuelo directo'
+                                  : `${flightDisplayData.stops_display.length} escala${flightDisplayData.stops_display.length > 1 ? 's' : ''}`}
+                              </p>
+                            </div>
+
+                            {/* Destination */}
+                            <div className="text-center min-w-[60px]">
+                              <p className="text-lg font-bold text-brand-950">{flightDisplayData.arrival_time ?? '—'}</p>
+                              <p className="text-sm font-bold text-brand-700">{flight.destination_airport.iata_code}</p>
+                              <p className="text-[10px] text-neutral-500 truncate max-w-[80px]">{flight.destination_airport.city}</p>
+                            </div>
+                          </div>
+
+                          {/* Stop details */}
+                          {flightDisplayData.stops_display.length > 0 && (
+                            <div className="mt-2 border-t border-neutral-200 pt-2">
+                              {flightDisplayData.stops_display.map((stop, i) => (
+                                <p key={i} className="text-xs text-neutral-500">
+                                  Escala en {stop.airport_name} ({stop.airport_code}) &middot; {stop.duration}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Flight detail pills */}
+                      {(flight.aircraft_type || flight.baggage_included) && (
+                        <div className="flex flex-wrap gap-2">
+                          {flight.aircraft_type && (
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-neutral-100 px-2.5 py-1 text-xs text-neutral-600">
+                              <Plane className="h-3 w-3" /> {flight.aircraft_type}
+                            </span>
+                          )}
+                          {flight.baggage_included && (
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-neutral-100 px-2.5 py-1 text-xs text-neutral-600">
+                              <Luggage className="h-3 w-3" /> {flight.baggage_included}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : null}
 
