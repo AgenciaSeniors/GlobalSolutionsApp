@@ -6,7 +6,6 @@ import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import PageLoader from '@/components/ui/PageLoader';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
@@ -73,7 +72,7 @@ export default function UserDashboardPage() {
             .from('profiles')
             .select('loyalty_points')
             .eq('id', user.id)
-            .single(),
+            .maybeSingle(),
 
           supabase.from('reviews').select('id').eq('profile_id', user.id),
 
@@ -158,7 +157,30 @@ export default function UserDashboardPage() {
 
         <div className="p-6 space-y-6">
           {(authLoading || loading) ? (
-            <PageLoader message="Cargando tus datos..." />
+            /* Inline skeleton — layout stays visible, only data area shimmers */
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-4">
+                {[1, 2].map((i) => (
+                  <Card key={i} className="p-4 border border-gray-100">
+                    <div className="h-4 w-32 rounded bg-neutral-200 animate-pulse" />
+                    <div className="mt-3 h-7 w-20 rounded bg-neutral-200 animate-pulse" />
+                  </Card>
+                ))}
+              </div>
+              <div className="flex gap-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-10 w-40 rounded-xl bg-neutral-100 animate-pulse" />
+                ))}
+              </div>
+              <Card className="p-4 border border-gray-100">
+                <div className="h-5 w-40 rounded bg-neutral-200 animate-pulse" />
+                <div className="mt-4 space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-10 w-full rounded bg-neutral-100 animate-pulse" />
+                  ))}
+                </div>
+              </Card>
+            </>
           ) : (
             <>
               {/* KPIs */}

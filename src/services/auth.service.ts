@@ -141,7 +141,11 @@ async function signUpStepOne(email: string) {
   });
 
   const otpData = await otpRes.json().catch(() => ({}));
-  if (!otpRes.ok) throw new Error(otpData?.error ?? "No se pudo enviar el código.");
+  if (!otpRes.ok) {
+    const err = new Error(otpData?.error ?? "No se pudo enviar el código.");
+    (err as any).status = otpRes.status;
+    throw err;
+  }
 
   return { ok: true, message: "OTP_SENT" };
 }

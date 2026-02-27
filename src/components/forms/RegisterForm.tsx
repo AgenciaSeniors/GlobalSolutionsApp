@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-// useRouter removed — we use window.location.href for full reload (ensures session cookies are sent)
+import Link from "next/link";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import { authService } from "@/services/auth.service";
@@ -17,11 +17,13 @@ export default function RegisterForm() {
 
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
   const [infoMsg, setInfoMsg] = React.useState<string | null>(null);
+  const [duplicateEmail, setDuplicateEmail] = React.useState(false);
 
   async function handleSendCode(e: React.FormEvent) {
     e.preventDefault();
     setErrorMsg(null);
     setInfoMsg(null);
+    setDuplicateEmail(false);
 
     const normalizedEmail = email.trim().toLowerCase();
     if (!fullName.trim()) return setErrorMsg("Nombre completo es requerido.");
@@ -34,7 +36,11 @@ export default function RegisterForm() {
       setStep("otp");
       setInfoMsg("Te enviamos un código a tu correo. Pégalo aquí para completar el registro.");
     } catch (err: any) {
-      setErrorMsg(err?.message ?? "No se pudo enviar el código.");
+      if (err?.status === 409) {
+        setDuplicateEmail(true);
+      } else {
+        setErrorMsg(err?.message ?? "No se pudo enviar el código.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -107,6 +113,19 @@ export default function RegisterForm() {
             />
           </div>
 
+          {duplicateEmail && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
+              <p className="text-sm font-medium text-amber-800">
+                Ya existe una cuenta con este correo electrónico.
+              </p>
+              <Link
+                href="/login"
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700 underline underline-offset-2"
+              >
+                Ir a Iniciar Sesion
+              </Link>
+            </div>
+          )}
           {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
           {infoMsg && <p className="text-sm text-gray-600">{infoMsg}</p>}
 
