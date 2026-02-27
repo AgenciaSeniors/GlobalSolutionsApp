@@ -17,6 +17,8 @@ export interface SendEmailOptions {
   subject: string;
   html: string;
   replyTo?: string;
+  /** Optional tag for categorization (e.g. 'booking', 'otp', 'emission') */
+  tag?: string;
 }
 
 export interface SendEmailResult {
@@ -42,8 +44,6 @@ export interface SendEmailResult {
 export async function sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
   if (!RESEND_API_KEY) {
     console.warn('[Email] RESEND_API_KEY not configured — email skipped:', options.subject);
-    // 🔧 FIX: En desarrollo sin API key, retornamos success: true para no bloquear el flujo
-    // El código OTP está en la DB y puede verificarse manualmente
     if (process.env.NODE_ENV === 'development') {
       console.warn('[Email] DEV MODE: OTP code is in auth_otps table. Check DB directly.');
       return { success: true, id: 'dev-mode-skipped' };
@@ -51,20 +51,41 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
     return { success: false, error: 'RESEND_API_KEY not configured' };
   }
 
+  // Warn about sandbox domain — emails from onboarding@resend.dev go to spam
+  if (FROM_EMAIL.includes('resend.dev')) {
+    console.warn(
+      '[Email] WARNING: Sending from resend.dev sandbox domain. Emails will likely go to spam. ' +
+      'Verify your own domain at dashboard.resend.com and set RESEND_FROM_EMAIL to your verified address.'
+    );
+  }
+
   try {
+    // Build Resend payload with deliverability best practices
+    const payload: Record<string, unknown> = {
+      from: FROM_EMAIL,
+      to: Array.isArray(options.to) ? options.to : [options.to],
+      subject: options.subject,
+      html: options.html,
+      // Unique ID per email prevents threading/spam grouping
+      headers: {
+        'X-Entity-Ref-ID': `gst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      },
+    };
+
+    if (options.replyTo) payload.reply_to = options.replyTo;
+
+    // Resend tags help with categorization and analytics
+    if (options.tag) {
+      payload.tags = [{ name: 'category', value: options.tag }];
+    }
+
     const response = await fetch(RESEND_API_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${RESEND_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: FROM_EMAIL,
-        to: Array.isArray(options.to) ? options.to : [options.to],
-        subject: options.subject,
-        html: options.html,
-        reply_to: options.replyTo,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
