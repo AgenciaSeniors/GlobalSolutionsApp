@@ -59,6 +59,20 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ Verificar que el email no exista ya (defensa en profundidad)
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (existingProfile) {
+      return NextResponse.json(
+        { error: 'Ya existe una cuenta con este correo electrónico. Intenta iniciar sesión.' },
+        { status: 409 },
+      );
+    }
+
     // ✅ Crear usuario en Supabase Auth
     const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
       email,
@@ -87,13 +101,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: userMessage }, { status: 400 });
     }
 
+    // ✅ Esperar a que el trigger handle_new_user() cree el perfil
+    const userId = created.user?.id;
+    if (userId) {
+      for (let i = 0; i < 10; i++) {
+        const { data } = await supabaseAdmin
+          .from('profiles').select('id').eq('id', userId).maybeSingle();
+        if (data) break;
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+
     // ✅ Marcar OTP como consumido (used_at) para que no se pueda reutilizar
     await supabaseAdmin
       .from('auth_otps')
       .update({ used_at: new Date().toISOString() })
       .eq('id', otpRow.id);
 
-    return NextResponse.json({ ok: true, userId: created.user?.id });
+    return NextResponse.json({ ok: true, userId });
   } catch (e: unknown) {
   const message = e instanceof Error ? e.message : 'Error';
   return NextResponse.json({ error: message }, { status: 500 });
