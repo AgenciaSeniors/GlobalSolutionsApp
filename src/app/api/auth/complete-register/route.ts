@@ -59,6 +59,20 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ Verificar que el email no exista ya (defensa en profundidad)
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (existingProfile) {
+      return NextResponse.json(
+        { error: 'Ya existe una cuenta con este correo electrónico. Intenta iniciar sesión.' },
+        { status: 409 },
+      );
+    }
+
     // ✅ Crear usuario en Supabase Auth
     const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
       email,
