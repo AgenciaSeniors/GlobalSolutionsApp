@@ -46,11 +46,10 @@ function toUiSegment(seg: DuffelSegment, offerId: string, i: number): FlightSegm
 
 function skySegmentToUi(s: SkySegment, offerId: string, i: number): FlightSegment {
   const logo = s.airline_logo_url ?? gstaticLogo(s.airline_code);
-  // Prefer Cuba-normalized timestamps (ISO with -05:00 or -04:00 offset) so the UI
-  // always shows Cuba wall-clock time regardless of the user's browser timezone.
-  // Fall back to airport-local (no offset) for backwards compatibility.
-  const depTime = s.departure_cuba ?? s.departure;
-  const arrTime = s.arrival_cuba ?? s.arrival;
+  // Use airport-local timestamps so departure shows the origin airport's local time
+  // and arrival shows the destination airport's local time.
+  const depTime = s.departure ?? s.departure_cuba;
+  const arrTime = s.arrival ?? s.arrival_cuba;
   // Compute duration from UTC instants when available (avoids DST distortion).
   const dur = s.duration_minutes > 0
     ? formatDurationFromMinutes(s.duration_minutes)

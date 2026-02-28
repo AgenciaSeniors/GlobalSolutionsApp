@@ -7,10 +7,10 @@
  * NOTE: The new statuses ('cancellation_requested', 'emitted') require DB support
  * (CHECK/enum update) by Dev C.
  */
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient();
     const {
@@ -19,6 +19,22 @@ export async function GET() {
 
     if (!user) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+    }
+
+    // If ?id= is provided, return a single booking (for Zelle pay page)
+    const bookingId = req.nextUrl.searchParams.get('id');
+    if (bookingId) {
+      const { data: booking, error: bErr } = await supabase
+        .from('bookings')
+        .select('id, booking_code, total_amount, payment_status, payment_method')
+        .eq('id', bookingId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (bErr || !booking) {
+        return NextResponse.json({ error: 'Reserva no encontrada' }, { status: 404 });
+      }
+      return NextResponse.json(booking);
     }
 
     const { data, error } = await supabase

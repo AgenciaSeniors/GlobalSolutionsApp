@@ -736,32 +736,30 @@ function CheckoutPageInner() {
   // Use server breakdown when available (accurate: includes age pricing + volatility buffer).
   // Fall back to client-side calculation while server response is pending.
   const breakdown: PriceBreakdown = (() => {
-    if (!isOfferMode && serverBreakdown) {
-      return serverBreakdown;
-    }
-
-    // Client-side fallback
-    const subtotal = pricePerPerson * passengerCount;
+    // Use serverBreakdown as base but always recalculate gateway fee based on current gateway
+    const base = (!isOfferMode && serverBreakdown) ? serverBreakdown : null;
+    const subtotal = base ? base.subtotal : pricePerPerson * passengerCount;
     const gatewayFee = calculateGatewayFee(subtotal, gateway);
-    const total = Math.round((subtotal + gatewayFee) * 100) / 100;
+    const total = Math.round((subtotal + (gateway === 'zelle' ? 0 : gatewayFee)) * 100) / 100;
 
-    const fallback: PriceBreakdown = {
-      base_price: pricePerPerson,
-      markup_amount: 0,
+    const result: PriceBreakdown = {
+      base_price: base?.base_price ?? pricePerPerson,
+      markup_amount: base?.markup_amount ?? 0,
       subtotal,
       gateway_fee: gateway === 'zelle' ? 0 : Math.round(gatewayFee * 100) / 100,
       gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
       gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
-      total: gateway === 'zelle' ? subtotal : total,
-      passengers: passengerCount,
+      total,
+      passengers: base?.passengers ?? passengerCount,
+      volatility_buffer: base?.volatility_buffer,
     };
 
-    if (!isOfferMode && flight) {
-      fallback.base_price = flight.base_price;
-      fallback.markup_amount = flight.final_price - flight.base_price;
+    if (!base && !isOfferMode && flight) {
+      result.base_price = flight.base_price;
+      result.markup_amount = flight.final_price - flight.base_price;
     }
 
-    return fallback;
+    return result;
   })();
 
   // --- Helpers ---
@@ -1517,9 +1515,8 @@ function CheckoutPageInner() {
 
                   {gateway === 'zelle' && (
                     <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                      <strong>Zelle:</strong> Realiza la transferencia a{' '}
-                      <span className="font-mono font-bold">{settings.business_email}</span> y un agente confirmará tu
-                      pago en 2–4 horas.
+                      <strong>Zelle:</strong> Te contactaremos por WhatsApp para compartir los datos de la cuenta.
+                      Luego sube tu comprobante de pago y un agente confirmará tu reserva en 2–4 horas.
                     </div>
                   )}
                 </Card>
