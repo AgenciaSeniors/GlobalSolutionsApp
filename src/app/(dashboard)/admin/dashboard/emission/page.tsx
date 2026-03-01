@@ -315,6 +315,7 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
   };
 
   const handleEmit = async () => {
+    if (isEmitting) return; // M4: prevent double-emit on rapid clicks
     setIsEmitting(true);
     try {
       if (!clientEmail) {
@@ -351,7 +352,7 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
           if (dbErr) throw new Error("Error DB Voucher: " + dbErr.message);
       }
 
-      const { error: updateErr } = await supabase.from('bookings').update({ booking_status: 'completed', voucher_pdf_url: publicUrl, emitted_at: new Date().toISOString() }).eq('booking_code', invoiceId);
+      const { error: updateErr } = await supabase.from('bookings').update({ booking_status: 'confirmed', voucher_pdf_url: publicUrl, emitted_at: new Date().toISOString() }).eq('id', bookingId);
       if (updateErr) throw new Error("Error DB Booking: " + updateErr.message);
 
       const emailRes = await fetch('/api/emails/emit-voucher', {

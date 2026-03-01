@@ -38,7 +38,7 @@ interface Booking {
 }
 
 export default function AgentBookingsPage() {
-  const supabase = createClient();
+  const [supabase] = useState(() => createClient());
   const { user } = useAuthContext();
   const { settings } = useAppSettings();
   const COMMISSION_RATE = (settings.agent_markup_percentage ?? 10) / 100;
@@ -50,10 +50,9 @@ export default function AgentBookingsPage() {
     | 'all'
     | 'pending_emission'
     | 'confirmed'
-    | 'emitted'
-    | 'cancellation_requested'
     | 'cancelled'
     | 'completed'
+    | 'refunded'
   >('all');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -106,10 +105,9 @@ export default function AgentBookingsPage() {
     const map: Record<string, BadgeVariant> = {
       pending_emission: 'warning',
       confirmed: 'info',
-      emitted: 'success',
-      cancellation_requested: 'warning',
       cancelled: 'destructive',
-      completed: 'default',
+      completed: 'success',
+      refunded: 'outline',
     };
     return map[status] ?? 'default';
   };
@@ -118,10 +116,9 @@ export default function AgentBookingsPage() {
     const map: Record<string, string> = {
       pending_emission: 'Pendiente Emisión',
       confirmed: 'Confirmada',
-      emitted: 'Emitida',
-      cancellation_requested: 'Cancelación Solicitada',
       cancelled: 'Cancelada',
       completed: 'Completada',
+      refunded: 'Reembolsada',
     };
     return map[status] ?? status;
   };
@@ -142,10 +139,9 @@ export default function AgentBookingsPage() {
                   'all',
                   'pending_emission',
                   'confirmed',
-                  'emitted',
-                  'cancellation_requested',
                   'cancelled',
                   'completed',
+                  'refunded',
                 ] as const
               ).map((f) => (
                 <button

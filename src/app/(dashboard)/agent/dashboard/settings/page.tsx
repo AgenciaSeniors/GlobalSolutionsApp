@@ -22,7 +22,7 @@ import {
 import type { Profile } from '@/types/models';
 
 export default function AgentSettingsPage() {
-  const supabase = createClient();
+  const [supabase] = useState(() => createClient());
   const { user } = useAuthContext();
 
   const [profile, setProfile] = useState<Profile | null>(null);

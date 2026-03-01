@@ -140,7 +140,7 @@ export default function UserBookingsPage() {
                             <StatusIcon className="h-3 w-3" /> {statusInfo.label}
                           </span>
                         </div>
-                        <span className="text-sm font-bold text-slate-700">${booking.total_amount?.toFixed(2)}</span>
+                        <span className="text-sm font-bold text-slate-700">${(booking.total_amount ?? 0).toFixed(2)}</span>
                       </div>
 
                       <div className="flex items-center gap-4">

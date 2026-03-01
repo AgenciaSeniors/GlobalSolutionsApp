@@ -17,7 +17,7 @@ import type { AgentNews } from '@/types/models';
 import { toast } from 'sonner';
 
 export default function AdminNewsPage() {
-  const supabase = createClient();
+  const [supabase] = useState(() => createClient());
   const [news, setNews] = useState<AgentNews[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);

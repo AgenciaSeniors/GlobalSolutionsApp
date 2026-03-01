@@ -119,7 +119,7 @@ export default async function CarDetailPage({ params }: Props) {
                 )}
 
                 {/* Feature chips */}
-                {car.features.length > 0 && (
+                {(car.features?.length ?? 0) > 0 && (
                   <div className="mt-5 flex flex-wrap gap-2">
                     {car.features.map((f) => (
                       <span

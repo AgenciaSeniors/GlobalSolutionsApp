@@ -62,49 +62,55 @@ export default function AdminDashboardPage() {
   }, []);
 
   async function fetchDashboard() {
-    const [
-      bookingsRes,
-      pendingRes,
-      usersRes,
-      agentsRes,
-      paidRes,
-      reviewsRes,
-      recentRes,
-    ] = await Promise.all([
-      supabase.from('bookings').select('id', { count: 'exact', head: true }),
-      supabase.from('bookings').select('id, created_at', { count: 'exact' }).eq('booking_status', 'pending_emission').eq('payment_status', 'paid'),
-      supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'client'),
-      supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'agent').eq('is_active', true),
-      supabase.from('bookings').select('total_amount').eq('payment_status', 'paid'),
-      supabase.from('reviews').select('id', { count: 'exact', head: true }).eq('status', 'pending_approval'),
-      supabase.from('bookings').select(`
-        id, booking_code, booking_status, payment_status, total_amount, created_at,
-        profile:profiles!user_id(full_name),
-        flight:flights(
-          origin_airport:airports!origin_airport_id(iata_code),
-          destination_airport:airports!destination_airport_id(iata_code)
-        )
-      `).order('created_at', { ascending: false }).limit(5),
-    ]);
+    // M1 fix: filter revenue to current month only
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const monthStartISO = monthStart.toISOString();
+
+    // M2 fix: wrap in try/catch so a single query failure doesn't crash the dashboard
+    let bookingsRes, pendingRes, usersRes, agentsRes, paidRes, reviewsRes, recentRes;
+    try {
+      [bookingsRes, pendingRes, usersRes, agentsRes, paidRes, reviewsRes, recentRes] = await Promise.all([
+        supabase.from('bookings').select('id', { count: 'exact', head: true }),
+        supabase.from('bookings').select('id, created_at', { count: 'exact' }).eq('booking_status', 'pending_emission').eq('payment_status', 'paid'),
+        supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'client'),
+        supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'agent').eq('is_active', true),
+        supabase.from('bookings').select('total_amount').eq('payment_status', 'paid').gte('paid_at', monthStartISO),
+        supabase.from('reviews').select('id', { count: 'exact', head: true }).eq('status', 'pending_approval'),
+        supabase.from('bookings').select(`
+          id, booking_code, booking_status, payment_status, total_amount, created_at,
+          profile:profiles!user_id(full_name),
+          flight:flights(
+            origin_airport:airports!origin_airport_id(iata_code),
+            destination_airport:airports!destination_airport_id(iata_code)
+          )
+        `).order('created_at', { ascending: false }).limit(5),
+      ]);
+    } catch (err) {
+      console.error('[AdminDashboard] Error fetching stats:', err);
+      setLoading(false);
+      return;
+    }
 
     // Count urgent (>12h pending)
-    const pendingData = pendingRes.data || [];
+    const pendingData = pendingRes?.data || [];
     const now = Date.now();
     const urgentCount = pendingData.filter(b => (now - new Date(b.created_at).getTime()) > settings.emission_warning_hours * 3600000).length;
 
-    // Revenue this month
-    const monthRevenue = (paidRes.data || []).reduce((sum, b) => sum + (b.total_amount || 0), 0);
+    // Revenue this month (filtered by paid_at >= month start)
+    const monthRevenue = (paidRes?.data || []).reduce((sum, b) => sum + (b.total_amount || 0), 0);
 
     setStats({
-      totalBookings: bookingsRes.count || 0,
-      pendingEmission: pendingRes.count || 0,
+      totalBookings: bookingsRes?.count || 0,
+      pendingEmission: pendingRes?.count || 0,
       urgentEmissions: urgentCount,
-      activeAgents: agentsRes.count || 0,
+      activeAgents: agentsRes?.count || 0,
       monthRevenue,
-      pendingReviews: reviewsRes.count || 0,
+      pendingReviews: reviewsRes?.count || 0,
     });
 
-    setRecentBookings((recentRes.data as unknown as RecentBooking[]) || []);
+    setRecentBookings((recentRes?.data as unknown as RecentBooking[]) || []);
     setLoading(false);
   }
 
@@ -185,7 +191,7 @@ export default function AdminDashboardPage() {
                 href: '/admin/dashboard/bookings',
               },
               {
-                label: 'Ingresos',
+                label: 'Ingresos del Mes',
                 value: `$${stats.monthRevenue.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                 icon: DollarSign,
                 color: 'text-emerald-600',
@@ -301,7 +307,7 @@ export default function AdminDashboardPage() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-semibold">${b.total_amount?.toFixed(2)}</p>
+                          <p className="text-sm font-semibold">${(b.total_amount ?? 0).toFixed(2)}</p>
                           <p className="text-xs text-neutral-400">
                             {new Date(b.created_at).toLocaleDateString('es', { day: 'numeric', month: 'short' })}
                           </p>

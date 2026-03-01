@@ -95,6 +95,20 @@ export default function FlightDetailPage() {
     );
   }
 
+  // Extract HH:MM directly from ISO string to avoid browser-timezone shifts.
+  // This matches how FlightCard displays times (airport-local time).
+  function formatTimeFromISO(value: string): string {
+    if (!value) return '—';
+    const match = value.match(/T(\d{2}:\d{2})/);
+    if (match) return match[1];
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+
+  const depTime = formatTimeFromISO(flight.departure_datetime);
+  const arrTime = formatTimeFromISO(flight.arrival_datetime);
+
   const departure = new Date(flight.departure_datetime);
   const arrival = new Date(flight.arrival_datetime);
   const durationMs = arrival.getTime() - departure.getTime();
@@ -147,7 +161,7 @@ export default function FlightDetailPage() {
                   {/* Departure */}
                   <div className="text-center">
                     <p className="text-3xl font-bold text-brand-900">
-                      {departure.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                      {depTime}
                     </p>
                     <p className="font-semibold text-lg">{flight.origin_airport.iata_code}</p>
                     <p className="text-sm text-neutral-500">{flight.origin_airport.city}</p>
@@ -167,7 +181,7 @@ export default function FlightDetailPage() {
                   {/* Arrival */}
                   <div className="text-center">
                     <p className="text-3xl font-bold text-brand-900">
-                      {arrival.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                      {arrTime}
                     </p>
                     <p className="font-semibold text-lg">{flight.destination_airport.iata_code}</p>
                     <p className="text-sm text-neutral-500">{flight.destination_airport.city}</p>

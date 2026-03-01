@@ -47,19 +47,32 @@ const BodySchema = z.object({
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    // 1. Authenticate user via cookies
+    // 1. Authenticate user via cookies (primary) or Bearer token (fallback for mobile/WebView)
     const supabaseAuth = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabaseAuth.auth.getUser();
+    let user: import('@supabase/supabase-js').User | null = null;
 
+    // Try cookie-based auth first
+    const { data: cookieAuth, error: authError } = await supabaseAuth.auth.getUser();
     if (authError) {
-      console.error('[admin/settings] Auth error:', authError.message);
+      console.error('[admin/settings] Cookie auth error:', authError.message);
+    }
+    user = cookieAuth?.user ?? null;
+
+    // Fallback: Bearer token (for mobile apps / WebView)
+    if (!user) {
+      const authHeader = req.headers.get('authorization');
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.slice(7);
+        const { data: tokenAuth, error: tokenErr } = await supabaseAuth.auth.getUser(token);
+        if (tokenErr) {
+          console.error('[admin/settings] Bearer auth error:', tokenErr.message);
+        }
+        user = tokenAuth?.user ?? null;
+      }
     }
 
     if (!user) {
-      console.error('[admin/settings] No user found in session');
+      console.error('[admin/settings] No user found in session or bearer token');
       return NextResponse.json({ error: 'No autenticado. Inicia sesion de nuevo.' }, { status: 401 });
     }
 

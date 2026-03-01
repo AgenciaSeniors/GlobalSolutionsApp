@@ -98,17 +98,15 @@ export default function AdminAgentsPage() {
     }
   }
 
-  // Desactivar: Cambia el rol a 'client' y lo saca de la tabla
+  // Toggle active status — keeps role as 'agent' so they stay visible in the table
   async function toggleAgentStatus(agent: Profile) {
     setToast({ ok: null, error: null });
-    
-    const isDeactivating = agent.is_active;
+
     const nextActive = !agent.is_active;
-    const nextRole: UserRole = isDeactivating ? 'client' : 'agent';
 
     const { error } = await supabase
       .from('profiles')
-      .update({ is_active: nextActive, role: nextRole })
+      .update({ is_active: nextActive })
       .eq('id', agent.id);
 
     if (error) {
@@ -116,12 +114,12 @@ export default function AdminAgentsPage() {
       return;
     }
 
-    if (isDeactivating) {
-      setToast({ ok: `El gestor ${agent.full_name} fue desactivado y ha vuelto a ser Cliente.`, error: null });
+    if (!nextActive) {
+      setToast({ ok: `El gestor ${agent.full_name} fue desactivado. Puede reactivarse en cualquier momento.`, error: null });
     } else {
       setToast({ ok: `Gestor activado correctamente: ${agent.full_name}`, error: null });
     }
-    
+
     fetchAgentsData();
   }
 
