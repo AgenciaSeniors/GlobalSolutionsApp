@@ -145,7 +145,7 @@ export default function Navbar() {
                 {avatarLetter}
               </span>
 
-              <span className="hidden sm:inline whitespace-nowrap text-sm font-semibold leading-none">Mi Perfil</span>
+              <span className="whitespace-nowrap text-sm font-semibold leading-none">Mi Perfil</span>
             </Link>
           ) : (
             <Link href={ROUTES.LOGIN}>
