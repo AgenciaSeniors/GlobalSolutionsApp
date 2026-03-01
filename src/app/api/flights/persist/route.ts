@@ -144,8 +144,16 @@ export async function POST(req: NextRequest) {
   }
 
   // ---- Extract schedule/pricing ----
-  const departure = pickString(flight.departure_datetime) ?? pickString(flight.departureTime);
-  const arrival = pickString(flight.arrival_datetime) ?? pickString(flight.arrivalTime);
+  // Prefer UTC timestamps (correct absolute instants) over Cuba-normalized or naive local times.
+  // TIMESTAMPTZ columns need correct UTC values to avoid timezone corruption.
+  const departure =
+    pickString(flight.departure_datetime_utc) ??
+    pickString(flight.departure_datetime) ??
+    pickString(flight.departureTime);
+  const arrival =
+    pickString(flight.arrival_datetime_utc) ??
+    pickString(flight.arrival_datetime) ??
+    pickString(flight.arrivalTime);
   const flightNumber =
     pickString(flight.flight_number) ?? pickString(flight.flightNumber) ?? pickString(flight.number);
 

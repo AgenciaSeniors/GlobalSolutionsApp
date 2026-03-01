@@ -95,25 +95,38 @@ export default function FlightDetailPage() {
     );
   }
 
-  // Extract HH:MM directly from ISO string to avoid browser-timezone shifts.
-  // This matches how FlightCard displays times (airport-local time).
-  function formatTimeFromISO(value: string): string {
-    if (!value) return '—';
-    const match = value.match(/T(\d{2}:\d{2})/);
-    if (match) return match[1];
-    const d = new Date(value);
+  // Convert UTC timestamp (from TIMESTAMPTZ) back to local airport time.
+  // DB stores UTC; we use the airport's IANA timezone to display correctly.
+  function formatTimeLocal(isoUtc: string, timezone?: string | null): string {
+    if (!isoUtc) return '—';
+    const d = new Date(isoUtc);
     if (Number.isNaN(d.getTime())) return '—';
+
+    if (timezone) {
+      try {
+        return d.toLocaleTimeString('es', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+          timeZone: timezone,
+        });
+      } catch { /* invalid tz — fall through */ }
+    }
+
+    // Fallback: extract HH:MM from ISO string (may be UTC)
+    const match = isoUtc.match(/T(\d{2}:\d{2})/);
+    if (match) return match[1];
     return d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
-  const depTime = formatTimeFromISO(flight.departure_datetime);
-  const arrTime = formatTimeFromISO(flight.arrival_datetime);
+  const depTime = formatTimeLocal(flight.departure_datetime, flight.origin_airport?.timezone);
+  const arrTime = formatTimeLocal(flight.arrival_datetime, flight.destination_airport?.timezone);
 
   const departure = new Date(flight.departure_datetime);
   const arrival = new Date(flight.arrival_datetime);
   const durationMs = arrival.getTime() - departure.getTime();
-  const durationH = Math.floor(durationMs / 3600000);
-  const durationM = Math.round((durationMs % 3600000) / 60000);
+  const durationH = Math.floor(Math.abs(durationMs) / 3600000);
+  const durationM = Math.round((Math.abs(durationMs) % 3600000) / 60000);
 
   const pricePerPerson = flight.final_price;
   const total = pricePerPerson * passengers;
