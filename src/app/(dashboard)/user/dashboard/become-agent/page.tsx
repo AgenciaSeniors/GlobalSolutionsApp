@@ -148,7 +148,7 @@ export default function BecomeAgentPage() {
                 Tu solicitud ha sido aprobada exitosamente. Ya tienes acceso completo a todas las herramientas de Gestor.
               </p>
               <Button onClick={handleGoToAgentDashboard} size="lg" className="gap-2 w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600">
-                Ir a mi Panel de Gestor <ArrowRight className="h-5 w-5" />
+                Ir a Mi Perfil de Gestor <ArrowRight className="h-5 w-5" />
               </Button>
             </Card>
           ) : isRejected ? (

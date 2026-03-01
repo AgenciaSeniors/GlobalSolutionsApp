@@ -155,7 +155,7 @@ export async function notifyAgentApproved(email: string, data: { name: string })
           <div style="text-align: center; margin: 40px 0;">
             <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://globalsolutionstravel.com'}/agent/dashboard" 
                style="background-color: #10b981; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
-              Entrar a mi Panel de Gestor
+              Entrar a Mi Perfil de Gestor
             </a>
           </div>
           
