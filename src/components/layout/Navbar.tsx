@@ -127,7 +127,7 @@ export default function Navbar() {
                          hover:bg-brand-50 hover:border-brand-300
                          transition-all duration-200 ease-out
                          hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
-              aria-label="Ir a mi panel"
+              aria-label="Ir a Mi Perfil"
             >
               {/* Notificación Roja Mágica */}
               {showAgentNotification && (
@@ -145,7 +145,7 @@ export default function Navbar() {
                 {avatarLetter}
               </span>
 
-              <span className="whitespace-nowrap text-sm font-semibold leading-none">Mi Panel</span>
+              <span className="whitespace-nowrap text-sm font-semibold leading-none">Mi Perfil</span>
             </Link>
           ) : (
             <Link href={ROUTES.LOGIN} className="hidden sm:block">
@@ -200,7 +200,7 @@ export default function Navbar() {
                       <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 border-2 border-white"></span>
                     </span>
                   )}
-                  <Button className="w-full relative">Mi Panel</Button>
+                  <Button className="w-full relative">Mi Perfil</Button>
                 </Link>
               ) : (
                 <Link href={ROUTES.LOGIN}>
