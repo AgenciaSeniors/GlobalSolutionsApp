@@ -101,25 +101,48 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Ninguna key permitida en el request.' }, { status: 400 });
     }
 
-    // 5. Upsert each setting via admin client (bypasses RLS)
+    // 5. Update each setting via admin client (bypasses RLS)
     const now = new Date().toISOString();
     const errors: string[] = [];
 
     for (const setting of validSettings) {
-      console.log('[admin/settings] Upserting:', setting.key, '=', setting.value);
-      const { error } = await supabaseAdmin.from('app_settings').upsert(
-        {
-          key: setting.key,
+      console.log('[admin/settings] Updating:', setting.key, '=', setting.value);
+
+      // Try UPDATE first (rows should already exist)
+      const { data: updated, error: updateErr } = await supabaseAdmin
+        .from('app_settings')
+        .update({
           value: setting.value,
           updated_at: now,
           updated_by: user.id,
-        },
-        { onConflict: 'key' },
-      );
+        })
+        .eq('key', setting.key)
+        .select('key, value');
 
-      if (error) {
-        console.error('[admin/settings] Upsert error for', setting.key, ':', error.message);
-        errors.push(`${setting.key}: ${error.message}`);
+      if (updateErr) {
+        console.error('[admin/settings] Update error for', setting.key, ':', updateErr.message);
+        errors.push(`${setting.key}: ${updateErr.message}`);
+        continue;
+      }
+
+      // If no row was updated, try INSERT
+      if (!updated || updated.length === 0) {
+        console.log('[admin/settings] No row found for', setting.key, '— inserting');
+        const { error: insertErr } = await supabaseAdmin
+          .from('app_settings')
+          .insert({
+            key: setting.key,
+            value: setting.value,
+            updated_at: now,
+            updated_by: user.id,
+          });
+
+        if (insertErr) {
+          console.error('[admin/settings] Insert error for', setting.key, ':', insertErr.message);
+          errors.push(`${setting.key}: ${insertErr.message}`);
+        }
+      } else {
+        console.log('[admin/settings] Updated', setting.key, '→ DB now has:', updated[0]?.value);
       }
     }
 
@@ -130,9 +153,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    console.log('[admin/settings] All settings saved successfully:', validSettings.length);
+    // 6. Verification: read back all saved settings to confirm persistence
+    const savedKeys = validSettings.map((s) => s.key);
+    const { data: verification } = await supabaseAdmin
+      .from('app_settings')
+      .select('key, value')
+      .in('key', savedKeys);
+
+    const verificationMap: Record<string, unknown> = {};
+    if (verification) {
+      for (const row of verification) {
+        verificationMap[row.key] = row.value;
+      }
+    }
+
+    console.log('[admin/settings] Verification read-back:', verificationMap);
+
     return NextResponse.json(
-      { success: true, saved: validSettings.length },
+      { success: true, saved: validSettings.length, verification: verificationMap },
       { status: 200 },
     );
   } catch (err: unknown) {

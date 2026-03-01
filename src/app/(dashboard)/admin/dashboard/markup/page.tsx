@@ -78,14 +78,29 @@ export default function AdminMarkupPage() {
         throw new Error(errMsg);
       }
 
-      // Refresh settings from DB
+      // Check server verification
+      const verification =
+        typeof body === 'object' && body !== null && 'verification' in body
+          ? (body as Record<string, unknown>).verification as Record<string, unknown>
+          : null;
+
+      if (verification) {
+        console.log('[Markup] Server verification:', verification);
+        const dbClient = verification.default_markup_percentage;
+        const dbAgent = verification.agent_markup_percentage;
+        if (dbClient !== c || dbAgent !== a) {
+          console.error('[Markup] MISMATCH! Sent:', { c, a }, 'DB has:', { dbClient, dbAgent });
+          throw new Error(
+            `Los valores no se guardaron correctamente. BD tiene: clientes=${dbClient}%, gestores=${dbAgent}%`,
+          );
+        }
+      }
+
+      // Refresh settings from DB — reset hydrated so hook values flow into inputs
+      setHydrated(false);
       await refetch();
 
-      // Ensure displayed values match what was saved
-      setClientMarkup(String(c));
-      setAgentMarkup(String(a));
-
-      setMsg({ type: 'success', text: 'Markups guardados correctamente.' });
+      setMsg({ type: 'success', text: `Markups guardados: Clientes ${c}%, Gestores ${a}%.` });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Error al guardar';
       console.error('[Markup] Save error:', errorMessage);
