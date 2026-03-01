@@ -31,6 +31,7 @@ import {
   Clock,
   Plane,
   Tag,
+  Trash2,
 } from 'lucide-react';
 
 /* ---------- Types ---------- */
@@ -82,6 +83,7 @@ interface BookingRow {
   subtotal: number;
   payment_gateway_fee: number;
   airline_pnr: string | null;
+  zelle_proof_url: string | null;
   created_at: string;
   paid_at: string | null;
   return_date: string | null;
@@ -131,6 +133,9 @@ export default function AdminBookingsPage() {
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 25;
 
   // Per-row action loading
   const [rowAction, setRowAction] = useState<{ id: string; kind: 'approve' | 'reject' } | null>(null);
@@ -138,7 +143,7 @@ export default function AdminBookingsPage() {
   useEffect(() => {
     fetchBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  }, [filter, page]);
 
   async function fetchBookings() {
     setLoading(true);
@@ -186,10 +191,11 @@ export default function AdminBookingsPage() {
             destination_airport:airports!special_offers_destination_airport_id_fkey(iata_code, city)
           ),
           passengers:booking_passengers!booking_passengers_booking_id_fkey(id, first_name, last_name, ticket_number)
-        `
+        `,
+          { count: 'exact' }
         )
         .order('created_at', { ascending: false })
-        .limit(200);
+        .range(page * pageSize, (page + 1) * pageSize - 1);
 
       // Normal booking_status filters
       if (filter !== 'all' && filter !== 'zelle_pending') {
@@ -203,7 +209,7 @@ export default function AdminBookingsPage() {
           .eq('payment_status', 'pending_admin_approval');
       }
 
-      const { data, error } = await query;
+      const { data, error, count } = await query;
 
       if (error) {
         console.error('[AdminBookings] Supabase query error:', error.message, error.details, error.hint);
@@ -211,6 +217,7 @@ export default function AdminBookingsPage() {
         setBookings([]);
       } else {
         setBookings((data as unknown as BookingRow[]) || []);
+        if (typeof count === 'number') setTotalCount(count);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error desconocido';
@@ -240,6 +247,21 @@ export default function AdminBookingsPage() {
     if (error) {
       console.error('[AdminBookings] markCancelled error:', error.message);
       alert('Error: ' + error.message);
+      return;
+    }
+    fetchBookings();
+  }
+
+  async function deleteBooking(id: string, bookingCode: string) {
+    const confirmation = prompt(`Para eliminar la reserva ${bookingCode}, escribe ELIMINAR:`);
+    if (confirmation !== 'ELIMINAR') {
+      if (confirmation !== null) alert('Texto incorrecto. La reserva NO fue eliminada.');
+      return;
+    }
+    const { error } = await supabase.from('bookings').delete().eq('id', id);
+    if (error) {
+      console.error('[AdminBookings] deleteBooking error:', error.message);
+      alert('Error al eliminar: ' + error.message);
       return;
     }
     fetchBookings();
@@ -409,7 +431,7 @@ export default function AdminBookingsPage() {
               ).map((f) => (
                 <button
                   key={f}
-                  onClick={() => setFilter(f)}
+                  onClick={() => { setFilter(f); setPage(0); }}
                   className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                     filter === f ? 'bg-brand-600 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
                   }`}
@@ -703,12 +725,48 @@ export default function AdminBookingsPage() {
                               <XCircle className="h-3.5 w-3.5" /> Cancelar Reserva
                             </Button>
                           )}
+
+                          {['cancelled'].includes(b.booking_status) && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => deleteBooking(b.id, b.booking_code)}
+                              className="gap-1.5 text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Eliminar
+                            </Button>
+                          )}
                         </div>
                       </div>
                     )}
                   </Card>
                 );
               })}
+
+              {/* Pagination */}
+              {totalCount > pageSize && (
+                <div className="mt-4 flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-4 py-3">
+                  <p className="text-sm text-neutral-500">
+                    Mostrando {page * pageSize + 1}-{Math.min((page + 1) * pageSize, totalCount)} de {totalCount} reservas
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={page === 0}
+                      onClick={() => setPage(p => Math.max(0, p - 1))}
+                      className="rounded-lg border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      ← Anterior
+                    </button>
+                    <button
+                      disabled={(page + 1) * pageSize >= totalCount}
+                      onClick={() => setPage(p => p + 1)}
+                      className="rounded-lg border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Siguiente →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

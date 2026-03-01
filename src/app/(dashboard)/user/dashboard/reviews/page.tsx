@@ -118,6 +118,7 @@ export default function UserReviewsPage() {
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
 
   useEffect(() => { if (user) fetchData(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -151,7 +152,7 @@ export default function UserReviewsPage() {
           .eq('profile_id', user!.id)
           .order('created_at', { ascending: false }),
 
-        // Completed bookings that can be reviewed — use profile_id (NOT user_id)
+        // Completed bookings that can be reviewed — check both user_id and profile_id
         supabase
           .from('bookings')
           .select(`
@@ -170,7 +171,7 @@ export default function UserReviewsPage() {
               destination_airport:airports!special_offers_destination_airport_id_fkey(iata_code, city)
             )
           `)
-          .eq('profile_id', user!.id)
+          .or(`user_id.eq.${user!.id},profile_id.eq.${user!.id}`)
           .eq('booking_status', 'completed'),
       ]);
 
@@ -227,6 +228,24 @@ export default function UserReviewsPage() {
     setSubmitting(true);
     setMessage(null);
 
+    // Upload photos if any
+    const uploadedUrls: string[] = [];
+    if (photoFiles.length > 0) {
+      for (const file of photoFiles) {
+        const ext = file.name.split('.').pop() || 'jpg';
+        const fileName = `${user.id}/${bookingId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error: uploadErr } = await supabase.storage
+          .from('review-photos')
+          .upload(fileName, file, { contentType: file.type });
+        if (uploadErr) {
+          console.error('[ReviewPhotos] Upload error:', uploadErr.message);
+          continue;
+        }
+        const { data: urlData } = supabase.storage.from('review-photos').getPublicUrl(fileName);
+        if (urlData?.publicUrl) uploadedUrls.push(urlData.publicUrl);
+      }
+    }
+
     // IMPORTANT: insert profile_id (NOT user_id) — RLS demands profile_id = auth.uid()
     const { error } = await supabase.from('reviews').insert({
       profile_id: user.id,
@@ -235,7 +254,7 @@ export default function UserReviewsPage() {
       title: title.trim() || null,
       comment: comment.trim(),
       status: 'pending_approval',
-      photo_urls: [],
+      photo_urls: uploadedUrls,
     });
 
     if (error) {
@@ -251,6 +270,7 @@ export default function UserReviewsPage() {
       setRating(5);
       setTitle('');
       setComment('');
+      setPhotoFiles([]);
       fetchData();
     }
     setSubmitting(false);
@@ -390,6 +410,28 @@ export default function UserReviewsPage() {
                               required
                             />
                             <p className="mt-1 text-xs text-neutral-400">{comment.length}/2000 caracteres</p>
+                          </div>
+                          {/* Photo Upload */}
+                          <div>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Fotos (opcional)</label>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              multiple
+                              onChange={(e) => {
+                                const files = Array.from(e.target.files || []).slice(0, 5);
+                                setPhotoFiles(files);
+                              }}
+                              className="block w-full text-sm text-neutral-600
+                                file:mr-3 file:rounded-lg file:border-0
+                                file:bg-brand-50 file:px-3 file:py-2
+                                file:text-sm file:font-medium file:text-brand-700
+                                hover:file:bg-brand-100 file:cursor-pointer"
+                            />
+                            <p className="mt-1 text-xs text-neutral-400">Máx. 5 fotos (JPG, PNG, WebP)</p>
+                            {photoFiles.length > 0 && (
+                              <p className="mt-1 text-xs text-brand-600">{photoFiles.length} foto{photoFiles.length > 1 ? 's' : ''} seleccionada{photoFiles.length > 1 ? 's' : ''}</p>
+                            )}
                           </div>
                           <Button type="submit" isLoading={submitting} className="gap-2">
                             <Send className="h-4 w-4" /> Enviar Reseña

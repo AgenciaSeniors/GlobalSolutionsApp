@@ -213,8 +213,10 @@ async function executeSearchWorker(
       `[WORKER:${sessionId.slice(0, 8)}] Search complete: ${totalFlights} flights from [${providersUsed.join(", ")}]`
     );
 
-    // ── Cache write ──
-    if (session.cache_key) {
+    // ── Cache write (only if there are actual results) ──
+    // Don't cache empty results — they can be caused by temporary provider
+    // failures or circuit-breaker openings and would propagate the error.
+    if (session.cache_key && totalFlights > 0) {
       const cacheExpires = new Date(
         Date.now() + CACHE_TTL_MINUTES * 60 * 1000
       ).toISOString();

@@ -161,7 +161,7 @@ export default function FlightDetailPage() {
                       <div className="h-0.5 bg-brand-200 w-full" />
                       <ArrowRight className="absolute right-0 -top-2 h-4 w-4 text-brand-400" />
                     </div>
-                    <p className="text-xs text-neutral-400">Directo</p>
+                    <p className="text-xs text-neutral-400">{!flight.stops?.length ? 'Directo' : `${flight.stops.length} Escala${flight.stops.length > 1 ? 's' : ''}`}</p>
                   </div>
 
                   {/* Arrival */}
@@ -202,7 +202,7 @@ export default function FlightDetailPage() {
                   <div className="rounded-xl bg-neutral-50 p-3">
                     <p className="text-xs font-semibold uppercase text-neutral-400 mb-1">Duración Total</p>
                     <p className="font-semibold">{durationH} horas {durationM} minutos</p>
-                    <p className="text-neutral-500">Vuelo directo</p>
+                    <p className="text-neutral-500">{!flight.stops?.length ? 'Vuelo directo' : `${flight.stops.length} escala${flight.stops.length > 1 ? 's' : ''}`}</p>
                   </div>
                   <div className="rounded-xl bg-neutral-50 p-3">
                     <p className="text-xs font-semibold uppercase text-neutral-400 mb-1">Asientos Disponibles</p>

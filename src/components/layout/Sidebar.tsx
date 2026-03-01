@@ -8,7 +8,7 @@ import { useAuthContext } from '@/components/providers/AuthProvider';
 import {
   Briefcase, LayoutDashboard, Plane, CalendarCheck, Star, Settings,
   ChevronLeft, LogOut, Newspaper, Tag,
-  Users, FileText, Trophy, Car,
+  Users, FileText, Trophy, Car, DollarSign,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
@@ -28,16 +28,25 @@ export default function Sidebar({ links }: SidebarProps) {
   const router = useRouter();
   const { profile } = useAuthContext();
   
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebar_collapsed') === 'true'; } catch { return false; }
+  });
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   
+  // Persist collapsed state
+  useEffect(() => {
+    try { localStorage.setItem('sidebar_collapsed', String(collapsed)); } catch { /* noop */ }
+  }, [collapsed]);
+
   // Estado para la notificación de agente aprobado
   const [showAgentNotification, setShowAgentNotification] = useState(false);
 
   useEffect(() => {
     if (profile?.role === 'agent') {
-      const hasSeen = localStorage.getItem('has_seen_agent_welcome');
-      if (!hasSeen) setShowAgentNotification(true);
+      try {
+        const hasSeen = localStorage.getItem('has_seen_agent_welcome');
+        if (!hasSeen) setShowAgentNotification(true);
+      } catch { /* noop */ }
     }
     
     // Escuchar cuando limpie la notificación
@@ -172,7 +181,7 @@ export const ADMIN_SIDEBAR_LINKS: SidebarLink[] = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/dashboard/emission', label: 'Emisión de Boletos', icon: FileText },
   { href: '/admin/dashboard/bookings', label: 'Todas las Reservas', icon: CalendarCheck },
-  { href: '/admin/dashboard/flights', label: 'Markup', icon: Plane },
+  { href: '/admin/dashboard/flights', label: 'Markup', icon: DollarSign },
   { href: '/admin/dashboard/offers', label: 'Ofertas Visuales', icon: Tag },
   { href: '/admin/dashboard/agents', label: 'Gestores', icon: Users },
   { href: '/admin/dashboard/news', label: 'Noticias Agentes', icon: Newspaper },

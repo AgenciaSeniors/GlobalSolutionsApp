@@ -136,7 +136,9 @@ export default function UserDashboardPage() {
   };
 
   const greeting = () => {
-    const hour = new Date().getHours();
+    const hour = parseInt(
+      new Date().toLocaleTimeString('en', { hour: '2-digit', hour12: false, timeZone: 'America/Havana' })
+    );
     if (hour < 12) return 'Buenos días';
     if (hour < 18) return 'Buenas tardes';
     return 'Buenas noches';

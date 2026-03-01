@@ -80,6 +80,7 @@ export interface Flight {
   total_seats: number;
   available_seats: number;
   aircraft_type: string | null;
+  baggage_included?: string | null;
   is_exclusive_offer: boolean;
   offer_expires_at: string | null;
   stops?: Array<{ airport: string; duration_minutes: number }> | null;
@@ -222,6 +223,26 @@ export interface SpecialOffer {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Extended flight detail fields
+  origin_city: string | null;
+  destination_city: string | null;
+  departure_time: string | null;
+  arrival_time: string | null;
+  flight_duration: string | null;
+  aircraft_type: string | null;
+  cabin_class: string | null;
+  baggage_included: string | null;
+  stops: SpecialOfferStop[];
+  // Joined relations (populated via Supabase select)
+  airline?: { id: string; name: string; iata_code: string; logo_url?: string | null } | null;
+  origin_airport?: { iata_code: string; city: string } | null;
+  destination_airport?: { iata_code: string; city: string } | null;
+}
+
+export interface SpecialOfferStop {
+  city: string;
+  airport_code: string;
+  duration: string;
 }
 
 /* ------------------------------------------------------------------ */

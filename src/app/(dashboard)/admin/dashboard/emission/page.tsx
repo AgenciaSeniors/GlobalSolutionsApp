@@ -9,6 +9,8 @@ import { BookingVoucher } from '@/lib/pdf/bookingVoucher';
 import { createClient } from '@/lib/supabase/client';
 import { Clock, Plane, ArrowRight, Search, Edit, CheckCircle, FileText } from 'lucide-react';
 import type { FlightSegment, Passenger } from '@/lib/pdf/bookingVoucher';
+import Sidebar, { ADMIN_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
+import Header from '@/components/layout/Header';
 
 const DynamicPDFWrapper = dynamic(
   () => import('./PDFWrapper'),
@@ -137,14 +139,6 @@ function EmissionsDashboard() {
 
   return (
     <div className="p-6 lg:p-8 w-full max-w-6xl mx-auto">
-      {/* 🚀 NUEVO BOTÓN PARA VOLVER AL PANEL PRINCIPAL */}
-      <button 
-        onClick={() => router.push('/admin/dashboard')} 
-        className="text-xs font-bold text-slate-500 mb-6 flex items-center gap-1 hover:text-brand-600 transition-colors"
-      >
-        ← Volver al Panel Principal
-      </button>
-
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[#0F2545] flex items-center gap-2"><Plane className="text-brand-600" /> Centro de Emisiones</h1>
         <p className="text-slate-500 mt-1">Gestiona los boletos pendientes o re-emite los ya enviados.</p>
@@ -207,6 +201,7 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
   
   // 🚀 ESTADO PARA LAS POLÍTICAS
   const [policies, setPolicies] = useState(DEFAULT_POLICIES);
+  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     const today = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
@@ -323,7 +318,7 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
     setIsEmitting(true);
     try {
       if (!clientEmail) {
-        alert("⚠️ Es obligatorio colocar el email del cliente.");
+        setStatusMessage({ type: 'error', text: 'Es obligatorio colocar el email del cliente.' });
         setIsEmitting(false);
         return;
       }
@@ -359,7 +354,7 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
       const { error: updateErr } = await supabase.from('bookings').update({ booking_status: 'completed', voucher_pdf_url: publicUrl, emitted_at: new Date().toISOString() }).eq('booking_code', invoiceId);
       if (updateErr) throw new Error("Error DB Booking: " + updateErr.message);
 
-      const emailRes = await fetch('/api/dev/emit-voucher', {
+      const emailRes = await fetch('/api/emails/emit-voucher', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: clientEmail, clientName: passengers[0]?.fullName, invoiceId, pdfUrl: publicUrl, passengers, flights })
@@ -369,11 +364,11 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
         console.error("Error mandando correo, pero el PDF se guardó.");
       }
 
-      alert("✅ ¡Boleto emitido y guardado con éxito!");
-      router.push('/admin/dashboard/emission');
+      setStatusMessage({ type: 'success', text: '¡Boleto emitido y guardado con éxito!' });
+      setTimeout(() => router.push('/admin/dashboard/emission'), 2000);
 
     } catch (err: unknown) {
-      alert("❌ Ocurrió un error: " + getErrorMessage(err));
+      setStatusMessage({ type: 'error', text: 'Ocurrió un error: ' + getErrorMessage(err) });
     } finally {
       setIsEmitting(false);
     }
@@ -476,6 +471,16 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string, voucherId?
             ))}
         </div>
 
+        {statusMessage && (
+          <div className={`mt-4 rounded-lg px-4 py-3 text-sm font-medium ${
+            statusMessage.type === 'success'
+              ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              : 'bg-red-50 border border-red-200 text-red-800'
+          }`}>
+            {statusMessage.type === 'success' ? '✅ ' : '⚠️ '}{statusMessage.text}
+          </div>
+        )}
+
         <button onClick={handleEmit} disabled={isEmitting} className="w-full bg-[#FF4757] text-white py-4 rounded-xl font-bold disabled:opacity-50 mt-4">
             {isEmitting ? 'PROCESANDO...' : 'EMITIR Y NOTIFICAR'}
         </button>
@@ -498,8 +503,14 @@ function EmissionRouter() {
 
 export default function EmissionPage() {
   return (
-    <Suspense fallback={<div className="p-10 text-center font-bold text-slate-500">Cargando Módulo...</div>}>
-      <EmissionRouter />
-    </Suspense>
+    <div className="flex min-h-screen">
+      <Sidebar links={ADMIN_SIDEBAR_LINKS} />
+      <div className="flex-1 overflow-auto">
+        <Header title="Centro de Emisiones" subtitle="Gestiona boletos pendientes y emitidos" />
+        <Suspense fallback={<div className="p-10 text-center font-bold text-slate-500">Cargando Módulo...</div>}>
+          <EmissionRouter />
+        </Suspense>
+      </div>
+    </div>
   );
 }
