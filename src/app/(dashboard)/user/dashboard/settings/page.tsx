@@ -130,6 +130,7 @@ export default function UserSettingsPage() {
               <div className="rounded-xl bg-neutral-50 p-4">
                 <p className="text-xs text-neutral-500 flex items-center gap-1 mb-1"><Mail className="h-3 w-3" /> Correo electrónico</p>
                 <p className="font-medium text-neutral-900">{profile?.email || '—'}</p>
+                <p className="text-xs text-neutral-400 mt-1">Para cambiar tu correo, contacta soporte.</p>
               </div>
               <div className="rounded-xl bg-neutral-50 p-4">
                 <p className="text-xs text-neutral-500 flex items-center gap-1 mb-1"><Shield className="h-3 w-3" /> Tipo de cuenta</p>

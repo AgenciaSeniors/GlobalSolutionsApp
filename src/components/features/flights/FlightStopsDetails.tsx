@@ -7,6 +7,10 @@ interface FlightStopsDetailsProps {
 }
 
 function formatTime(value: string): string {
+  if (!value) return '—';
+  // Extract HH:MM directly from ISO string (airport-local time)
+  const match = value.match(/T(\d{2}:\d{2})/);
+  if (match) return match[1];
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });

@@ -47,7 +47,7 @@ export default function AgentNewsWall() {
           </p>
         </Card>
       )}
-
+      
       {!loading && !error && items.length > 0 && (
         <div className="grid gap-4">
           {items.map((item) => (

@@ -238,6 +238,13 @@ export default function AdminOffersPage() {
     setSaving(true);
     setErrorMsg(null);
 
+    const seats = parseInt(maxSeats);
+    if (isNaN(seats) || seats < 1) {
+      setErrorMsg('Max cupos debe ser al menos 1.');
+      setSaving(false);
+      return;
+    }
+
     try {
       const dates = validDates
         .split(',')
@@ -657,6 +664,7 @@ export default function AdminOffersPage() {
                       <label className="text-sm font-medium text-neutral-700">Max Cupos</label>
                       <Input
                         type="number"
+                        min="1"
                         value={maxSeats}
                         onChange={(e) => setMaxSeats(e.target.value)}
                       />

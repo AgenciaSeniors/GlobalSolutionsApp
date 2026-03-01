@@ -28,7 +28,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Email inválido o requerido' }, { status: 400 });
     }
 
+    const mode = String(body?.mode ?? '').trim(); // 'register' | '' (login)
     const now = new Date();
+
+    // 1b. Si es registro, verificar que el email no exista ya
+    if (mode === 'register') {
+      const { data: existingProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (existingProfile) {
+        return NextResponse.json(
+          { error: 'Ya existe una cuenta con este correo electrónico. Intenta iniciar sesión.' },
+          { status: 409 },
+        );
+      }
+    }
 
     // 2. SEGURIDAD: Rate Limit (Anti-Spam)
     // Buscamos si este email ya pidió código recientemente

@@ -137,11 +137,15 @@ async function signUpStepOne(email: string) {
   const otpRes = await fetch("/api/auth/request-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: normalizedEmail }),
+    body: JSON.stringify({ email: normalizedEmail, mode: "register" }),
   });
 
   const otpData = await otpRes.json().catch(() => ({}));
-  if (!otpRes.ok) throw new Error(otpData?.error ?? "No se pudo enviar el código.");
+  if (!otpRes.ok) {
+    const err = new Error(otpData?.error ?? "No se pudo enviar el código.");
+    (err as any).status = otpRes.status;
+    throw err;
+  }
 
   return { ok: true, message: "OTP_SENT" };
 }

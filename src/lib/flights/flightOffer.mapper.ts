@@ -46,11 +46,10 @@ function toUiSegment(seg: DuffelSegment, offerId: string, i: number): FlightSegm
 
 function skySegmentToUi(s: SkySegment, offerId: string, i: number): FlightSegment {
   const logo = s.airline_logo_url ?? gstaticLogo(s.airline_code);
-  // Prefer Cuba-normalized timestamps (ISO with -05:00 or -04:00 offset) so the UI
-  // always shows Cuba wall-clock time regardless of the user's browser timezone.
-  // Fall back to airport-local (no offset) for backwards compatibility.
-  const depTime = s.departure_cuba ?? s.departure;
-  const arrTime = s.arrival_cuba ?? s.arrival;
+  // Use airport-local timestamps so departure shows the origin airport's local time
+  // and arrival shows the destination airport's local time.
+  const depTime = s.departure ?? s.departure_cuba;
+  const arrTime = s.arrival ?? s.arrival_cuba;
   // Compute duration from UTC instants when available (avoids DST distortion).
   const dur = s.duration_minutes > 0
     ? formatDurationFromMinutes(s.duration_minutes)
@@ -112,11 +111,75 @@ export function mapApiFlightToOffer(
     });
   }
 
-  const totalDuration = segments.length > 0 ? (() => { const first = segments[0]; const last = segments[segments.length - 1]; return first?.departureTime && last?.arrivalTime ? formatDurationFromDates(first.departureTime, last.arrivalTime) : "—"; })() : "—";
+  // ── Compute totalDuration from the most reliable source available ──
+  let totalDuration = "—";
+
+  if (skySegs.length > 0) {
+    // Strategy 1: Use UTC timestamps from first departure to last arrival (most accurate)
+    const firstSky = skySegs[0];
+    const lastSky = skySegs[skySegs.length - 1];
+
+    if (firstSky.departure_utc && lastSky.arrival_utc) {
+      totalDuration = formatDurationFromDates(firstSky.departure_utc, lastSky.arrival_utc);
+    } else {
+      // Strategy 2: Sum individual duration_minutes + layover time between segments
+      let totalMinutes = 0;
+      for (let i = 0; i < skySegs.length; i++) {
+        totalMinutes += skySegs[i].duration_minutes || 0;
+        if (i < skySegs.length - 1) {
+          const curArr = skySegs[i].arrival_utc ?? skySegs[i].arrival;
+          const nextDep = skySegs[i + 1].departure_utc ?? skySegs[i + 1].departure;
+          if (curArr && nextDep) {
+            const layoverMs = new Date(nextDep).getTime() - new Date(curArr).getTime();
+            if (layoverMs > 0) totalMinutes += Math.round(layoverMs / 60000);
+          }
+        }
+      }
+      totalDuration = totalMinutes > 0 ? formatDurationFromMinutes(totalMinutes) : "—";
+    }
+  } else if (rawSegs.length > 0) {
+    // Duffel segments have UTC offsets in departing_at/arriving_at
+    const firstRaw = rawSegs[0];
+    const lastRaw = rawSegs[rawSegs.length - 1];
+    if (firstRaw.departing_at && lastRaw.arriving_at) {
+      totalDuration = formatDurationFromDates(firstRaw.departing_at, lastRaw.arriving_at);
+    }
+  } else if (segments.length > 0) {
+    // Fallback: use UI segment timestamps (original logic)
+    const first = segments[0];
+    const last = segments[segments.length - 1];
+    totalDuration = first?.departureTime && last?.arrivalTime
+      ? formatDurationFromDates(first.departureTime, last.arrivalTime)
+      : "—";
+  }
+
+  // ── Compute arrivalDayDiff: how many calendar days later the flight arrives ──
+  let arrivalDayDiff = 0;
+  if (segments.length > 0) {
+    const depTime = segments[0]?.departureTime;
+    const arrTime = segments[segments.length - 1]?.arrivalTime;
+    if (depTime && arrTime) {
+      try {
+        const depDate = new Date(depTime);
+        const arrDate = new Date(arrTime);
+        if (!isNaN(depDate.getTime()) && !isNaN(arrDate.getTime())) {
+          const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Havana', year: 'numeric', month: '2-digit', day: '2-digit' });
+          const depDay = fmt.format(depDate);
+          const arrDay = fmt.format(arrDate);
+          const depMs = new Date(depDay).getTime();
+          const arrMs = new Date(arrDay).getTime();
+          if (!isNaN(depMs) && !isNaN(arrMs)) {
+            arrivalDayDiff = Math.round((arrMs - depMs) / 86400000);
+          }
+        }
+      } catch { /* silently ignore timezone errors */ }
+    }
+  }
 
   return {
     id: offerId, price: Number(f.final_price ?? f.price ?? 0), currency: String(f.currency ?? "USD"),
-    segments, totalDuration, type: context?.tripType ?? "oneway",
+    segments, totalDuration, arrivalDayDiff: arrivalDayDiff > 0 ? arrivalDayDiff : undefined,
+    type: context?.tripType ?? "oneway",
     airline_code: airlineCode || undefined, stops_count: Math.max(0, segments.length - 1),
     stops: Array.isArray(f.stops) ? f.stops.map((s) => ({ airport: s.airport ?? "", duration_minutes: s.duration_minutes ?? 0 })) : undefined,
     is_exclusive_offer: Boolean(f.is_exclusive_offer), provider: String(f.provider ?? f.offerSource ?? ""),

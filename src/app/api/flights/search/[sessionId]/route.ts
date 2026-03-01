@@ -21,7 +21,6 @@
  */
 
 import { getRoleAndMarkupPct, applyRoleMarkup } from "@/lib/flights/roleMarkup";
-import { createClient as createServerClient } from '@/lib/supabase/server';
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flightsOrchestrator } from "@/lib/flights/orchestrator/flightsOrchestrator";
@@ -37,7 +36,6 @@ export const revalidate = 0;
 
 const CACHE_TTL_MINUTES = 15;
 const FRESH_WINDOW_MS = 5 * 60 * 1000; // 5 min
-const CACHE_CONTROL_RESULTS = "public, s-maxage=300, stale-while-revalidate=600";
 
 /** If a worker hasn't sent a heartbeat in this window, consider it dead. */
 const WORKER_STALE_MS = 60_000;
@@ -215,8 +213,10 @@ async function executeSearchWorker(
       `[WORKER:${sessionId.slice(0, 8)}] Search complete: ${totalFlights} flights from [${providersUsed.join(", ")}]`
     );
 
-    // ── Cache write ──
-    if (session.cache_key) {
+    // ── Cache write (only if there are actual results) ──
+    // Don't cache empty results — they can be caused by temporary provider
+    // failures or circuit-breaker openings and would propagate the error.
+    if (session.cache_key && totalFlights > 0) {
       const cacheExpires = new Date(
         Date.now() + CACHE_TTL_MINUTES * 60 * 1000
       ).toISOString();
@@ -278,15 +278,6 @@ async function executeSearchWorker(
 
 type FlightRecord = Record<string, unknown>;
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
-
-function pickNumber(v: unknown): number | null {
-  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
-  return Number.isFinite(n) ? n : null;
-}
-
-function round2(n: number) {
-  return Math.round(n * 100) / 100;
-}
 
 /* -------------------------------------------------- */
 /* ---- HANDLER ------------------------------------- */

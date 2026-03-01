@@ -5,6 +5,7 @@ import Sidebar, { USER_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
+import PageLoader from '@/components/ui/PageLoader';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { loyaltyService, type LoyaltyBalance } from '@/services/loyalty.service';
 import type { LoyaltyTransaction } from '@/types/models';
@@ -78,7 +79,7 @@ export default function UserLoyaltyPage() {
 
         <div className="p-6 md:p-8 space-y-6 max-w-4xl">
           {loading ? (
-            <Card className="p-6 text-gray-500">Cargando tu programa de lealtad...</Card>
+            <PageLoader message="Cargando tu programa de lealtad..." />
           ) : (
             <>
               {/* Hero Card - Points + Tier */}
@@ -141,6 +142,16 @@ export default function UserLoyaltyPage() {
                   </div>
         
                 </div>
+              </Card>
+
+              {/* Redeem Points */}
+              <Card variant="bordered" className="border-purple-200 bg-purple-50/20">
+                <h3 className="font-bold text-purple-800 flex items-center gap-2 mb-3">
+                  <Gift className="h-5 w-5" /> Canjear Puntos
+                </h3>
+                <p className="text-sm text-purple-700">
+                  El canje de puntos estará disponible próximamente. Sigue acumulando para obtener descuentos exclusivos en tus próximos viajes.
+                </p>
               </Card>
 
               {/* Tier Guide */}

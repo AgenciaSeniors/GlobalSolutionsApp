@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Plane, Car, Sparkles, Home } from 'lucide-react';
+import { Menu, X, Plane, Car, Sparkles, Home, LogIn } from 'lucide-react';
 
 import { cn } from '@/lib/utils/cn';
 import { ROUTES } from '@/lib/constants/routes';
@@ -121,9 +121,9 @@ export default function Navbar() {
           {user ? (
             <Link
               href={dashboardHref}
-              className="relative hidden sm:inline-flex items-center gap-2 shrink-0
+              className="relative inline-flex items-center gap-2 shrink-0
                          rounded-full border-2 border-brand-200 bg-white/80
-                         px-3 py-2 text-brand-900
+                         px-2 py-1.5 sm:px-3 sm:py-2 text-brand-900
                          hover:bg-brand-50 hover:border-brand-300
                          transition-all duration-200 ease-out
                          hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
@@ -138,18 +138,22 @@ export default function Navbar() {
               )}
 
               <span
-                className="flex h-8 w-8 items-center justify-center shrink-0 rounded-full
+                className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center shrink-0 rounded-full
                            bg-brand-100 text-xs font-bold text-brand-800 ring-1 ring-brand-200"
                 aria-hidden="true"
               >
                 {avatarLetter}
               </span>
 
-              <span className="whitespace-nowrap text-sm font-semibold leading-none">Mi Perfil</span>
+              <span className="hidden sm:inline whitespace-nowrap text-sm font-semibold leading-none">Mi Perfil</span>
             </Link>
           ) : (
-            <Link href={ROUTES.LOGIN} className="hidden sm:block">
-              <Button size="sm">Iniciar Sesión</Button>
+            <Link href={ROUTES.LOGIN}>
+              <Button size="sm" className="hidden sm:inline-flex">Iniciar Sesión</Button>
+              <Button size="sm" className="sm:hidden gap-1.5">
+                <LogIn className="h-4 w-4" />
+                Entrar
+              </Button>
             </Link>
           )}
 
