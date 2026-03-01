@@ -51,21 +51,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const supabaseAuth = await createClient();
     const {
       data: { user },
+      error: authError,
     } = await supabaseAuth.auth.getUser();
 
-    if (!user) {
-      return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
+    if (authError) {
+      console.error('[admin/settings] Auth error:', authError.message);
     }
+
+    if (!user) {
+      console.error('[admin/settings] No user found in session');
+      return NextResponse.json({ error: 'No autenticado. Inicia sesion de nuevo.' }, { status: 401 });
+    }
+
+    console.log('[admin/settings] User:', user.id, user.email);
 
     // 2. Verify admin role from profiles table
     const supabaseAdmin = createAdminClient();
-    const { data: profile } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
+    if (profileError) {
+      console.error('[admin/settings] Profile fetch error:', profileError.message);
+    }
+
     if (!profile || profile.role !== 'admin') {
+      console.error('[admin/settings] User is not admin. Profile:', profile);
       return NextResponse.json({ error: 'Acceso denegado. Se requiere rol admin.' }, { status: 403 });
     }
 
@@ -74,6 +87,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const parsed = BodySchema.safeParse(raw);
 
     if (!parsed.success) {
+      console.error('[admin/settings] Validation error:', parsed.error.errors);
       return NextResponse.json(
         { error: 'Body invalido.', details: parsed.error.errors },
         { status: 400 },
@@ -92,6 +106,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const errors: string[] = [];
 
     for (const setting of validSettings) {
+      console.log('[admin/settings] Upserting:', setting.key, '=', setting.value);
       const { error } = await supabaseAdmin.from('app_settings').upsert(
         {
           key: setting.key,
@@ -103,6 +118,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
 
       if (error) {
+        console.error('[admin/settings] Upsert error for', setting.key, ':', error.message);
         errors.push(`${setting.key}: ${error.message}`);
       }
     }
@@ -114,13 +130,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    console.log('[admin/settings] All settings saved successfully:', validSettings.length);
     return NextResponse.json(
       { success: true, saved: validSettings.length },
       { status: 200 },
     );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error interno.';
-    console.error('[admin/settings] Error:', msg);
+    console.error('[admin/settings] Unhandled error:', msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

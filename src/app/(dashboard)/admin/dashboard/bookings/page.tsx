@@ -31,6 +31,7 @@ import {
   Clock,
   Plane,
   Tag,
+  Trash2,
 } from 'lucide-react';
 
 /* ---------- Types ---------- */
@@ -246,6 +247,21 @@ export default function AdminBookingsPage() {
     if (error) {
       console.error('[AdminBookings] markCancelled error:', error.message);
       alert('Error: ' + error.message);
+      return;
+    }
+    fetchBookings();
+  }
+
+  async function deleteBooking(id: string, bookingCode: string) {
+    const confirmation = prompt(`Para eliminar la reserva ${bookingCode}, escribe ELIMINAR:`);
+    if (confirmation !== 'ELIMINAR') {
+      if (confirmation !== null) alert('Texto incorrecto. La reserva NO fue eliminada.');
+      return;
+    }
+    const { error } = await supabase.from('bookings').delete().eq('id', id);
+    if (error) {
+      console.error('[AdminBookings] deleteBooking error:', error.message);
+      alert('Error al eliminar: ' + error.message);
       return;
     }
     fetchBookings();
@@ -707,6 +723,17 @@ export default function AdminBookingsPage() {
                               className="gap-1.5 text-red-600"
                             >
                               <XCircle className="h-3.5 w-3.5" /> Cancelar Reserva
+                            </Button>
+                          )}
+
+                          {['cancelled'].includes(b.booking_status) && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => deleteBooking(b.id, b.booking_code)}
+                              className="gap-1.5 text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Eliminar
                             </Button>
                           )}
                         </div>

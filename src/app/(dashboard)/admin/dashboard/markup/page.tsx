@@ -7,37 +7,19 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { useAppSettings } from '@/hooks/useAppSettings';
 
-type ApiErrorResponse = { error: string };
-
-function isApiErrorResponse(x: unknown): x is ApiErrorResponse {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    'error' in x &&
-    typeof (x as Record<string, unknown>).error === 'string'
-  );
-}
-
 export default function AdminMarkupPage() {
-  const hook = useAppSettings();
-  const { settings, loading, error } = hook;
-
-const refetch =
-  'refetch' in hook && typeof hook.refetch === 'function'
-    ? hook.refetch
-    : undefined;
+  const { settings, loading, error, refetch } = useAppSettings();
 
   const [clientMarkup, setClientMarkup] = useState('10');
   const [agentMarkup, setAgentMarkup] = useState('10');
   const [hydrated, setHydrated] = useState(false);
 
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState('');
+  const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // ✅ Hidrata inputs SOLO una vez cuando termina la carga.
+  // Hydrate inputs once when settings finish loading
   useEffect(() => {
-    if (loading) return;
-    if (hydrated) return;
+    if (loading || hydrated) return;
 
     setClientMarkup(String(settings.default_markup_percentage ?? 10));
     setAgentMarkup(
@@ -51,7 +33,7 @@ const refetch =
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    setMsg('');
+    setMsg(null);
     setSaving(true);
 
     try {
@@ -65,8 +47,11 @@ const refetch =
         throw new Error(`Markup gestores debe estar entre ${min}% y ${max}%.`);
       }
 
+      console.log('[Markup] Saving:', { default_markup_percentage: c, agent_markup_percentage: a });
+
       const res = await fetch('/api/admin/settings', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           settings: [
@@ -83,22 +68,28 @@ const refetch =
         body = null;
       }
 
+      console.log('[Markup] Response:', res.status, body);
+
       if (!res.ok) {
-        const errMsg = isApiErrorResponse(body) ? body.error : 'Error al guardar';
+        const errMsg =
+          typeof body === 'object' && body !== null && 'error' in body
+            ? String((body as Record<string, unknown>).error)
+            : `Error del servidor (${res.status})`;
         throw new Error(errMsg);
       }
 
-      // ✅ Trae settings reales después del guardado
-      if (refetch) await refetch();
+      // Refresh settings from DB
+      await refetch();
 
-      // ✅ Asegura que lo que se vea sea lo guardado, aunque el refetch tarde o falle
+      // Ensure displayed values match what was saved
       setClientMarkup(String(c));
       setAgentMarkup(String(a));
 
-      setMsg('✅ Markups guardados correctamente.');
+      setMsg({ type: 'success', text: 'Markups guardados correctamente.' });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Error al guardar';
-      setMsg(`❌ ${errorMessage}`);
+      console.error('[Markup] Save error:', errorMessage);
+      setMsg({ type: 'error', text: errorMessage });
     } finally {
       setSaving(false);
     }
@@ -107,16 +98,16 @@ const refetch =
   return (
     <div className="flex min-h-screen">
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
-      <div className="flex-1">
+      <div className="flex-1 overflow-auto">
         <Header title="Markup" subtitle="Configura el markup para clientes y gestores" />
 
         <div className="p-8 max-w-3xl">
           <Card variant="bordered">
             <form onSubmit={save} className="space-y-5">
               {error ? (
-                <p className="text-sm text-red-600">
-                  ❌ No se pudieron cargar los settings: {error}
-                </p>
+                <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                  No se pudieron cargar los settings: {error}
+                </div>
               ) : null}
 
               <div>
@@ -131,7 +122,7 @@ const refetch =
                   max={max}
                   value={clientMarkup}
                   onChange={(e) => setClientMarkup(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || saving}
                 />
               </div>
 
@@ -147,14 +138,25 @@ const refetch =
                   max={max}
                   value={agentMarkup}
                   onChange={(e) => setAgentMarkup(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || saving}
                 />
                 <p className="mt-1 text-xs text-neutral-500">
                   Este % se aplica SOLO a gestores (role=agent). No se suma al de clientes.
                 </p>
               </div>
 
-              {msg && <p className="text-sm">{msg}</p>}
+              {msg && (
+                <div
+                  className={`rounded-lg border p-3 text-sm font-medium ${
+                    msg.type === 'success'
+                      ? 'bg-green-50 border-green-200 text-green-700'
+                      : 'bg-red-50 border-red-200 text-red-700'
+                  }`}
+                >
+                  {msg.type === 'success' ? '✅ ' : '❌ '}
+                  {msg.text}
+                </div>
+              )}
 
               <Button type="submit" isLoading={saving} disabled={loading}>
                 Guardar

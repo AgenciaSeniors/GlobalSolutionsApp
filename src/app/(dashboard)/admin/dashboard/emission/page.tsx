@@ -9,6 +9,8 @@ import { BookingVoucher } from '@/lib/pdf/bookingVoucher';
 import { createClient } from '@/lib/supabase/client';
 import { Clock, Plane, ArrowRight, Search, Edit, CheckCircle, FileText } from 'lucide-react';
 import type { FlightSegment, Passenger } from '@/lib/pdf/bookingVoucher';
+import Sidebar, { ADMIN_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
+import Header from '@/components/layout/Header';
 
 const DynamicPDFWrapper = dynamic(
   () => import('./PDFWrapper'),
@@ -137,14 +139,6 @@ function EmissionsDashboard() {
 
   return (
     <div className="p-6 lg:p-8 w-full max-w-6xl mx-auto">
-      {/* 🚀 NUEVO BOTÓN PARA VOLVER AL PANEL PRINCIPAL */}
-      <button 
-        onClick={() => router.push('/admin/dashboard')} 
-        className="text-xs font-bold text-slate-500 mb-6 flex items-center gap-1 hover:text-brand-600 transition-colors"
-      >
-        ← Volver al Panel Principal
-      </button>
-
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[#0F2545] flex items-center gap-2"><Plane className="text-brand-600" /> Centro de Emisiones</h1>
         <p className="text-slate-500 mt-1">Gestiona los boletos pendientes o re-emite los ya enviados.</p>
@@ -509,8 +503,14 @@ function EmissionRouter() {
 
 export default function EmissionPage() {
   return (
-    <Suspense fallback={<div className="p-10 text-center font-bold text-slate-500">Cargando Módulo...</div>}>
-      <EmissionRouter />
-    </Suspense>
+    <div className="flex min-h-screen">
+      <Sidebar links={ADMIN_SIDEBAR_LINKS} />
+      <div className="flex-1 overflow-auto">
+        <Header title="Centro de Emisiones" subtitle="Gestiona boletos pendientes y emitidos" />
+        <Suspense fallback={<div className="p-10 text-center font-bold text-slate-500">Cargando Módulo...</div>}>
+          <EmissionRouter />
+        </Suspense>
+      </div>
+    </div>
   );
 }
