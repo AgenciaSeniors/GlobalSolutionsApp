@@ -31,24 +31,19 @@ export async function POST(req: Request) {
     const mode = String(body?.mode ?? '').trim(); // 'register' | '' (login)
     const now = new Date();
 
-    // 1b. Si es registro, verificar que el email no exista ya en Supabase Auth
-    //     Intentamos generar un magic link: si el usuario NO existe, Supabase retorna error.
-    //     Si SÍ existe, retornamos un error amigable antes de enviar el OTP.
+    // 1b. Si es registro, verificar que el email no exista ya
     if (mode === 'register') {
-      try {
-        const { data: signInData, error: signInErr } = await supabaseAdmin.auth.admin.generateLink({
-          type: 'magiclink',
-          email,
-        });
-        // Si no hubo error, el usuario ya existe en auth.users
-        if (signInData?.user) {
-          return NextResponse.json(
-            { error: 'Ya existe una cuenta con este correo electrónico. Intenta iniciar sesión.' },
-            { status: 409 },
-          );
-        }
-      } catch {
-        // Si falla, significa que el usuario no existe — continuamos normalmente
+      const { data: existingProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (existingProfile) {
+        return NextResponse.json(
+          { error: 'Ya existe una cuenta con este correo electrónico. Intenta iniciar sesión.' },
+          { status: 409 },
+        );
       }
     }
 

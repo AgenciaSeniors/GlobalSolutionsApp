@@ -1,20 +1,19 @@
 /**
- * @fileoverview Airport/City autocomplete endpoint (Hybrid: DB + External API).
+ * @fileoverview Airport/City autocomplete endpoint (Hybrid: DB cache + External API).
  * GET /api/flights/autocomplete?query=Hav
  *
  * Strategy:
- *   1. Search local `airports` table first (fast, supports 73+ airports).
- *   2. If local results < threshold OR query looks like it needs broader search,
- *      also query the external SkyScrapper API for worldwide coverage.
- *   3. Merge results: local DB results first, then API results (deduped by IATA).
- *   4. Optionally upsert new airports from the API into the DB for future speed.
+ *   1. Search local `airports` cache AND external SkyScrapper API **in parallel**.
+ *   2. Local DB is a fast cache (~72 airports); external API is the primary source.
+ *   3. Merge results: local first (enriched data), then API (worldwide coverage).
+ *   4. Upsert new airports from API into local cache for future speed.
  *
  * Supports:
  *   - IATA code search: "HAV" → La Habana
  *   - City name search: "Habana" → La Habana (HAV)
  *   - Country name (ES/EN): "Cuba" → all CUB airports, "CUB" → all CUB airports
  *   - Accent-insensitive: "Panama" matches "Panamá"
- *   - Trigram fuzzy: "Miam" → Miami
+ *   - Trigram fuzzy: "Miam" → Miami (via search_text GIN index)
  *
  * @module api/flights/autocomplete
  * @author Dev B
@@ -28,9 +27,6 @@ import { createClient } from '@/lib/supabase/server';
 
 /** Minimum query length to trigger a search */
 const MIN_QUERY_LENGTH = 2;
-
-/** If local results are fewer than this, also query the external API */
-const LOCAL_RESULTS_THRESHOLD = 5;
 
 /** Maximum results to return to the client */
 const MAX_RESULTS = 20;
@@ -219,60 +215,65 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
+/** Reverse-lookup: country display name → ISO 3-letter code */
+function countryNameToISO(displayName: string): string {
+  if (!displayName) return '';
+  const lower = stripAccents(displayName.toLowerCase().trim());
+  return COUNTRY_NAME_TO_ISO[lower]?.[0] ?? '';
+}
+
 /* ─────────────────────────────────────────────
- * 1. Local DB search
+ * 1. Local DB search (cache) — uses RPC with trigram index
  * ───────────────────────────────────────────── */
 
 async function searchLocalAirports(query: string): Promise<AutocompleteResult[]> {
   try {
     const supabase = await createClient();
-
-    // Build OR filter for ilike matching on city, name, iata_code, country
-    // Also include accent-stripped version so "Panama" matches "Panamá", "Turquia" matches "Turquía", etc.
     const queryStripped = stripAccents(query);
-    const terms = [...new Set([query, queryStripped])]; // dedupe if no accents in query
 
-    const filters: string[] = [];
-    for (const term of terms) {
-      filters.push(
-        `city.ilike.%${term}%`,
-        `name.ilike.%${term}%`,
-        `iata_code.ilike.%${term}%`,
-        `country.ilike.%${term}%`,
-      );
-    }
+    // Use the search_airports RPC (trigram similarity + ILIKE fallback)
+    const { data: rpcData, error: rpcError } = await supabase
+      .rpc('search_airports', { query: queryStripped, max_results: MAX_RESULTS });
 
-    // Also check if the query matches a known country name → ISO code
+    // Supplementary: if query maps to a country name, also fetch by country code
+    // E.g. "cuba" → CUB → all airports with country = 'CUB'
     const mappedCodes = findCountryCodes(query);
-    for (const code of mappedCodes) {
-      filters.push(`country.eq.${code}`);
+    let countryData: typeof rpcData = [];
+    if (mappedCodes.length > 0) {
+      const { data: cData } = await supabase
+        .from('airports')
+        .select('id, iata_code, name, city, country, timezone')
+        .in('country', mappedCodes)
+        .order('city', { ascending: true })
+        .limit(MAX_RESULTS);
+      countryData = cData ?? [];
     }
 
-    const { data, error } = await supabase
-      .from('airports')
-      .select('id, iata_code, name, city, country, timezone')
-      .or(filters.join(','))
-      .order('city', { ascending: true })
-      .limit(MAX_RESULTS);
-
-    if (error) {
-      console.error('[autocomplete] Supabase error:', error);
-      return [];
+    if (rpcError) {
+      console.error('[autocomplete] RPC error:', rpcError);
     }
 
-    return (data ?? []).map((airport) => {
-      const countryName = countryDisplayName(airport.country);
-      return {
+    // Merge RPC results + country results, dedup by IATA code
+    const seen = new Set<string>();
+    const allLocal: AutocompleteResult[] = [];
+
+    for (const airport of [...(rpcData ?? []), ...countryData]) {
+      if (seen.has(airport.iata_code)) continue;
+      seen.add(airport.iata_code);
+      const cName = countryDisplayName(airport.country);
+      allLocal.push({
         code: airport.iata_code,
         name: airport.name,
         city: airport.city,
-        country: countryName,
+        country: cName,
         countryCode: airport.country,
         timezone: airport.timezone,
-        label: buildLabel(airport.city, airport.iata_code, countryName),
+        label: buildLabel(airport.city, airport.iata_code, cName),
         source: 'local' as const,
-      };
-    });
+      });
+    }
+
+    return allLocal.slice(0, MAX_RESULTS);
   } catch (err) {
     console.error('[autocomplete] Local search error:', err);
     return [];
@@ -343,11 +344,15 @@ async function searchExternalAPI(query: string): Promise<AutocompleteResult[]> {
       // Clean up "N/A" values from external API
       const country = (rawCountry && rawCountry.toUpperCase() !== 'N/A') ? rawCountry : '';
 
+      // Reverse-lookup country display name → ISO code for proper DB caching
+      const isoCode = countryNameToISO(country);
+
       results.push({
         code: iata,
         name: title,
         city,
-        country,
+        country: country || (isoCode ? countryDisplayName(isoCode) : ''),
+        countryCode: isoCode,
         label: buildLabel(city, iata, country),
         source: 'api' as const,
       });
@@ -418,15 +423,17 @@ async function upsertAirportsInBackground(apiResults: AutocompleteResult[]): Pro
       return;
     }
 
-    // Only insert airports with valid 3-char IATA codes
+    // Only insert airports with valid 3-char IATA codes and a resolved country
     const rows = apiResults
       .filter((r) => /^[A-Z]{3}$/.test(r.code))
       .map((r) => ({
         iata_code: r.code,
         name: r.name,
         city: r.city,
-        country: r.countryCode || '',
-      }));
+        country: r.countryCode || countryNameToISO(r.country) || '',
+      }))
+      // Skip airports without a valid country code to avoid corrupted data
+      .filter((r) => r.country.length === 3);
 
     if (rows.length === 0) return;
 
@@ -458,19 +465,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Step 1: Always search local DB first (fast, <50ms)
-    const localResults = await searchLocalAirports(query);
-
-    // Step 2: If local results are sparse, also hit the external API.
-    // Require at least 3 characters before calling external API — shorter queries
-    // always return HTTP 400 from the external provider and waste a round-trip.
-    let apiResults: AutocompleteResult[] = [];
-    const needsExternalSearch =
-      localResults.length < LOCAL_RESULTS_THRESHOLD && query.length >= 3;
-
-    if (needsExternalSearch && RAPIDAPI_KEY) {
-      apiResults = await searchExternalAPI(query);
-    }
+    // Step 1: Search local cache AND external API in parallel.
+    // Local DB is a fast cache; external API is the primary source for worldwide coverage.
+    // External API requires at least 3 chars — shorter queries use local cache only.
+    const [localResults, apiResults] = await Promise.all([
+      searchLocalAirports(query),
+      query.length >= 3 && RAPIDAPI_KEY
+        ? searchExternalAPI(query)
+        : Promise.resolve([] as AutocompleteResult[]),
+    ]);
 
     // Step 3: Merge and deduplicate (local results first)
     const merged = mergeResults(localResults, apiResults);

@@ -58,6 +58,8 @@ function FlightSearchResultsInner() {
 
   // Keep a raw->mapped index so we can persist the selected flight
   const rawResultsMapRef = useRef<Map<string, unknown>>(new Map());
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const hasScrolledRef = useRef(false);
 
   const from = searchParams.get('from') || '';
   const to = searchParams.get('to') || '';
@@ -115,6 +117,19 @@ function FlightSearchResultsInner() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legsParam]);
+
+  // Scroll to results when first batch loads
+  useEffect(() => {
+    if (!isLoading && results.length > 0 && !hasScrolledRef.current) {
+      hasScrolledRef.current = true;
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+    if (isLoading) {
+      hasScrolledRef.current = false;
+    }
+  }, [isLoading, results.length]);
 
   // Pre-fill the search form with URL params
   const formInitialValues = useMemo(
@@ -274,7 +289,7 @@ function FlightSearchResultsInner() {
           </div>
         </section>
 
-        <section className="bg-neutral-50 py-12">
+        <section ref={resultsRef} className="bg-neutral-50 py-12">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="mb-4 text-2xl font-extrabold text-[#0F2545] sm:mb-6 sm:text-3xl">Resultados de Búsqueda</h2>
 

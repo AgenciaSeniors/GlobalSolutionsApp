@@ -144,6 +144,16 @@ export default function UserLoyaltyPage() {
                 </div>
               </Card>
 
+              {/* Redeem Points */}
+              <Card variant="bordered" className="border-purple-200 bg-purple-50/20">
+                <h3 className="font-bold text-purple-800 flex items-center gap-2 mb-3">
+                  <Gift className="h-5 w-5" /> Canjear Puntos
+                </h3>
+                <p className="text-sm text-purple-700">
+                  El canje de puntos estará disponible próximamente. Sigue acumulando para obtener descuentos exclusivos en tus próximos viajes.
+                </p>
+              </Card>
+
               {/* Tier Guide */}
               <Card variant="bordered">
                 <h3 className="font-bold text-navy mb-4 flex items-center gap-2">
