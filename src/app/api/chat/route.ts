@@ -86,7 +86,7 @@ const KB: ReadonlyArray<{ title: string; text: string }> = [
   {
     title: 'Programa de lealtad',
     text:
-      'Acumulas puntos automáticamente con cada reserva completada. Los puntos se pueden canjear como descuento en tu próxima reserva. Consulta tu saldo en la sección "Mi Panel".',
+      'Acumulas puntos automáticamente con cada reserva completada. Los puntos se pueden canjear como descuento en tu próxima reserva. Consulta tu saldo en la sección "Mi Perfil".',
   },
   {
     title: 'Política de cancelación y cambios',
