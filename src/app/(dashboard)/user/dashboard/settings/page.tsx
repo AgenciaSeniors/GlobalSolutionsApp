@@ -98,7 +98,7 @@ export default function UserSettingsPage() {
       <div className="flex min-h-screen">
         <Sidebar links={USER_SIDEBAR_LINKS} />
         <div className="flex-1">
-          <Header title="Configuración" subtitle="Mi perfil y cuenta" />
+          <Header title="Configuración" subtitle="Mi Perfil y cuenta" />
           <div className="p-8"><p className="text-neutral-400">Cargando...</p></div>
         </div>
       </div>
