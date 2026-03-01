@@ -59,6 +59,20 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ Verificar que el email no exista ya (defensa en profundidad)
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (existingProfile) {
+      return NextResponse.json(
+        { error: 'Ya existe una cuenta con este correo electrónico. Intenta iniciar sesión.' },
+        { status: 409 },
+      );
+    }
+
     // ✅ Crear usuario en Supabase Auth
     const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
       email,
@@ -68,7 +82,34 @@ export async function POST(req: Request) {
     });
 
     if (createErr) {
-      return NextResponse.json({ error: createErr.message }, { status: 400 });
+      // Traducir errores de Supabase Auth a mensajes profesionales en español
+      const errMsg = (createErr.message ?? '').toLowerCase();
+      let userMessage = 'No se pudo crear la cuenta. Por favor intenta de nuevo.';
+
+      if (errMsg.includes('already registered') || errMsg.includes('already exists') || errMsg.includes('duplicate')) {
+        userMessage = 'Ya existe una cuenta con este correo electrónico. Intenta iniciar sesión.';
+      } else if (errMsg.includes('password') && errMsg.includes('weak')) {
+        userMessage = 'La contraseña es muy débil. Usa al menos 8 caracteres con letras y números.';
+      } else if (errMsg.includes('password')) {
+        userMessage = 'La contraseña no cumple los requisitos mínimos de seguridad.';
+      } else if (errMsg.includes('invalid') && errMsg.includes('email')) {
+        userMessage = 'El correo electrónico no es válido.';
+      } else if (errMsg.includes('rate') || errMsg.includes('limit')) {
+        userMessage = 'Demasiados intentos. Espera unos minutos antes de intentar de nuevo.';
+      }
+
+      return NextResponse.json({ error: userMessage }, { status: 400 });
+    }
+
+    // ✅ Esperar a que el trigger handle_new_user() cree el perfil
+    const userId = created.user?.id;
+    if (userId) {
+      for (let i = 0; i < 10; i++) {
+        const { data } = await supabaseAdmin
+          .from('profiles').select('id').eq('id', userId).maybeSingle();
+        if (data) break;
+        await new Promise(r => setTimeout(r, 200));
+      }
     }
 
     // ✅ Marcar OTP como consumido (used_at) para que no se pueda reutilizar
@@ -77,7 +118,7 @@ export async function POST(req: Request) {
       .update({ used_at: new Date().toISOString() })
       .eq('id', otpRow.id);
 
-    return NextResponse.json({ ok: true, userId: created.user?.id });
+    return NextResponse.json({ ok: true, userId });
   } catch (e: unknown) {
   const message = e instanceof Error ? e.message : 'Error';
   return NextResponse.json({ error: message }, { status: 500 });

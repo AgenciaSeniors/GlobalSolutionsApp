@@ -14,7 +14,9 @@ import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils/formatters';
-import { Plus, Pencil, Eye, EyeOff, Car, Loader2 } from 'lucide-react';
+import PageLoader from '@/components/ui/PageLoader';
+import { Plus, Pencil, Eye, EyeOff, Car, Loader2, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Car as CarType } from '@/lib/cars/types';
 import { CATEGORY_LABELS } from '@/lib/cars/types';
 
@@ -22,6 +24,7 @@ export default function AdminCarsPage() {
   const [cars, setCars] = useState<CarType[]>([]);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const fetchCars = useCallback(async () => {
     setLoading(true);
@@ -65,6 +68,26 @@ export default function AdminCarsPage() {
     setToggling(null);
   }
 
+  async function handleDelete(id: string, brand: string, model: string) {
+    if (!confirm(`¿Eliminar permanentemente el auto "${brand} ${model}"? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    setDeleting(id);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('car_rentals')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      toast.error(`No se pudo eliminar: ${error.message}`);
+    } else {
+      toast.success('Auto eliminado correctamente');
+      setCars((prev) => prev.filter((c) => c.id !== id));
+    }
+    setDeleting(null);
+  }
+
   return (
     <div className="flex min-h-screen bg-neutral-50">
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
@@ -87,9 +110,7 @@ export default function AdminCarsPage() {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-6 w-6 animate-spin text-brand-500" />
-            </div>
+            <PageLoader message="Cargando inventario..." />
           ) : cars.length === 0 ? (
             <Card className="p-12 text-center">
               <Car className="mx-auto h-12 w-12 text-neutral-300" />
@@ -171,6 +192,14 @@ export default function AdminCarsPage() {
                             ) : (
                               <Eye className="h-4 w-4" />
                             )}
+                          </button>
+                          <button
+                            onClick={() => handleDelete(car.id, car.brand, car.model)}
+                            disabled={deleting === car.id}
+                            className="rounded-lg p-2 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </td>

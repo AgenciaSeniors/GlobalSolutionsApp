@@ -157,7 +157,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }));
         await supabaseAdmin.from('notifications').insert(notifications);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('[Zelle Confirm] Notification insert failed:', e);
+    }
 
     // ── 9. Return success ──
     return NextResponse.json({ success: true, booking_id, booking_code: booking.booking_code, confirmed_by: user.id }, { status: 200 });

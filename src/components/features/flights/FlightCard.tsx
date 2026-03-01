@@ -12,12 +12,14 @@ interface FlightCardProps {
 
 function formatTime(value: string): string {
   if (!value) return '—';
+  // Extract HH:MM directly from the ISO string (airport-local time).
+  // This avoids timezone conversion — the time is already in the airport's local timezone.
+  const match = value.match(/T(\d{2}:\d{2})/);
+  if (match) return match[1];
+  // Fallback for non-ISO formats
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  // Always display in Cuba time (America/Havana) regardless of the user's browser TZ.
-  // The provider already emits ISO strings with the Cuba offset (-05:00 / -04:00 DST),
-  // so new Date() parses them to the correct UTC instant; we only need to display in Cuba TZ.
-  return d.toLocaleTimeString('es-CU', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Havana' });
+  return d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 export default function FlightCard({ flight, onSelect }: FlightCardProps) {
@@ -132,7 +134,14 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
           </div>
 
           <div className="text-right">
-            <p className="text-xl font-bold text-neutral-900 sm:text-2xl">{arrivalTime}</p>
+            <p className="text-xl font-bold text-neutral-900 sm:text-2xl">
+              {arrivalTime}
+              {flight.arrivalDayDiff && flight.arrivalDayDiff > 0 && (
+                <sup className="ml-1 text-xs font-semibold text-coral">
+                  +{flight.arrivalDayDiff}
+                </sup>
+              )}
+            </p>
             <p className="text-xs text-neutral-500 sm:text-sm">{destinationCode}</p>
           </div>
         </div>

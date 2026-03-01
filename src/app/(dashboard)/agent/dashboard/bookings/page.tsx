@@ -9,6 +9,7 @@ import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthContext } from '@/components/providers/AuthProvider';
 import { Search, Plane, Calendar, User, FileText, Download, DollarSign } from 'lucide-react';
+import { useAppSettings } from '@/hooks/useAppSettings';
 
 type BadgeVariant =
   | 'default'
@@ -36,11 +37,11 @@ interface Booking {
   } | null;
 }
 
-const COMMISSION_RATE = 0.05;
-
 export default function AgentBookingsPage() {
   const supabase = createClient();
   const { user } = useAuthContext();
+  const { settings } = useAppSettings();
+  const COMMISSION_RATE = (settings.agent_markup_percentage ?? 10) / 100;
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -331,7 +332,7 @@ export default function AgentBookingsPage() {
                 <span className="font-bold text-emerald-700">${Number(selectedBooking.total_amount ?? 0).toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Comisión estimada (5%)</span>
+                <span className="text-gray-500">Comisión estimada ({settings.agent_markup_percentage ?? 10}%)</span>
                 <span className="font-semibold text-emerald-700">
                   ${(Number(selectedBooking.total_amount ?? 0) * COMMISSION_RATE).toFixed(2)}
                 </span>
