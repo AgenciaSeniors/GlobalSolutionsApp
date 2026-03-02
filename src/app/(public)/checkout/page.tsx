@@ -22,8 +22,10 @@ import { useAuthContext } from '@/components/providers/AuthProvider';
 import { useAppSettings } from '@/hooks/useAppSettings';
 import { COUNTRIES } from '@/lib/data/countries';
 import PriceBreakdownCard from '@/components/features/checkout/PriceBreakdownCard';
-import type { FlightWithDetails, PriceBreakdown, SelectedLeg } from '@/types/models';
+import type { FlightWithDetails, FlightOffer, PriceBreakdown, SelectedLeg } from '@/types/models';
 import type { SpecialOfferStop } from '@/types/models';
+import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
+import FlightStopsDetails from '@/components/features/flights/FlightStopsDetails';
 import {
   CreditCard,
   Building,
@@ -38,6 +40,8 @@ import {
   CircleDot,
   Armchair,
   Luggage,
+  Mail,
+  Phone,
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -243,8 +247,7 @@ function extractFlightDisplayData(
 
     let depTimeDisplay: string | null = null;
     let arrTimeDisplay: string | null = null;
-    let depForDuration: string | null = null;
-    let arrForDuration: string | null = null;
+    let flightDuration: string | null = null;
 
     if (Array.isArray(skySegs) && skySegs.length > 0) {
       // ── Sky segments (SkyScanner provider) ────────────────────────────────
@@ -257,10 +260,32 @@ function extractFlightDisplayData(
       depTimeDisplay = extractTime(String(firstSeg.departure ?? firstSeg.departure_cuba ?? ''));
       arrTimeDisplay = extractTime(String(lastSeg.arrival  ?? lastSeg.arrival_cuba   ?? ''));
 
-      depForDuration = (firstSeg.departure_utc as string | undefined)
-        ?? String(firstSeg.departure ?? '');
-      arrForDuration = (lastSeg.arrival_utc   as string | undefined)
-        ?? String(lastSeg.arrival   ?? '');
+      // Duration — mirrors mapApiFlightToOffer exactly to guarantee checkout matches search.
+      // Strategy 1: both UTC endpoints → diff is accurate across any timezone pair.
+      const firstDepUtc = firstSeg.departure_utc as string | undefined;
+      const lastArrUtc  = lastSeg.arrival_utc    as string | undefined;
+      if (firstDepUtc && lastArrUtc) {
+        flightDuration = computeDuration(firstDepUtc, lastArrUtc);
+      } else {
+        // Strategy 2: sum each segment's duration_minutes (pre-calculated by the API)
+        // plus layover time between segments.  This avoids mixing airport-local timestamps
+        // from different timezones, which would produce wrong results (e.g. 30 min instead of 2h 30m).
+        let totalMinutes = 0;
+        for (let i = 0; i < skySegs.length; i++) {
+          const seg = skySegs[i] as Record<string, unknown>;
+          totalMinutes += Number(seg.duration_minutes) || 0;
+          if (i < skySegs.length - 1) {
+            const nxt    = skySegs[i + 1] as Record<string, unknown>;
+            const curArr = (seg.arrival_utc   as string | undefined) ?? String(seg.arrival   ?? '');
+            const nxtDep = (nxt.departure_utc as string | undefined) ?? String(nxt.departure ?? '');
+            if (curArr && nxtDep) {
+              const ms = new Date(nxtDep).getTime() - new Date(curArr).getTime();
+              if (ms > 0 && Number.isFinite(ms)) totalMinutes += Math.round(ms / 60000);
+            }
+          }
+        }
+        flightDuration = totalMinutes > 0 ? fmtMinutes(totalMinutes) : null;
+      }
     } else {
       // ── Root-level fields (Duffel or legacy) ──────────────────────────────
       const depRaw = String(rawParsed.departure_datetime ?? rawParsed.departureTime ?? '');
@@ -270,22 +295,48 @@ function extractFlightDisplayData(
       depTimeDisplay = extractTime(depRaw) ?? formatTime(depRaw);
       arrTimeDisplay = extractTime(arrRaw) ?? formatTime(arrRaw);
 
-      depForDuration = (rawParsed.departure_datetime_utc as string | undefined) ?? depRaw;
-      arrForDuration = (rawParsed.arrival_datetime_utc   as string | undefined) ?? arrRaw;
+      const depForDuration = (rawParsed.departure_datetime_utc as string | undefined) ?? depRaw;
+      const arrForDuration = (rawParsed.arrival_datetime_utc   as string | undefined) ?? arrRaw;
+      flightDuration = computeDuration(depForDuration, arrForDuration);
     }
 
-    const stopsDisplay = Array.isArray(rawStops)
-      ? rawStops.map((s) => ({
-          airport_code: String(s.airport ?? ''),
-          airport_name: String(s.airport_name ?? s.airport ?? ''),
-          duration: fmtMinutes(Number(s.duration_minutes ?? 0)),
-        }))
-      : [];
+    // Build stops_display from sky_segments (same source as FlightCard) when available.
+    // This gives the correct stop airports and accurate layover durations via UTC timestamps.
+    // Falls back to the DB-style rawStops field for Duffel / legacy flights.
+    const stopsDisplay: FlightDisplayData['stops_display'] = (() => {
+      if (Array.isArray(skySegs) && skySegs.length > 1) {
+        return skySegs.slice(0, -1).map((seg, i) => {
+          const curSeg = seg as Record<string, unknown>;
+          const nextSeg = skySegs[i + 1] as Record<string, unknown>;
+          // Prefer UTC for accurate layover (both times at the same stop airport → same tz → ok either way)
+          const curArr  = (curSeg.arrival_utc   as string | undefined) ?? String(curSeg.arrival   ?? '');
+          const nextDep = (nextSeg.departure_utc as string | undefined) ?? String(nextSeg.departure ?? '');
+          let layoverDuration = '—';
+          if (curArr && nextDep) {
+            const ms = new Date(nextDep).getTime() - new Date(curArr).getTime();
+            if (ms > 0 && Number.isFinite(ms)) layoverDuration = fmtMinutes(Math.round(ms / 60000));
+          }
+          return {
+            airport_code: String(curSeg.destination_iata ?? ''),
+            airport_name: String(curSeg.destination_name ?? curSeg.destination_iata ?? ''),
+            duration: layoverDuration,
+          };
+        });
+      }
+      // Fallback: DB-style stops field (Duffel / exclusive offers)
+      return Array.isArray(rawStops)
+        ? rawStops.map((s) => ({
+            airport_code: String(s.airport ?? ''),
+            airport_name: String(s.airport_name ?? s.airport ?? ''),
+            duration: fmtMinutes(Number(s.duration_minutes ?? 0)),
+          }))
+        : [];
+    })();
 
     return {
       departure_time: depTimeDisplay,
       arrival_time: arrTimeDisplay,
-      flight_duration: computeDuration(depForDuration, arrForDuration),
+      flight_duration: flightDuration,
       stops_display: stopsDisplay,
       airline_logo_url: (airline?.logo_url as string) ?? null,
     };
@@ -362,6 +413,8 @@ function CheckoutPageInner() {
   const [flightDbId, setFlightDbId] = useState<string | null>(null);
   const [flightProviderId, setFlightProviderId] = useState<string | null>(null);
   const [flightDisplayData, setFlightDisplayData] = useState<FlightDisplayData | null>(null);
+  /** Mapped FlightOffer — same as what FlightCard uses; gives us segments with per-stop times */
+  const [mappedFlightOffer, setMappedFlightOffer] = useState<FlightOffer | null>(null);
 
   // --- Multicity state ---
   const [multicityLegs, setMulticityLegs] = useState<SelectedLeg[]>([]);
@@ -383,6 +436,8 @@ function CheckoutPageInner() {
   const [processing, setProcessing] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
   const [success, setSuccess] = useState(false);
   const [bookingCode, setBookingCode] = useState('');
   const [serverBreakdown, setServerBreakdown] = useState<PriceBreakdown | null>(null);
@@ -685,6 +740,16 @@ function CheckoutPageInner() {
           setFlightDbId(resolvedDbId);
           setFlightProviderId(resolvedProviderId);
           setFlightDisplayData(extractFlightDisplayData(rawParsedForDisplay, flightData));
+
+          // Map raw API data to FlightOffer (same as FlightCard) so we can use
+          // FlightStopsDetails with per-segment departure/arrival times & layovers.
+          if (rawParsedForDisplay) {
+            try {
+              setMappedFlightOffer(mapApiFlightToOffer(rawParsedForDisplay));
+            } catch {
+              /* silently ignore — display still works without segment-level detail */
+            }
+          }
         }
 
         // Initialize empty passenger forms for both modes
@@ -710,6 +775,14 @@ function CheckoutPageInner() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flightId, offerId, isMulticityMode, user]);
+
+  // Pre-fill contact email from authenticated user account
+  useEffect(() => {
+    if (user?.email && !contactEmail) {
+      setContactEmail(user.email);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email]);
 
   // --- Server-side pricing preview (flight mode only) ---
   const fetchPricingPreview = useCallback(async () => {
@@ -858,6 +931,24 @@ function CheckoutPageInner() {
     }
     return true;
   }
+
+  function validateContact(): boolean {
+    if (!contactEmail.trim()) {
+      setError('El correo electrónico de contacto es obligatorio.');
+      return false;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(contactEmail.trim())) {
+      setError('Por favor ingresa un correo electrónico válido.');
+      return false;
+    }
+    if (!contactPhone.trim()) {
+      setError('El número de teléfono de contacto es obligatorio.');
+      return false;
+    }
+    return true;
+  }
+
   async function requestZelle(bookingId: string) {
   const res = await fetch('/api/payments/zelle/request', {
     method: 'POST',
@@ -884,6 +975,7 @@ function CheckoutPageInner() {
     setError(null);
 
     if (!validatePassengers()) return;
+    if (!validateContact()) return;
 
     setProcessing(true);
 
@@ -914,6 +1006,8 @@ function CheckoutPageInner() {
             payment_status: 'pending',
             booking_status: 'pending_emission',
             currency: 'USD',
+            contact_email: contactEmail.trim(),
+            contact_phone: contactPhone.trim(),
             pricing_breakdown: {
               base_price: pricePerPerson,
               markup_amount: 0,
@@ -1006,6 +1100,8 @@ function CheckoutPageInner() {
             payment_status: 'pending',
             booking_status: 'pending_emission',
             currency: 'USD',
+            contact_email: contactEmail.trim(),
+            contact_phone: contactPhone.trim(),
             pricing_breakdown: breakdown,
           })
           .select('id')
@@ -1066,6 +1162,8 @@ function CheckoutPageInner() {
             payment_status: 'pending',
             booking_status: 'pending_emission',
             currency: 'USD',
+            contact_email: contactEmail.trim(),
+            contact_phone: contactPhone.trim(),
             pricing_breakdown: breakdown,
           })
           .select('id')
@@ -1421,7 +1519,7 @@ function CheckoutPageInner() {
                             </div>
                           </div>
 
-                          {/* Stop details */}
+                          {/* Stop summary (airport codes + layover durations) */}
                           {flightDisplayData.stops_display.length > 0 && (
                             <div className="mt-2 border-t border-neutral-200 pt-2">
                               {flightDisplayData.stops_display.map((stop, i) => (
@@ -1432,6 +1530,15 @@ function CheckoutPageInner() {
                             </div>
                           )}
                         </div>
+                      )}
+
+                      {/* Full itinerary breakdown — same as FlightCard expanded view.
+                          Shows per-segment departure/arrival times, dates and layover details. */}
+                      {mappedFlightOffer && mappedFlightOffer.segments.length > 1 && (
+                        <FlightStopsDetails
+                          segments={mappedFlightOffer.segments}
+                          isOpen={true}
+                        />
                       )}
 
                       {/* Flight detail pills */}
@@ -1534,6 +1641,43 @@ function CheckoutPageInner() {
                     </p>
                   </Card>
                 ))}
+
+                {/* Contact information */}
+                <Card variant="bordered">
+                  <h3 className="mb-1 flex items-center gap-2 font-bold">
+                    <Mail className="h-4 w-4 text-brand-600" />
+                    Información de Contacto
+                  </h3>
+                  <p className="mb-4 text-sm text-neutral-500">
+                    Te notificaremos a estos datos ante cualquier cambio o novedad en tu vuelo.
+                  </p>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <FormField
+                      label="Correo Electrónico"
+                      type="email"
+                      value={contactEmail}
+                      onChange={(e) => setContactEmail(e.target.value)}
+                      placeholder="correo@ejemplo.com"
+                      required
+                    />
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-neutral-700">
+                        Número de Teléfono
+                      </label>
+                      <div className="relative">
+                        <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                        <input
+                          type="tel"
+                          value={contactPhone}
+                          onChange={(e) => setContactPhone(e.target.value)}
+                          placeholder="+1 (555) 000-0000"
+                          required
+                          className="w-full rounded-xl border border-neutral-300 bg-white py-2.5 pl-9 pr-3 text-sm text-neutral-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </Card>
 
                 {/* Payment method */}
                 <Card variant="bordered">
