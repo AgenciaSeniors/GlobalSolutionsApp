@@ -1211,19 +1211,99 @@ function CheckoutPageInner() {
 
   // --- Success screen (Zelle) ---
   if (success) {
+    // Build WhatsApp URL with comprehensive reservation data for agent verification
+    const whatsappPhone = (settings.business_phone || '').replace(/[^0-9+]/g, '').replace(/^\+/, '');
+
+    const passengerLines = passengers.map((p, i) =>
+      `  ${i + 1}. ${p.first_name} ${p.last_name}\n     Pasaporte: ${p.passport_number} (vence: ${p.passport_expiry}) | Nac.: ${p.nationality}`
+    ).join('\n');
+
+    let routeLines = '';
+    if (isMulticityMode && multicityLegs.length > 0) {
+      routeLines = multicityLegs.map((leg, i) =>
+        `  Tramo ${i + 1}: ${leg.legMeta.origin} → ${leg.legMeta.destination} (${leg.legMeta.date})`
+      ).join('\n');
+    } else if (isOfferMode && offerData) {
+      const orig = offerData.origin_city || offerData.origin_code || '';
+      const dest = offerData.destination_city || offerData.destination_code || offerData.destination || '';
+      const depDate = offerData.selected_date
+        ? new Date(offerData.selected_date + 'T12:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })
+        : '';
+      routeLines = `  ${orig} → ${dest}${depDate ? ` | Fecha: ${depDate}` : ''}`;
+    } else if (flight) {
+      // Prefer IATA code (always meaningful); only use city if it's not the 'Origen'/'Destino' placeholder
+      const origIata = flight.origin_airport?.iata_code || '';
+      const destIata = flight.destination_airport?.iata_code || '';
+      const origCity = flight.origin_airport?.city;
+      const destCity = flight.destination_airport?.city;
+      const orig = origIata || (origCity && origCity !== 'Origen' ? origCity : '') || '';
+      const dest = destIata || (destCity && destCity !== 'Destino' ? destCity : '') || '';
+      const depDate = flight.departure_datetime
+        ? new Date(flight.departure_datetime.slice(0, 10) + 'T12:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })
+        : '';
+      if (orig || dest) {
+        routeLines = `  ${orig} → ${dest}${depDate ? ` | Salida: ${depDate}` : ''}`;
+      }
+    }
+
+    const zelleMsg = [
+      `Estimados, me comunico para coordinar el pago de mi reserva por Zelle y solicitar la verificación correspondiente.`,
+      ``,
+      `📋 *DATOS DE LA RESERVA*`,
+      `• Código: *${bookingCode}*`,
+      `• Total a pagar: *$${breakdown.total.toFixed(2)} USD*`,
+      routeLines ? `\n✈️ *RUTA*\n${routeLines}` : '',
+      ``,
+      `👤 *PASAJERO(S)*`,
+      passengerLines,
+      ``,
+      `📞 *DATOS DE CONTACTO*`,
+      `• Email: ${contactEmail}`,
+      `• Teléfono: ${contactPhone}`,
+      ``,
+      `Por favor, proporcione los datos de la cuenta Zelle para proceder con el pago. Una vez realizada la transferencia, enviaré el comprobante para que un agente pueda verificarlo y confirmar la reserva.`,
+      ``,
+      `Gracias por su atención.`,
+    ].filter(Boolean).join('\n');
+
+    const zelleWhatsappUrl = whatsappPhone
+      ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(zelleMsg)}`
+      : '';
+
     return (
       <>
         <Navbar />
-        <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-brand-50 to-white pt-20">
-          <Card className="max-w-lg text-center">
-            <CheckCircle className="mx-auto mb-4 h-16 w-16 text-emerald-500" />
-            <h1 className="text-2xl font-bold">¡Reserva Creada!</h1>
-            <p className="mt-2 font-mono text-lg font-bold text-brand-600">{bookingCode}</p>
-            <p className="mt-3 text-neutral-600">
-              Realiza la transferencia por Zelle y un agente confirmará tu pago en 2–4 horas.
+        <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-brand-50 to-white pt-20 px-4">
+          <Card className="max-w-lg w-full text-center space-y-5 p-8">
+            <CheckCircle className="mx-auto h-16 w-16 text-emerald-500" />
+            <div>
+              <h1 className="text-2xl font-bold">¡Reserva Creada!</h1>
+              <p className="mt-2 font-mono text-lg font-bold text-brand-600">{bookingCode}</p>
+            </div>
+            <p className="text-sm text-neutral-600">
+              Tu reserva está pendiente de pago. Contáctanos por WhatsApp para recibir los datos de la cuenta Zelle y coordinar la verificación de tu transferencia.
             </p>
-            <p className="mt-4 text-sm text-neutral-400">Estado: Pendiente de Pago</p>
-            <div className="mt-6 flex justify-center gap-3">
+            {zelleWhatsappUrl ? (
+              <a
+                href={zelleWhatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex w-full items-center justify-center gap-3 rounded-xl bg-[#25D366] hover:bg-[#1ebe5d] text-white px-6 py-4 font-bold text-base transition-colors shadow-md"
+              >
+                <svg className="h-6 w-6 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                </svg>
+                Iniciar pago por WhatsApp
+              </a>
+            ) : (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                Contáctanos directamente para recibir los datos de pago por Zelle.
+              </div>
+            )}
+            <p className="text-xs text-neutral-400">
+              Estado: <span className="font-medium text-amber-600">Pendiente de Pago</span>
+            </p>
+            <div className="flex justify-center gap-3 pt-1">
               <Button onClick={() => router.push('/user/dashboard/bookings')}>Ver Mis Reservas</Button>
               <Button variant="outline" onClick={() => router.push('/')}>
                 Volver al Inicio

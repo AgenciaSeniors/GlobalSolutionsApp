@@ -26,7 +26,16 @@ export async function GET(req: NextRequest) {
     if (bookingId) {
       const { data: booking, error: bErr } = await supabase
         .from('bookings')
-        .select('id, booking_code, total_amount, payment_status, payment_method')
+        .select(`
+          id, booking_code, total_amount, payment_status, payment_method,
+          contact_email, contact_phone,
+          passengers:booking_passengers(first_name, last_name, passport_number, passport_expiry_date, nationality),
+          flight:flights(
+            departure_datetime,
+            origin_airport:airports!origin_airport_id(iata_code, city),
+            destination_airport:airports!destination_airport_id(iata_code, city)
+          )
+        `)
         .eq('id', bookingId)
         .eq('user_id', user.id)
         .single();
