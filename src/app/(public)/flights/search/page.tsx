@@ -120,10 +120,23 @@ function FlightSearchResultsInner() {
 
   // Scroll to results when first batch loads
   useEffect(() => {
+    let shouldUseSmoothBehavior = false;
+    try {
+      shouldUseSmoothBehavior = sessionStorage.getItem('flightSearchTransition') === '1';
+      if (shouldUseSmoothBehavior) {
+        sessionStorage.removeItem('flightSearchTransition');
+      }
+    } catch {
+      // no-op
+    }
+
     if (!isLoading && results.length > 0 && !hasScrolledRef.current) {
       hasScrolledRef.current = true;
       setTimeout(() => {
-        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        resultsRef.current?.scrollIntoView({
+          behavior: shouldUseSmoothBehavior ? 'smooth' : 'auto',
+          block: 'start',
+        });
       }, 100);
     }
     if (isLoading) {
