@@ -364,6 +364,57 @@ function isUuidLike(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
 
+// ─── WhatsApp helper for Zelle payment verification ─────────────────────────
+interface ZelleWhatsAppOpts {
+  bookingCode: string;
+  passengers: Array<{
+    first_name: string;
+    last_name: string;
+    nationality: string;
+    passport_number: string;
+    passport_expiry: string;
+    dob: string;
+  }>;
+  contactEmail: string;
+  contactPhone: string;
+  total: number;
+  flightInfo: string;
+  businessPhone: string;
+}
+
+function buildZelleWhatsAppUrl(opts: ZelleWhatsAppOpts): string {
+  const phone = opts.businessPhone.replace(/[^0-9+]/g, '').replace(/^\+/, '');
+
+  const passengerLines = opts.passengers
+    .map(
+      (p, i) =>
+        `  ${i + 1}. ${p.first_name.trim()} ${p.last_name.trim()}\n` +
+        `     Pasaporte: ${p.passport_number.trim()} | Nac: ${p.nationality.trim().toUpperCase()} | Vence: ${p.passport_expiry}`
+    )
+    .join('\n');
+
+  const msg = [
+    `🛫 *RESERVA POR ZELLE — Global Solutions Travel*`,
+    ``,
+    `📋 *Código de reserva:* ${opts.bookingCode}`,
+    `💰 *Total a pagar:* $${opts.total.toFixed(2)} USD`,
+    ``,
+    `✈️ *DETALLES DEL VUELO*`,
+    opts.flightInfo,
+    ``,
+    `👥 *PASAJEROS (${opts.passengers.length})*`,
+    passengerLines,
+    ``,
+    `📞 *DATOS DE CONTACTO*`,
+    `  • Email: ${opts.contactEmail}`,
+    `  • Teléfono: ${opts.contactPhone}`,
+    ``,
+    `Quisiera realizar el pago por Zelle para confirmar esta reserva. ¿Me pueden facilitar los datos de la cuenta Zelle a la que debo realizar la transferencia? Quedo en espera, muchas gracias.`,
+  ].join('\n');
+
+  return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+}
+
 async function persistFlightToDb(
   rawFlightData: Record<string, unknown>
 ): Promise<{ uuid: string; externalId: string | null }> {
@@ -440,6 +491,7 @@ function CheckoutPageInner() {
   const [contactPhone, setContactPhone] = useState('');
   const [success, setSuccess] = useState(false);
   const [bookingCode, setBookingCode] = useState('');
+  const [zelleWhatsAppUrl, setZelleWhatsAppUrl] = useState('');
   const [serverBreakdown, setServerBreakdown] = useState<PriceBreakdown | null>(null);
   const [pricingLoading, setPricingLoading] = useState(false);
 
@@ -979,6 +1031,10 @@ function CheckoutPageInner() {
 
     setProcessing(true);
 
+    // Abrimos la ventana de WhatsApp de forma síncrona (antes de cualquier await)
+    // para que el navegador no la bloquee como popup. Luego le asignamos la URL real.
+    const waWindowRef = gateway === 'zelle' ? window.open('about:blank', '_blank') : null;
+
     try {
       const newBookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
@@ -1077,6 +1133,30 @@ function CheckoutPageInner() {
 
         if (gateway === 'zelle') {
           await requestZelle(booking.id);
+          // Open WhatsApp with full booking details for agent verification
+          const zelleFlightInfoMulticity = multicityLegs
+            .map((leg, i) => {
+              const raw = leg.rawFlight as Record<string, unknown>;
+              const depRaw = String(raw.departure_datetime ?? raw.departureTime ?? '');
+              const depFormatted = depRaw ? depRaw.replace('T', ' ').slice(0, 16) : null;
+              return (
+                `  Tramo ${i + 1}: ${leg.legMeta.origin} → ${leg.legMeta.destination}\n` +
+                `  Fecha: ${leg.legMeta.date}` +
+                (depFormatted ? `\n  Salida: ${depFormatted}` : '')
+              );
+            })
+            .join('\n\n');
+          const waUrlMulticity = buildZelleWhatsAppUrl({
+            bookingCode: newBookingCode,
+            passengers,
+            contactEmail: contactEmail.trim(),
+            contactPhone: contactPhone.trim(),
+            total: totalSubtotal,
+            flightInfo: zelleFlightInfoMulticity,
+            businessPhone: settings.business_phone || '',
+          });
+          setZelleWhatsAppUrl(waUrlMulticity);
+          if (waWindowRef) waWindowRef.location.href = waUrlMulticity;
           setBookingCode(newBookingCode);
           setSuccess(true);
           return;
@@ -1134,6 +1214,26 @@ function CheckoutPageInner() {
 
         if (gateway === 'zelle') {
           await requestZelle(booking.id);
+          // Open WhatsApp with full booking details for agent verification
+          const zelleFlightInfoOffer = [
+            offerData.airline_name ? `  • Aerolínea: ${offerData.airline_name}` : null,
+            offerData.flight_number ? `  • Vuelo: ${offerData.flight_number}` : null,
+            `  • Ruta: ${offerData.origin_code ?? offerData.origin_city ?? 'N/A'} → ${offerData.destination_code ?? offerData.destination_city ?? offerData.destination}`,
+            `  • Fecha: ${offerData.selected_date}`,
+            offerData.departure_time ? `  • Salida: ${offerData.departure_time}` : null,
+            offerData.arrival_time ? `  • Llegada: ${offerData.arrival_time}` : null,
+          ].filter((x): x is string => x !== null).join('\n');
+          const waUrlOffer = buildZelleWhatsAppUrl({
+            bookingCode: newBookingCode,
+            passengers,
+            contactEmail: contactEmail.trim(),
+            contactPhone: contactPhone.trim(),
+            total: breakdown.total,
+            flightInfo: zelleFlightInfoOffer,
+            businessPhone: settings.business_phone || '',
+          });
+          setZelleWhatsAppUrl(waUrlOffer);
+          if (waWindowRef) waWindowRef.location.href = waUrlOffer;
           setBookingCode(newBookingCode);
           setSuccess(true);
           return;
@@ -1193,17 +1293,42 @@ function CheckoutPageInner() {
           .eq('id', flightDbId);
 
         if (gateway === 'zelle') {
-            await requestZelle(booking.id);
-            setBookingCode(newBookingCode);
-            setSuccess(true);
-            return;
-          }
+          await requestZelle(booking.id);
+          // Open WhatsApp with full booking details for agent verification
+          const zelleFlightInfoFlight = [
+            `  • Aerolínea: ${flight.airline?.name ?? 'N/A'}`,
+            `  • Vuelo: ${flight.flight_number}`,
+            `  • Ruta: ${flight.origin_airport?.iata_code ?? '?'} → ${flight.destination_airport?.iata_code ?? '?'}`,
+            flight.departure_datetime
+              ? `  • Salida: ${flight.departure_datetime.replace('T', ' ').slice(0, 16)}`
+              : null,
+            flight.arrival_datetime
+              ? `  • Llegada: ${flight.arrival_datetime.replace('T', ' ').slice(0, 16)}`
+              : null,
+          ].filter((x): x is string => x !== null).join('\n');
+          const waUrlFlight = buildZelleWhatsAppUrl({
+            bookingCode: newBookingCode,
+            passengers,
+            contactEmail: contactEmail.trim(),
+            contactPhone: contactPhone.trim(),
+            total: breakdown.total,
+            flightInfo: zelleFlightInfoFlight,
+            businessPhone: settings.business_phone || '',
+          });
+          setZelleWhatsAppUrl(waUrlFlight);
+          if (waWindowRef) waWindowRef.location.href = waUrlFlight;
+          setBookingCode(newBookingCode);
+          setSuccess(true);
+          return;
+        }
 
         router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
       }
     } catch (err) {
       console.error('[Checkout] Submit error:', err);
       setError(err instanceof Error ? err.message : 'Error al procesar la reserva.');
+      // Si algo falló, cerramos la ventana vacía de WhatsApp que se abrió
+      if (waWindowRef) waWindowRef.close();
     } finally {
       setProcessing(false);
     }

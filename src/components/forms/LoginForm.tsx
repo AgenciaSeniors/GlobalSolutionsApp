@@ -11,7 +11,15 @@ import { loginSchema, type LoginFormValues } from '@/lib/validations/auth.schema
 import { ROUTES } from '@/lib/constants/routes';
 import { authService } from '@/services/auth.service';
 import { Capacitor } from '@capacitor/core';
+type GoogleAuthUser = {
+  authentication: { idToken: string };
+};
 
+type GoogleAuthModule = {
+  GoogleAuth: {
+    signIn: () => Promise<GoogleAuthUser>;
+  };
+};
 export default function LoginForm() {
   const searchParams = useSearchParams();
   const confirmed = searchParams.get('confirmed') === 'true';
@@ -24,32 +32,36 @@ export default function LoginForm() {
 
   const isNative = Capacitor.isNativePlatform();
 
-  async function handleGoogleSignIn() {
-    setServerError(null);
-    setIsLoading(true);
-    try {
-      // Import dinámico para no romper el bundle web (el plugin no existe en web)
-      const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
-      const googleUser = await GoogleAuth.signIn();
-      const idToken = googleUser.authentication.idToken;
+async function handleGoogleSignIn() {
+  setServerError(null);
+  setIsLoading(true);
+  try {
+    if (!isNative) throw new Error('GoogleAuth solo disponible en la app nativa.');
 
-      const { createClient } = await import('@/lib/supabase/client');
-      const supabase = createClient();
-      const { error } = await supabase.auth.signInWithIdToken({
-        provider: 'google',
-        token: idToken,
-      });
+    // Carga solo en runtime nativo (evita que TS/Next intenten resolver el módulo en web)
+    const req = eval('require') as (id: string) => unknown;
+    const mod = req('@codetrix-studio/capacitor-google-auth') as GoogleAuthModule;
+    const { GoogleAuth } = mod;
 
-      if (error) throw new Error(error.message);
-      // Sesión establecida directamente, sin redirect a supabase.co
-      window.location.href = '/';
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Error con Google Sign-In';
-      setServerError(message);
-    } finally {
-      setIsLoading(false);
-    }
+    const googleUser = await GoogleAuth.signIn();
+    const idToken = googleUser.authentication.idToken;
+
+    const { createClient } = await import('@/lib/supabase/client');
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithIdToken({
+      provider: 'google',
+      token: idToken,
+    });
+
+    if (error) throw new Error(error.message);
+    window.location.href = '/';
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Error con Google Sign-In';
+    setServerError(message);
+  } finally {
+    setIsLoading(false);
   }
+}
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
