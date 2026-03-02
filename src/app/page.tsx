@@ -104,22 +104,7 @@ export default async function HomePage() {
       {/* Hero */}
       <HeroSection />
 
-      {/* Flight Search */}
-      <section className="bg-white py-12 sm:py-16 md:py-20">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6">
-          <div className="mb-8 text-center sm:mb-12">
-            <span className="text-sm font-bold uppercase tracking-widest text-brand-500">
-              Búsqueda de Vuelos
-            </span>
-            <h2 className="mt-2 font-display text-2xl font-bold text-brand-950 sm:text-3xl md:text-4xl">
-              Encuentra tu vuelo ideal
-            </h2>
-          </div>
-          <FlightSearchForm />
-        </div>
-      </section>
-
-      {/* Offers Carousel */}
+         {/* Offers Carousel */}
       <section className="bg-neutral-50 py-12 sm:py-16 md:py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <div className="mb-8 sm:mb-12">
@@ -145,6 +130,23 @@ export default async function HomePage() {
           )}
         </div>
       </section>
+
+      {/* Flight Search */}
+      <section className="bg-white py-12 sm:py-16 md:py-20">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6">
+          <div className="mb-8 text-center sm:mb-12">
+            <span className="text-sm font-bold uppercase tracking-widest text-brand-500">
+              Búsqueda de Vuelos
+            </span>
+            <h2 className="mt-2 font-display text-2xl font-bold text-brand-950 sm:text-3xl md:text-4xl">
+              Encuentra tu vuelo ideal
+            </h2>
+          </div>
+          <FlightSearchForm />
+        </div>
+      </section>
+
+   
 
       {/* Landing sections */}
       <AboutSection />
