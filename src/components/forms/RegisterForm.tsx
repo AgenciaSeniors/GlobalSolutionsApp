@@ -34,7 +34,7 @@ export default function RegisterForm() {
     try {
       await authService.signUpStepOne(normalizedEmail);
       setStep("otp");
-      setInfoMsg("Te enviamos un código a tu correo. Pégalo aquí para completar el registro.");
+      setInfoMsg("Te enviamos un código a tu correo(revise la bandeja de Spam). Pégalo aquí para completar el registro.");
     } catch (err: any) {
       if (err?.status === 409) {
         setDuplicateEmail(true);

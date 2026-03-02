@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, X, Plane, Car, Sparkles, Home, LogIn } from 'lucide-react';
-
+import Image from 'next/image';
 import { cn } from '@/lib/utils/cn';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
@@ -81,14 +81,23 @@ export default function Navbar() {
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
-        <Link href={ROUTES.HOME} className="flex items-center px-2 py-2">
-          <span className="leading-none">
-            <span className="font-display text-base font-bold tracking-wide text-navy sm:text-xl">
-              GLOBAL SOLUTIONS{' '}
-            </span>
-            <span className="font-script text-base font-bold text-coral sm:text-xl">Travel</span>
-          </span>
-        </Link>
+      <Link href={ROUTES.HOME} className="flex items-center gap-0 px-2 py-2">
+  <Image
+    src="/brand/avion-check.png"
+    alt="Global Solutions Travel"
+    width={60}
+    height={60}
+    className="h-10 w-10 sm:h-12 sm:w-12 object-contain shrink-0"
+    priority
+  />
+
+  <span className="-ml-2 sm:-ml-3 leading-none">
+    <span className="font-display text-base font-bold tracking-wide text-navy sm:text-xl">
+      GLOBAL SOLUTIONS{' '}
+    </span>
+    <span className="font-script text-base font-bold text-coral sm:text-xl">Travel</span>
+  </span>
+</Link>
 
         {/* ── Desktop Links ── */}
         <ul className="hidden items-center gap-1 md:flex">

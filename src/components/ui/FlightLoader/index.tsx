@@ -80,17 +80,11 @@ function SwooshArrow(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-function PlaneIcon(props: React.SVGProps<SVGSVGElement>) {
+function PaperPlaneIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      {...props}
-    >
-      {/* Silueta simple tipo "airplanemode_active" (vista superior) */}
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" {...props}>
       <path
-        d="M21 16v-2l-8-5V3.5C13 2.67 12.33 2 11.5 2S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"
+        d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"
         fill="currentColor"
       />
     </svg>
@@ -121,7 +115,7 @@ export function FlightLoader() {
 
         {/* Avión + sombra animados */}
         <div className={styles.planeShadow} />
-        <PlaneIcon className={styles.plane} />
+      <PaperPlaneIcon className={styles.plane} />
       </div>
     </div>
   );
