@@ -47,7 +47,8 @@ export default function OfferDetailPage() {
   const params = useParams();
   const router = useRouter();
   const supabase = createClient();
-  const { user } = useAuthContext();
+  const { user, profile } = useAuthContext();
+  const isAgent = profile?.role === 'agent' || profile?.role === 'admin';
 
   const [offer, setOffer] = useState<SpecialOffer | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,7 +123,8 @@ export default function OfferDetailPage() {
   }
 
   const seatsLeft = offer.max_seats - offer.sold_seats;
-  const savingsPct = Math.round(((offer.original_price - offer.offer_price) / offer.original_price) * 100);
+  const displayPrice = isAgent && offer.agent_price ? offer.agent_price : offer.offer_price;
+  const savingsPct = Math.round(((offer.original_price - displayPrice) / offer.original_price) * 100);
   const stops = (offer.stops ?? []) as SpecialOfferStop[];
   const isDirectFlight = stops.length === 0;
   const originCode = offer.origin_airport?.iata_code ?? '';
@@ -176,9 +178,11 @@ export default function OfferDetailPage() {
               </div>
               <div className="text-left lg:text-right">
                 <p className="text-lg text-brand-300 line-through">${offer.original_price}</p>
-                <p className="text-4xl lg:text-5xl font-extrabold text-white">${offer.offer_price}</p>
+                <p className="text-4xl lg:text-5xl font-extrabold text-white">${displayPrice}</p>
                 <p className="mt-1 text-sm text-emerald-300 font-semibold">Ahorras {savingsPct}%</p>
-                <p className="text-xs text-brand-200 mt-1">por persona</p>
+                <p className="text-xs text-brand-200 mt-1">
+                  por persona{isAgent && offer.agent_price ? ' · precio agente' : ''}
+                </p>
               </div>
             </div>
           </div>
@@ -250,7 +254,7 @@ export default function OfferDetailPage() {
             <div className="lg:col-span-3">
               <OfferCalendar
                 validDates={offer.valid_dates}
-                offerPrice={offer.offer_price}
+                offerPrice={displayPrice}
                 originalPrice={offer.original_price}
                 destination={offer.destination}
                 onSelectDate={handleSelectDate}
@@ -453,7 +457,7 @@ export default function OfferDetailPage() {
               ) : defaultDate ? (
                 <Button className="w-full gap-2" size="lg" onClick={handleHeroClick}>
                   <Flame className="h-4 w-4" />
-                  Reservar {passengers > 1 ? `${passengers} pasajeros` : 'ahora'} — ${(offer.offer_price * passengers).toFixed(2)}
+                  Reservar {passengers > 1 ? `${passengers} pasajeros` : 'ahora'} — ${(displayPrice * passengers).toFixed(2)}
                 </Button>
               ) : null}
 

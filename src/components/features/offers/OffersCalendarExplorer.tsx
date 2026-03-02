@@ -21,7 +21,8 @@ function tagLabel(tag: string) {
 
 export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffer[] }) {
   const router = useRouter();
-  const { user } = useAuthContext();
+  const { user, profile } = useAuthContext();
+  const isAgent = profile?.role === 'agent' || profile?.role === 'admin';
 
   const today = new Date();
   const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -208,7 +209,8 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
         ) : (
           offersForSelected.map((o) => {
             const seatsLeft = Math.max(0, o.max_seats - o.sold_seats);
-            const discount = calcDiscount(o.original_price, o.offer_price);
+            const displayPrice = isAgent && o.agent_price ? o.agent_price : o.offer_price;
+            const discount = calcDiscount(o.original_price, displayPrice);
 
             return (
               <Card key={o.id} variant="elevated" className="p-5">
@@ -263,9 +265,12 @@ export default function OffersCalendarExplorer({ offers }: { offers: SpecialOffe
                         {formatCurrency(o.original_price)}
                       </span>
                       <span className="text-2xl font-extrabold text-brand-700">
-                        {formatCurrency(o.offer_price)}
+                        {formatCurrency(displayPrice)}
                       </span>
                       <span className="text-xs text-neutral-400">/ persona</span>
+                      {isAgent && o.agent_price && (
+                        <span className="text-xs font-medium text-brand-500">· precio agente</span>
+                      )}
                     </div>
 
                     {/* Selector de pasajeros */}
