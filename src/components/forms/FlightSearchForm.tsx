@@ -56,21 +56,41 @@ type Props = {
 
 export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOnClassChange }: Props) {
   const router = useRouter();
-  const [tripType, setTripType] = useState<TripType>('roundtrip');
-  const [form, setForm] = useState({
-    origin: '',
-    destination: '',
-    departure: '',
-    returnDate: '',
-    passengers: '1',
-    cabinClass: 'economy',
+  const buildInitialFormState = () => ({
+    origin: initialValues?.origin || '',
+    destination: initialValues?.destination || '',
+    departure: initialValues?.departure || '',
+    returnDate: initialValues?.returnDate || '',
+    passengers: initialValues?.passengers || '1',
+    cabinClass: initialValues?.cabinClass || 'economy',
   });
 
-  const [legs, setLegs] = useState<StopLeg[]>([]);
-  const [initialized, setInitialized] = useState(false);
+  const buildInitialTripType = (): TripType => {
+    if (initialValues?.tripType === 'multicity') return 'multicity';
+    if (!initialValues?.returnDate) return 'oneway';
+    return 'roundtrip';
+  };
+
+  const buildInitialLegs = (): StopLeg[] => {
+    if (initialValues?.tripType !== 'multicity') return [];
+    if (initialValues.legs && initialValues.legs.length > 1) return initialValues.legs.slice(1);
+    return [{ origin: '', destination: '', date: '' }];
+  };
+
+  const [tripType, setTripType] = useState<TripType>(buildInitialTripType);
+  const [form, setForm] = useState(buildInitialFormState);
+
+  const [legs, setLegs] = useState<StopLeg[]>(buildInitialLegs);
+  const [initialized, setInitialized] = useState(Boolean(initialValues));
   const [dateError, setDateError] = useState('');
 
   const navigateToResults = (payload: FlightSearchParams, mode: 'push' | 'replace' = 'push') => {
+    try {
+      sessionStorage.setItem('flightSearchTransition', '1');
+    } catch {
+      // no-op
+    }
+
     const params = new URLSearchParams({
       from: payload.from,
       to: payload.to,
