@@ -9,8 +9,11 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import { calcDiscount, formatCurrency, formatDate } from '@/lib/utils/formatters';
 import { cn } from '@/lib/utils/cn';
+import { useAuthContext } from '@/components/providers/AuthProvider';
 
 export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] }) {
+  const { profile } = useAuthContext();
+  const isAgent = profile?.role === 'agent' || profile?.role === 'admin';
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: offers.length > 1,
     align: 'start',
@@ -66,7 +69,8 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
         <div className="flex gap-6">
           {offers.map((o) => {
             const seatsLeft = Math.max(0, o.max_seats - o.sold_seats);
-            const discount = calcDiscount(o.original_price, o.offer_price);
+            const displayPrice = isAgent && o.agent_price ? o.agent_price : o.offer_price;
+            const discount = calcDiscount(o.original_price, displayPrice);
             const firstDate = o.valid_dates?.[0];
 
             return (
@@ -133,8 +137,11 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
                             {formatCurrency(o.original_price)}
                           </p>
                           <p className="text-4xl font-extrabold text-white">
-                            {formatCurrency(o.offer_price)}
+                            {formatCurrency(displayPrice)}
                           </p>
+                          {isAgent && o.agent_price && (
+                            <p className="mt-0.5 text-xs text-brand-200">Precio agente</p>
+                          )}
                           <p className="mt-1 text-xs text-white/70">
                             {firstDate ? `Desde ${formatDate(firstDate)}` : 'Fechas variables'}
                           </p>

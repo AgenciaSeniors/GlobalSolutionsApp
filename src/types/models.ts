@@ -214,6 +214,7 @@ export interface SpecialOffer {
   valid_dates: string[];
   original_price: number;
   offer_price: number;
+  agent_price: number | null;
   markup_percentage: number;
   tags: string[];
   urgency_label: string | null;

@@ -28,6 +28,8 @@ import {
   Clock,
   CircleDot,
   X,
+  Search,
+  ChevronDown,
 } from 'lucide-react';
 import type { SpecialOffer, SpecialOfferStop } from '@/types/models';
 
@@ -49,6 +51,7 @@ interface AirlineOption {
   id: string;
   iata_code: string;
   name: string;
+  logo_url: string | null;
 }
 
 interface AirportOption {
@@ -94,6 +97,7 @@ export default function AdminOffersPage() {
   // --- Form state: Pricing ---
   const [originalPrice, setOriginalPrice] = useState('');
   const [offerPrice, setOfferPrice] = useState('');
+  const [agentPrice, setAgentPrice] = useState('');
 
   // --- Form state: Availability ---
   const [validDates, setValidDates] = useState('');
@@ -103,6 +107,11 @@ export default function AdminOffersPage() {
 
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Airline combobox search state
+  const [airlineSearch, setAirlineSearch] = useState('');
+  const [airlineDropdownOpen, setAirlineDropdownOpen] = useState(false);
+  const [customAirlineName, setCustomAirlineName] = useState('');
 
   useEffect(() => {
     fetchOffers();
@@ -121,7 +130,7 @@ export default function AdminOffersPage() {
 
   async function fetchReferenceData() {
     const [airlinesRes, airportsRes] = await Promise.all([
-      supabase.from('airlines').select('id, iata_code, name').eq('is_active', true).order('name'),
+      supabase.from('airlines').select('id, iata_code, name, logo_url').order('name'),
       supabase.from('airports').select('id, iata_code, name, city, country').order('city'),
     ]);
     setAirlines((airlinesRes.data as AirlineOption[]) ?? []);
@@ -168,11 +177,15 @@ export default function AdminOffersPage() {
     setStops([]);
     setOriginalPrice('');
     setOfferPrice('');
+    setAgentPrice('');
     setValidDates('');
     setMaxSeats('20');
     setUrgencyLabel('');
     setSelectedTags([]);
     setEditingId(null);
+    setAirlineSearch('');
+    setAirlineDropdownOpen(false);
+    setCustomAirlineName('');
   }
 
   function editOffer(offer: SpecialOffer) {
@@ -194,10 +207,12 @@ export default function AdminOffersPage() {
     setStops((offer.stops as SpecialOfferStop[]) || []);
     setOriginalPrice(offer.original_price.toString());
     setOfferPrice(offer.offer_price.toString());
+    setAgentPrice((offer.agent_price ?? '').toString());
     setValidDates(offer.valid_dates.join(', '));
     setUrgencyLabel(offer.urgency_label || '');
     setMaxSeats(offer.max_seats.toString());
     setSelectedTags(offer.tags);
+    setCustomAirlineName((offer as unknown as { custom_airline_name?: string }).custom_airline_name || '');
     setImageFile(null);
     setImagePreviewUrl(null);
     setShowForm(true);
@@ -264,6 +279,7 @@ export default function AdminOffersPage() {
         destination,
         destination_img: finalImgUrl || null,
         airline_id: airlineId || null,
+        custom_airline_name: !airlineId && customAirlineName ? customAirlineName : null,
         flight_number: flightNumber || null,
         origin_airport_id: originAirportId || null,
         destination_airport_id: destinationAirportId || null,
@@ -278,6 +294,7 @@ export default function AdminOffersPage() {
         stops: cleanStops,
         original_price: parseFloat(originalPrice),
         offer_price: parseFloat(offerPrice),
+        agent_price: agentPrice ? parseFloat(agentPrice) : null,
         valid_dates: dates,
         urgency_label: urgencyLabel || null,
         max_seats: parseInt(maxSeats),
@@ -413,22 +430,186 @@ export default function AdminOffersPage() {
                     <Plane className="h-4 w-4" /> Detalles del Vuelo
                   </p>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                    {/* Airline */}
-                    <div className="space-y-1">
-                      <label className="text-sm font-medium text-neutral-700">Aerolínea</label>
-                      <select
-                        value={airlineId}
-                        onChange={(e) => setAirlineId(e.target.value)}
-                        className="w-full rounded-xl border border-neutral-300 px-3 py-2.5 text-sm bg-white"
-                      >
-                        <option value="">— Seleccionar —</option>
-                        {airlines.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.name} ({a.iata_code})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {/* Airline — searchable combobox */}
+                    {(() => {
+                      const selectedAirline = airlines.find((a) => a.id === airlineId) ?? null;
+                      const filteredAirlines = airlines.filter(
+                        (a) =>
+                          a.name.toLowerCase().includes(airlineSearch.toLowerCase()) ||
+                          a.iata_code.toLowerCase().includes(airlineSearch.toLowerCase()),
+                      );
+                      return (
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-neutral-700">Aerolínea</label>
+                          <div className="relative">
+                            {/* Trigger */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAirlineDropdownOpen((prev) => !prev);
+                                setAirlineSearch('');
+                              }}
+                              className="flex w-full items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-left text-sm transition hover:border-brand-400"
+                            >
+                              {selectedAirline ? (
+                                <>
+                                  {selectedAirline.logo_url ? (
+                                    <img
+                                      src={selectedAirline.logo_url}
+                                      alt=""
+                                      className="h-5 w-5 flex-shrink-0 object-contain"
+                                    />
+                                  ) : (
+                                    <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-brand-100 text-[9px] font-bold text-brand-700">
+                                      {selectedAirline.iata_code}
+                                    </span>
+                                  )}
+                                  <span className="flex-1 truncate font-medium">
+                                    {selectedAirline.name}
+                                    <span className="ml-1 text-xs font-normal text-neutral-400">
+                                      ({selectedAirline.iata_code})
+                                    </span>
+                                  </span>
+                                  <X
+                                    className="h-3.5 w-3.5 flex-shrink-0 text-neutral-400 hover:text-red-500"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAirlineId('');
+                                      setAirlineDropdownOpen(false);
+                                    }}
+                                  />
+                                </>
+                              ) : customAirlineName ? (
+                                <>
+                                  <Plane className="h-5 w-5 flex-shrink-0 text-neutral-400" />
+                                  <span className="flex-1 truncate font-medium text-neutral-700">
+                                    {customAirlineName}
+                                    <span className="ml-1 text-xs font-normal text-neutral-400">(personalizado)</span>
+                                  </span>
+                                  <X
+                                    className="h-3.5 w-3.5 flex-shrink-0 text-neutral-400 hover:text-red-500"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCustomAirlineName('');
+                                      setAirlineDropdownOpen(false);
+                                    }}
+                                  />
+                                </>
+                              ) : (
+                                <>
+                                  <span className="flex-1 text-neutral-400">— Buscar aerolínea —</span>
+                                  <ChevronDown className="h-4 w-4 flex-shrink-0 text-neutral-400" />
+                                </>
+                              )}
+                            </button>
+
+                            {/* Dropdown panel */}
+                            {airlineDropdownOpen && (
+                              <>
+                                {/* Backdrop */}
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setAirlineDropdownOpen(false)}
+                                />
+                                <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl">
+                                  {/* Search input */}
+                                  <div className="flex items-center gap-2 border-b border-neutral-100 px-3 py-2">
+                                    <Search className="h-4 w-4 flex-shrink-0 text-neutral-400" />
+                                    <input
+                                      type="text"
+                                      autoFocus
+                                      value={airlineSearch}
+                                      onChange={(e) => setAirlineSearch(e.target.value)}
+                                      placeholder="Buscar por nombre o código IATA…"
+                                      className="flex-1 bg-transparent text-sm outline-none placeholder:text-neutral-400"
+                                    />
+                                    {airlineSearch && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setAirlineSearch('')}
+                                        className="text-neutral-400 hover:text-neutral-600"
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* Results list */}
+                                  <div className="max-h-64 overflow-y-auto">
+                                    {filteredAirlines.length === 0 ? (
+                                      <div>
+                                        <p className="px-4 py-2 text-xs text-neutral-400">
+                                          Sin resultados para &ldquo;{airlineSearch}&rdquo;
+                                        </p>
+                                        {airlineSearch.trim() && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setCustomAirlineName(airlineSearch.trim());
+                                              setAirlineId('');
+                                              setAirlineDropdownOpen(false);
+                                              setAirlineSearch('');
+                                            }}
+                                            className="flex w-full items-center gap-3 border-t border-neutral-100 px-3 py-2.5 text-left text-sm transition hover:bg-brand-50"
+                                          >
+                                            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-neutral-100">
+                                              <Plane className="h-4 w-4 text-neutral-500" />
+                                            </div>
+                                            <span className="flex-1 text-sm text-neutral-700">
+                                              Usar{' '}
+                                              <strong className="font-semibold">&ldquo;{airlineSearch}&rdquo;</strong>{' '}
+                                              como nombre de aerolínea
+                                            </span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      filteredAirlines.map((a) => (
+                                        <button
+                                          key={a.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setAirlineId(a.id);
+                                            setCustomAirlineName('');
+                                            setAirlineDropdownOpen(false);
+                                            setAirlineSearch('');
+                                          }}
+                                          className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition hover:bg-brand-50 ${
+                                            airlineId === a.id ? 'bg-brand-50' : ''
+                                          }`}
+                                        >
+                                          {a.logo_url ? (
+                                            <img
+                                              src={a.logo_url}
+                                              alt=""
+                                              className="h-7 w-7 flex-shrink-0 rounded object-contain"
+                                            />
+                                          ) : (
+                                            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded bg-brand-100 text-[10px] font-bold text-brand-700">
+                                              {a.iata_code}
+                                            </div>
+                                          )}
+                                          <span className="flex-1 truncate">{a.name}</span>
+                                          <span className="flex-shrink-0 text-xs text-neutral-400">
+                                            {a.iata_code}
+                                          </span>
+                                        </button>
+                                      ))
+                                    )}
+                                  </div>
+
+                                  {/* Footer counter */}
+                                  <div className="border-t border-neutral-100 px-3 py-1.5 text-xs text-neutral-400">
+                                    {filteredAirlines.length} aerolínea{filteredAirlines.length !== 1 ? 's' : ''}
+                                    {airlineSearch ? ` coinciden con "${airlineSearch}"` : ' disponibles'}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Flight number */}
                     <div className="space-y-1">
@@ -616,11 +797,11 @@ export default function AdminOffersPage() {
                   <p className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-brand-700">
                     <Tag className="h-4 w-4" /> Precios
                   </p>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-neutral-700">
                         Precio original ($)
-                        <span className="ml-1 text-xs text-neutral-400">base + markup agencia</span>
+                        <span className="ml-1 text-xs text-neutral-400">antes del descuento</span>
                       </label>
                       <Input
                         type="number"
@@ -633,8 +814,8 @@ export default function AdminOffersPage() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium text-neutral-700">
-                        Precio de oferta ($)
-                        <span className="ml-1 text-xs text-neutral-400">precio real para el cliente</span>
+                        Precio cliente ($)
+                        <span className="ml-1 text-xs text-neutral-400">visible para clientes</span>
                       </label>
                       <Input
                         type="number"
@@ -645,13 +826,34 @@ export default function AdminOffersPage() {
                         placeholder="849.00"
                       />
                     </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-neutral-700">
+                        Precio agente ($)
+                        <span className="ml-1 text-xs text-neutral-400">visible para agentes</span>
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={agentPrice}
+                        onChange={(e) => setAgentPrice(e.target.value)}
+                        placeholder="780.00"
+                      />
+                    </div>
                   </div>
-                  {originalPrice && offerPrice && parseFloat(offerPrice) < parseFloat(originalPrice) && (
-                    <p className="mt-2 text-sm font-semibold text-emerald-600">
-                      Descuento: {Math.round(((parseFloat(originalPrice) - parseFloat(offerPrice)) / parseFloat(originalPrice)) * 100)}%
-                      — El cliente ahorra ${(parseFloat(originalPrice) - parseFloat(offerPrice)).toFixed(2)}
-                    </p>
-                  )}
+                  <div className="mt-2 flex flex-wrap gap-4">
+                    {originalPrice && offerPrice && parseFloat(offerPrice) < parseFloat(originalPrice) && (
+                      <p className="text-sm font-semibold text-emerald-600">
+                        Cliente: {Math.round(((parseFloat(originalPrice) - parseFloat(offerPrice)) / parseFloat(originalPrice)) * 100)}% desc.
+                        — ahorra ${(parseFloat(originalPrice) - parseFloat(offerPrice)).toFixed(2)}
+                      </p>
+                    )}
+                    {originalPrice && agentPrice && parseFloat(agentPrice) < parseFloat(originalPrice) && (
+                      <p className="text-sm font-semibold text-brand-600">
+                        Agente: {Math.round(((parseFloat(originalPrice) - parseFloat(agentPrice)) / parseFloat(originalPrice)) * 100)}% desc.
+                        — ahorra ${(parseFloat(originalPrice) - parseFloat(agentPrice)).toFixed(2)}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {/* ── Section 5: Disponibilidad ── */}
@@ -751,7 +953,7 @@ export default function AdminOffersPage() {
               {offers.map((offer) => {
                 const seatsLeft = offer.max_seats - offer.sold_seats;
                 const stops = (offer.stops ?? []) as SpecialOfferStop[];
-                const airlineName = offer.airline?.name ?? '';
+                const airlineName = offer.airline?.name ?? (offer as unknown as { custom_airline_name?: string }).custom_airline_name ?? '';
                 const originCode = offer.origin_airport?.iata_code ?? '';
                 const destCode = offer.destination_airport?.iata_code ?? '';
 
