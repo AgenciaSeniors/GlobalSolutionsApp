@@ -73,6 +73,11 @@ function FlightSearchResultsInner() {
   const legsParam = searchParams.get('legs') || '';
   const isMulticity = tripTypeParam === 'multicity' && legsParam.length > 0;
 
+  const searchSignature = useMemo(
+    () => [from, to, departure, returnDate, cabinClass, tripTypeParam, legsParam, String(passengerCount)].join('|'),
+    [from, to, departure, returnDate, cabinClass, tripTypeParam, legsParam, passengerCount]
+  );
+
   // Parse multicity legs from URL (used by both formInitialValues and legs memo)
   const parsedLegs = useMemo(() => {
     if (!isMulticity || !legsParam) return [];
