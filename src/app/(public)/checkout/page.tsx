@@ -111,14 +111,35 @@ function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: str
   const originAirport = (parsed.origin_airport ?? {}) as Record<string, unknown>;
   const destAirport = (parsed.destination_airport ?? {}) as Record<string, unknown>;
 
+  // Resolve departure/arrival datetimes — check sky_segments when root-level fields are absent.
+  // Prefer UTC timestamps (accurate for duration); fall back to airport-local (for date display).
+  const skySegs = parsed.sky_segments as Array<Record<string, unknown>> | undefined;
+  const firstSky = Array.isArray(skySegs) && skySegs.length > 0
+    ? skySegs[0] as Record<string, unknown> : null;
+  const lastSky  = Array.isArray(skySegs) && skySegs.length > 0
+    ? skySegs[skySegs.length - 1] as Record<string, unknown> : null;
+
+  const departureDatetime = String(
+    parsed.departure_datetime ??
+    parsed.departure_datetime_utc ??
+    (firstSky ? (firstSky.departure_utc ?? firstSky.departure) : null) ??
+    ''
+  );
+  const arrivalDatetime = String(
+    parsed.arrival_datetime ??
+    parsed.arrival_datetime_utc ??
+    (lastSky ? (lastSky.arrival_utc ?? lastSky.arrival) : null) ??
+    ''
+  );
+
   return {
     id: String(parsed.id ?? fallbackId),
     airline_id: String(parsed.airline_id ?? airline.id ?? ''),
     flight_number: String(parsed.flight_number ?? ''),
     origin_airport_id: String(parsed.origin_airport_id ?? ''),
     destination_airport_id: String(parsed.destination_airport_id ?? ''),
-    departure_datetime: String(parsed.departure_datetime ?? ''),
-    arrival_datetime: String(parsed.arrival_datetime ?? ''),
+    departure_datetime: departureDatetime,
+    arrival_datetime: arrivalDatetime,
     base_price: Number(parsed.base_price ?? parsed.price ?? parsed.final_price ?? 0),
     markup_percentage: Number(parsed.markup_percentage ?? 0),
     final_price: Number(parsed.final_price ?? parsed.price ?? 0),
@@ -156,7 +177,7 @@ function rawToFlightWithDetails(parsed: Record<string, unknown>, fallbackId: str
   } as FlightWithDetails;
 }
 
-/** Format ISO datetime to HH:MM in Cuba timezone */
+/** Format ISO datetime to HH:MM in Cuba timezone (used for DB data stored as UTC) */
 function formatTime(isoStr: string | null | undefined): string | null {
   if (!isoStr) return null;
   try {
@@ -171,6 +192,17 @@ function formatTime(isoStr: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Extract HH:MM directly from an ISO string — same approach as FlightCard.
+ * Airport-local times (e.g. "2024-01-15T08:30:00") carry no UTC offset,
+ * so we must NOT convert them to any timezone; just slice the time part out.
+ */
+function extractTime(isoStr: string | null | undefined): string | null {
+  if (!isoStr) return null;
+  const match = isoStr.match(/T(\d{2}:\d{2})/);
+  return match ? match[1] : null;
 }
 
 /** Compute duration string from two ISO datetimes */
@@ -205,14 +237,42 @@ function extractFlightDisplayData(
   flightData: FlightWithDetails,
 ): FlightDisplayData {
   if (rawParsed) {
+    const skySegs = rawParsed.sky_segments as Array<Record<string, unknown>> | undefined;
     const rawStops = rawParsed.stops as Array<Record<string, unknown>> | undefined;
     const airline = rawParsed.airline as Record<string, unknown> | undefined;
 
-    const depTime = String(rawParsed.departure_datetime ?? '');
-    const arrTime = String(rawParsed.arrival_datetime ?? '');
-    const depUtc = rawParsed.departure_datetime_utc as string | undefined;
-    const arrUtc = rawParsed.arrival_datetime_utc as string | undefined;
-    const duration = computeDuration(depUtc ?? depTime, arrUtc ?? arrTime);
+    let depTimeDisplay: string | null = null;
+    let arrTimeDisplay: string | null = null;
+    let depForDuration: string | null = null;
+    let arrForDuration: string | null = null;
+
+    if (Array.isArray(skySegs) && skySegs.length > 0) {
+      // ── Sky segments (SkyScanner provider) ────────────────────────────────
+      // Use the SAME fields as FlightCard / the mapper:
+      //   • departure/arrival = airport-local time  → extract HH:MM via regex (no tz conversion)
+      //   • departure_utc/arrival_utc               → accurate UTC for duration
+      const firstSeg = skySegs[0] as Record<string, unknown>;
+      const lastSeg  = skySegs[skySegs.length - 1] as Record<string, unknown>;
+
+      depTimeDisplay = extractTime(String(firstSeg.departure ?? firstSeg.departure_cuba ?? ''));
+      arrTimeDisplay = extractTime(String(lastSeg.arrival  ?? lastSeg.arrival_cuba   ?? ''));
+
+      depForDuration = (firstSeg.departure_utc as string | undefined)
+        ?? String(firstSeg.departure ?? '');
+      arrForDuration = (lastSeg.arrival_utc   as string | undefined)
+        ?? String(lastSeg.arrival   ?? '');
+    } else {
+      // ── Root-level fields (Duffel or legacy) ──────────────────────────────
+      const depRaw = String(rawParsed.departure_datetime ?? rawParsed.departureTime ?? '');
+      const arrRaw = String(rawParsed.arrival_datetime   ?? rawParsed.arrivalTime   ?? '');
+
+      // Prefer regex extraction (airport-local); fall back to Cuba-tz conversion for UTC strings
+      depTimeDisplay = extractTime(depRaw) ?? formatTime(depRaw);
+      arrTimeDisplay = extractTime(arrRaw) ?? formatTime(arrRaw);
+
+      depForDuration = (rawParsed.departure_datetime_utc as string | undefined) ?? depRaw;
+      arrForDuration = (rawParsed.arrival_datetime_utc   as string | undefined) ?? arrRaw;
+    }
 
     const stopsDisplay = Array.isArray(rawStops)
       ? rawStops.map((s) => ({
@@ -223,15 +283,15 @@ function extractFlightDisplayData(
       : [];
 
     return {
-      departure_time: formatTime(depTime),
-      arrival_time: formatTime(arrTime),
-      flight_duration: duration,
+      departure_time: depTimeDisplay,
+      arrival_time: arrTimeDisplay,
+      flight_duration: computeDuration(depForDuration, arrForDuration),
       stops_display: stopsDisplay,
       airline_logo_url: (airline?.logo_url as string) ?? null,
     };
   }
 
-  // Fallback: derive from FlightWithDetails (DB data)
+  // Fallback: derive from FlightWithDetails (DB data — datetimes are stored as UTC)
   const stopsDisplay = Array.isArray(flightData.stops)
     ? flightData.stops.map((s) => ({
         airport_code: s.airport,
@@ -1080,6 +1140,8 @@ function CheckoutPageInner() {
 
   // --- Display date ---
   // BUG 3a FIX: add multicity branch so displayDate is never empty when flight=null
+  // For flight mode: extract the date part of the ISO string (YYYY-MM-DD) and use noon UTC
+  // to avoid date shifts caused by browser timezone vs airport-local timezone differences.
   const displayDate = isOfferMode && offerData
     ? new Date(offerData.selected_date + 'T12:00:00').toLocaleDateString('es', {
         weekday: 'long',
@@ -1089,13 +1151,19 @@ function CheckoutPageInner() {
       })
     : isMulticityMode && multicityLegs.length > 0
       ? multicityLegs[0].legMeta.date
-      : flight
-        ? new Date(flight.departure_datetime).toLocaleDateString('es', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-          })
+      : flight?.departure_datetime
+        ? (() => {
+            // Extract "YYYY-MM-DD" from the stored datetime string, then parse as local noon
+            const datePart = flight.departure_datetime.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+            return datePart
+              ? new Date(datePart + 'T12:00:00').toLocaleDateString('es', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric',
+                })
+              : '';
+          })()
         : '';
 
   // --- Main checkout UI ---
