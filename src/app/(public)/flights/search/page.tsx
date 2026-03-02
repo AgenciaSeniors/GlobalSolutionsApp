@@ -123,35 +123,23 @@ function FlightSearchResultsInner() {
 
   // Detect Home/Form navigation transition once on mount.
   useEffect(() => {
+    let shouldUseSmoothBehavior = false;
     try {
-      const hasTransitionFlag = sessionStorage.getItem('flightSearchTransition') === '1';
-      if (hasTransitionFlag) {
-        setCameFromSearchTransition(true);
+      shouldUseSmoothBehavior = sessionStorage.getItem('flightSearchTransition') === '1';
+      if (shouldUseSmoothBehavior) {
         sessionStorage.removeItem('flightSearchTransition');
       }
     } catch {
       // no-op
     }
-  }, []);
-
-  // Scroll to results immediately when coming from Home/Form search.
-  useEffect(() => {
-    if (!cameFromSearchTransition || transitionScrollDoneRef.current) return;
-
-    transitionScrollDoneRef.current = true;
-    setTimeout(() => {
-      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 60);
-  }, [cameFromSearchTransition]);
-
-  // Legacy behavior: scroll to results when first batch loads.
-  useEffect(() => {
-    if (cameFromSearchTransition) return;
 
     if (!isLoading && results.length > 0 && !hasScrolledRef.current) {
       hasScrolledRef.current = true;
       setTimeout(() => {
-        resultsRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' });
+        resultsRef.current?.scrollIntoView({
+          behavior: shouldUseSmoothBehavior ? 'smooth' : 'auto',
+          block: 'start',
+        });
       }, 100);
     }
     if (isLoading) {
