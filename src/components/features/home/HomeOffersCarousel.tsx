@@ -95,7 +95,7 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
                   </div>
 
                   {/* Content */}
-                  <div className="relative flex h-[340px] flex-col justify-between p-6">
+                  <div className="relative flex h-[300px] sm:h-[340px] flex-col justify-between p-4 sm:p-6">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex flex-wrap gap-2">
                         <Badge variant="success" className="text-xs font-extrabold">
@@ -121,7 +121,7 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
                     </div>
 
                     <div>
-                      <h3 className="font-display text-3xl font-extrabold tracking-tight text-white">
+                      <h3 className="font-display text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
                         {o.destination}
                       </h3>
 
@@ -136,7 +136,7 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
                           <p className="text-sm text-white/70 line-through">
                             {formatCurrency(o.original_price)}
                           </p>
-                          <p className="text-4xl font-extrabold text-white">
+                          <p className="text-3xl sm:text-4xl font-extrabold text-white">
                             {formatCurrency(displayPrice)}
                           </p>
                           {isAgent && o.agent_price && (
@@ -148,8 +148,8 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
                         </div>
 
                         <Link href={`/offers/${o.id}`} className="shrink-0">
-                          <Button size="lg" className="gap-2.5">
-                            Ver oferta <ChevronRight className="h-4 w-4" />
+                          <Button size="sm" className="gap-1.5 sm:gap-2.5 sm:text-sm sm:px-4 sm:py-2.5">
+                            Ver oferta <ChevronRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                           </Button>
                         </Link>
                       </div>

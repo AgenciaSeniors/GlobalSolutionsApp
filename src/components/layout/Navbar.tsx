@@ -79,22 +79,15 @@ export default function Navbar() {
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
-        <Link href={ROUTES.HOME} className="flex items-center gap-0 px-2 py-2">
+        <Link href={ROUTES.HOME} className="flex items-center shrink-0 px-1 py-2">
           <Image
-            src="/brand/avion-check.png"
+            src="/brand/logoGrande.png"
             alt="Global Solutions Travel"
-            width={60}
+            width={180}
             height={60}
-            className="h-10 w-10 sm:h-12 sm:w-12 object-contain shrink-0"
+            className="h-9 w-auto sm:h-11 object-contain"
             priority
           />
-
-          <span className="-ml-2 sm:-ml-3 leading-none">
-            <span className="font-display text-base font-bold tracking-wide text-navy sm:text-xl">
-              GLOBAL SOLUTIONS{' '}
-            </span>
-            <span className="font-script text-base font-bold text-coral sm:text-xl">Travel</span>
-          </span>
         </Link>
 
         {/* ── Desktop Links ── */}
@@ -193,7 +186,7 @@ export default function Navbar() {
 
       {/* ── Mobile Drawer ── */}
       {mobileOpen && (
-        <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-6 shadow-xl md:hidden animate-fade-in">
+        <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-4 sm:p-6 shadow-xl md:hidden animate-fade-in">
           <div className="mb-4 flex items-center justify-between rounded-xl border border-brand-200 px-4 py-3">
             <span className="text-sm font-semibold text-brand-800">{t('lang.label')}</span>
             <select
