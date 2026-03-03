@@ -27,7 +27,7 @@
     justify-content: center;
     gap: clamp(12px, 2.2vw, 22px);
     padding-inline: 16px;
-    z-index: 2;
+    z-index: 3;
 }
 
 .swoosh {
@@ -77,23 +77,24 @@
 
 .plane {
     position: absolute;
-    top: 43%;
+    top: 60%;
+    /* ⬅️ más abajo para que NO cruce por “Travel” */
     left: -25%;
     width: clamp(44px, 8.8vw, 84px);
     height: auto;
     color: var(--brand-red);
-    /* ✅ rojo */
     z-index: 3;
     opacity: 0;
     transform-origin: 50% 50%;
     will-change: left, transform, opacity;
     filter: drop-shadow(0 10px 8px rgba(0, 0, 0, 0.18));
-    animation: planeFly var(--fly-duration) linear infinite;
+    animation: planeFly var(--fly-duration) cubic-bezier(0.5, 0, 0.2, 1) infinite;
 }
 
 .planeShadow {
     position: absolute;
-    top: 72%;
+    top: 86%;
+    /* ⬅️ acompaña el nuevo “top” del avión */
     left: -25%;
     width: clamp(56px, 10.4vw, 100px);
     height: clamp(10px, 1.8vw, 16px);
@@ -103,7 +104,7 @@
     z-index: 1;
     opacity: 0;
     will-change: left, transform, opacity;
-    animation: planeShadow var(--fly-duration) linear infinite;
+    animation: planeShadow var(--fly-duration) cubic-bezier(0.5, 0, 0.2, 1) infinite;
 }
 
 @keyframes planeFly {
