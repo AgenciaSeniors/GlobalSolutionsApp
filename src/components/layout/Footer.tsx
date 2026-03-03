@@ -7,10 +7,12 @@
 import Link from 'next/link';
 import { Globe, Shield } from 'lucide-react';
 import { ROUTES } from '@/lib/constants/routes';
-import { useLanguage } from '@/components/providers/LanguageProvider';
+import { getServerLanguage } from '@/lib/i18n/serverLanguage';
+import { translate } from '@/lib/i18n/translations';
 
 export default function Footer() {
-  const { t } = useLanguage();
+  const lang = getServerLanguage();
+  const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
 
   const linkGroups = [
     {
@@ -54,21 +56,31 @@ export default function Footer() {
             </Link>
             <p className="mt-4 max-w-[260px] text-sm leading-relaxed text-white/50">{t('footer.description')}</p>
           </div>
+
           {linkGroups.map((group) => (
             <div key={group.title}>
               <h4 className="mb-4 text-xs font-bold uppercase tracking-widest text-white/70">{group.title}</h4>
               <ul className="space-y-2.5">
                 {group.links.map((link) => (
-                  <li key={link.label}><Link href={link.href} className="text-sm text-white/45 transition-colors hover:text-white">{link.label}</Link></li>
+                  <li key={link.label}>
+                    <Link href={link.href} className="text-sm text-white/45 transition-colors hover:text-white">
+                      {link.label}
+                    </Link>
+                  </li>
                 ))}
               </ul>
             </div>
           ))}
         </div>
+
         <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-6">
-          <p className="text-xs text-white/35">© {new Date().getFullYear()} Global Solutions Travel. {t('footer.rights')}</p>
+          <p className="text-xs text-white/35">
+            © {new Date().getFullYear()} Global Solutions Travel. {t('footer.rights')}
+          </p>
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-400"><Shield className="h-3 w-3" /> PCI-DSS Compliant</span>
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-400">
+              <Shield className="h-3 w-3" /> PCI-DSS Compliant
+            </span>
             <span className="inline-flex items-center gap-1.5 rounded-md bg-brand-400/15 px-2.5 py-1 text-[11px] font-bold text-brand-400">SSL Secured</span>
           </div>
         </div>

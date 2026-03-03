@@ -1,5 +1,7 @@
-import { type AppLanguage } from './translations';
+import { cookies } from 'next/headers';
+import { type AppLanguage, LANGUAGE_COOKIE_KEY, isAppLanguage } from './translations';
 
 export function getServerLanguage(): AppLanguage {
-  return 'es';
+  const language = cookies().get(LANGUAGE_COOKIE_KEY)?.value;
+  return isAppLanguage(language) ? language : 'es';
 }

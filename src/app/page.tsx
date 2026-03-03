@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { SpecialOffer } from '@/types/models';
-import HomePageContent from '@/components/features/home/HomePageContent';
+import { getServerLanguage } from '@/lib/i18n/serverLanguage';
+import { translate } from '@/lib/i18n/translations';
 
 function getInitials(name: string): string {
   return name
@@ -12,9 +13,9 @@ function getInitials(name: string): string {
     .join('');
 }
 
-function getDestination(review: Record<string, unknown>): string {
+function getDestination(review: Record<string, unknown>, fallback: string): string {
   const booking = review.booking as Record<string, unknown> | null;
-  if (!booking) return '';
+  if (!booking) return fallback;
 
   const flight = booking.flight as Record<string, unknown> | null;
   const offer = booking.offer as Record<string, unknown> | null;
@@ -25,10 +26,13 @@ function getDestination(review: Record<string, unknown>): string {
   }
   if (offer?.destination) return offer.destination as string;
 
-  return '';
+  return fallback;
 }
 
 export default async function HomePage() {
+  const lang = getServerLanguage();
+  const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
+
   const supabase = await createClient();
   const supabaseAdmin = createAdminClient();
 
@@ -59,22 +63,99 @@ export default async function HomePage() {
 
   const offers = ((offersRes.data as SpecialOffer[]) ?? []).filter(Boolean);
   const dbReviews = (reviewsRes.data ?? []) as Record<string, unknown>[];
+  const reviewCards =
+    dbReviews.length > 0
+      ? dbReviews.map(r => {
+          const profile = r.profile as { full_name?: string | null } | null;
+          const name = profile?.full_name || t('home.travelerFallback');
+          const createdAt = new Date(r.created_at as string);
 
-  const reviews = dbReviews.map((r) => {
-    const profile = r.profile as { full_name?: string | null } | null;
-    const name = profile?.full_name || '';
-    const createdAt = new Date(r.created_at as string);
+          return {
+            authorName: name,
+            authorInitials: getInitials(name),
+            destination: getDestination(r, t('home.destinationFallback')),
+            date: createdAt.toLocaleDateString(lang, { month: 'short', year: 'numeric' }),
+            rating: r.rating as number,
+            comment: r.comment as string,
+          };
+        })
+      : [];
 
-    return {
-      authorName: name,
-      authorInitials: getInitials(name || 'Viajero'),
-      destination: getDestination(r),
-      dateEs: createdAt.toLocaleDateString('es', { month: 'short', year: 'numeric' }),
-      dateEn: createdAt.toLocaleDateString('en', { month: 'short', year: 'numeric' }),
-      rating: r.rating as number,
-      comment: r.comment as string,
-    };
-  });
+  return (
+    <>
+      <Navbar />
+      <HeroSection />
 
-  return <HomePageContent offers={offers} reviews={reviews} />;
+      <section className="bg-neutral-50 py-12 sm:py-16 md:py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <div className="mb-8 sm:mb-12">
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-widest text-amber-700">
+              {t('home.offers.badge')}
+            </span>
+            <h2 className="mt-3 font-display text-2xl font-bold text-brand-950 sm:text-3xl md:text-4xl">
+              {t('home.offers.title')}
+            </h2>
+            <p className="mt-2 text-sm text-neutral-600 sm:text-base">{t('home.offers.subtitle')}</p>
+          </div>
+
+          {offers.length === 0 ? (
+            <div className="rounded-2xl border bg-white p-8 text-center shadow-sm">
+              <p className="text-sm text-neutral-700">{t('home.offers.empty')}</p>
+            </div>
+          ) : (
+            <HomeOffersCarousel offers={offers} />
+          )}
+        </div>
+      </section>
+
+      <section className="bg-white py-12 sm:py-16 md:py-20">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6">
+          <div className="mb-8 text-center sm:mb-12">
+            <span className="text-sm font-bold uppercase tracking-widest text-brand-500">{t('home.flightSearch.badge')}</span>
+            <h2 className="mt-2 font-display text-2xl font-bold text-brand-950 sm:text-3xl md:text-4xl">
+              {t('home.flightSearch.title')}
+            </h2>
+          </div>
+          <FlightSearchForm />
+        </div>
+      </section>
+
+      <AboutSection />
+      <ServicesSection />
+
+      <section className="bg-gradient-to-b from-neutral-50 to-brand-50 py-12 sm:py-16 md:py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <div className="mb-8 text-center sm:mb-12">
+            <span className="text-sm font-bold uppercase tracking-widest text-emerald-600">{t('home.reviews.badge')}</span>
+            <h2 className="mt-2 font-display text-2xl font-bold text-brand-950 sm:text-3xl md:text-4xl">
+              {t('home.reviews.title')}
+            </h2>
+
+            <div className="mt-6 flex justify-center">
+              <Link
+                href="/reviews"
+                className="inline-flex items-center justify-center rounded-xl border border-brand-200 bg-white px-5 py-2.5 text-sm font-semibold text-brand-900 shadow-sm hover:bg-neutral-50"
+              >
+                {t('home.reviews.cta')}
+              </Link>
+            </div>
+          </div>
+
+          {reviewCards.length === 0 ? (
+            <div className="mx-auto max-w-2xl rounded-2xl border bg-white p-8 text-center shadow-sm">
+              <p className="text-sm text-neutral-700">{t('home.reviews.empty')}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
+              {reviewCards.slice(0, 3).map((r, i) => (
+                <ReviewCard key={`${r.authorName}-${i}`} {...r} />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <Footer />
+    </>
+  );
 }
