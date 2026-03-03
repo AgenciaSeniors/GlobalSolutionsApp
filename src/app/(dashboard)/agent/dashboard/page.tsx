@@ -56,6 +56,14 @@ export default function AgentDashboardPage() {
     fetchData();
   }, [fetchData]);
 
+  // Descartar la notificación roja del perfil al entrar al dashboard
+  useEffect(() => {
+    try {
+      localStorage.setItem('has_seen_agent_welcome', 'true');
+      window.dispatchEvent(new Event('agent_welcome_seen'));
+    } catch { /* noop */ }
+  }, []);
+
   function handleQuickSearch() {
     if (!origin || !destination || !date) return;
     const params = new URLSearchParams({

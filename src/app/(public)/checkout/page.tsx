@@ -63,6 +63,7 @@ interface OfferCheckoutData {
   destination: string;
   destination_img: string | null;
   offer_price: number;
+  agent_price: number | null;
   original_price: number;
   flight_number: string | null;
   selected_date: string;
@@ -443,7 +444,8 @@ function CheckoutPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
-  const { user } = useAuthContext();
+  const { user, profile, isLoading: authLoading } = useAuthContext();
+  const isAgent = profile?.role === 'agent' || profile?.role === 'admin';
   const { settings, loading: settingsLoading, calculateGatewayFee } = useAppSettings();
 
   // --- URL params (read once) ---
@@ -505,11 +507,12 @@ function CheckoutPageInner() {
         return acc + Number(raw.final_price ?? raw.price ?? 0);
       }, 0)
     : isOfferMode
-      ? (offerData?.offer_price ?? 0)
+      ? (isAgent && offerData?.agent_price != null ? offerData.agent_price : (offerData?.offer_price ?? 0))
       : (flight?.final_price ?? 0);
 
   // BUG 3b FIX: for multicity, both arrays must be filled and in sync
-  const isReady = !loading && !settingsLoading && (
+  // Also wait for auth profile so isAgent resolves correctly before showing prices
+  const isReady = !loading && !settingsLoading && !authLoading && (
     isMulticityMode
       ? multicityLegs.length > 0 && multicityFlightIds.length === multicityLegs.length
       : isOfferMode
@@ -636,6 +639,7 @@ function CheckoutPageInner() {
                 destination: data.destination,
                 destination_img: data.destination_img,
                 offer_price: Number(data.offer_price),
+                agent_price: data.agent_price != null ? Number(data.agent_price) : null,
                 original_price: Number(data.original_price),
                 flight_number: data.flight_number,
                 selected_date: offerDate!,
@@ -1561,8 +1565,12 @@ function CheckoutPageInner() {
                         </div>
                         <div className="text-right flex-shrink-0">
                           <p className="text-sm text-neutral-400 line-through">${offerData.original_price.toFixed(2)}</p>
-                          <p className="text-lg font-bold text-emerald-600">${offerData.offer_price.toFixed(2)}</p>
-                          <p className="text-xs text-neutral-400">por persona</p>
+                          <p className="text-lg font-bold text-emerald-600">
+                            ${(isAgent && offerData.agent_price != null ? offerData.agent_price : offerData.offer_price).toFixed(2)}
+                          </p>
+                          <p className="text-xs text-neutral-400">
+                            {isAgent && offerData.agent_price != null ? 'por persona · precio agente' : 'por persona'}
+                          </p>
                         </div>
                       </div>
 
