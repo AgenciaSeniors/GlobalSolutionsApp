@@ -50,7 +50,7 @@ function FlightSearchResultsInner() {
 
   const [activeLeg, setActiveLeg] = useState<number>(0);
   const [cameFromSearchTransition, setCameFromSearchTransition] = useState(false);
-  const [hasStartedSearchRequest, setHasStartedSearchRequest] = useState(false);
+  const [transitionSawLoading, setTransitionSawLoading] = useState(false);
 
   const [filters, setFilters] = useState<FilterState>({
     stops: [],
@@ -126,25 +126,37 @@ function FlightSearchResultsInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legsParam]);
 
-  // Detect Home/Form navigation transition once on mount.
+  // Detect Home/Form transition whenever URL params change (new search triggered).
   useEffect(() => {
-    let shouldUseSmoothBehavior = false;
     try {
-      shouldUseSmoothBehavior = sessionStorage.getItem('flightSearchTransition') === '1';
-      if (shouldUseSmoothBehavior) {
+      const hasFlag = sessionStorage.getItem('flightSearchTransition') === '1';
+      if (hasFlag) {
         sessionStorage.removeItem('flightSearchTransition');
+        setCameFromSearchTransition(true);
+        setTransitionSawLoading(false);
+        transitionScrollDoneRef.current = false;
       }
     } catch {
       // no-op
     }
+  }, [searchSignature]);
 
+  // Scroll to results immediately when a Home/Form transition is detected.
+  useEffect(() => {
+    if (!cameFromSearchTransition || transitionScrollDoneRef.current) return;
+    transitionScrollDoneRef.current = true;
+    setTimeout(() => {
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  }, [cameFromSearchTransition]);
+
+  // Legacy scroll: for direct URL loads (no transition flag), scroll once results arrive.
+  useEffect(() => {
+    if (cameFromSearchTransition) return;
     if (!isLoading && results.length > 0 && !hasScrolledRef.current) {
       hasScrolledRef.current = true;
       setTimeout(() => {
-        resultsRef.current?.scrollIntoView({
-          behavior: shouldUseSmoothBehavior ? 'smooth' : 'auto',
-          block: 'start',
-        });
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
     }
     if (isLoading) {
@@ -173,7 +185,6 @@ function FlightSearchResultsInner() {
    */
   useEffect(() => {
     if (!from || !to || !departure) return;
-    setHasStartedSearchRequest(true);
 
     if (isMulticity && parsedLegs.length > 0) {
       // Send all legs in one multi-leg request
@@ -206,16 +217,20 @@ function FlightSearchResultsInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMulticity, activeLeg, from, to, departure, returnDate, parsedLegs, passengerCount, cabinClass, search]);
 
-  // Keep loader visible during transition until first search cycle completes.
+  // Keep loader visible during transition until we observe loading start then completion.
   useEffect(() => {
     if (!cameFromSearchTransition) return;
-    if (!hasStartedSearchRequest) return;
-    if (isLoading) return;
+    if (isLoading) {
+      if (!transitionSawLoading) setTransitionSawLoading(true);
+      return;
+    }
+    if (transitionSawLoading) {
+      setCameFromSearchTransition(false);
+      setTransitionSawLoading(false);
+    }
+  }, [cameFromSearchTransition, transitionSawLoading, isLoading]);
 
-    setCameFromSearchTransition(false);
-  }, [cameFromSearchTransition, hasStartedSearchRequest, isLoading]);
-
-  const showLoadingAnimation = isLoading || (cameFromSearchTransition && hasStartedSearchRequest);
+  const showLoadingAnimation = isLoading || cameFromSearchTransition;
 
   const tripTypeForMapper = isMulticity ? 'multicity' as const : (returnDate ? 'roundtrip' as const : 'oneway' as const);
 
