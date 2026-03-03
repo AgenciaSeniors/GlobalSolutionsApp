@@ -1,13 +1,14 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import type { SpecialOffer } from '@/types/models';
+import type { SpecialOffer, CustomerExperience } from '@/types/models';
 import { getServerLanguage } from '@/lib/i18n/serverLanguage';
 import { translate } from '@/lib/i18n/translations';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import HeroSection from '@/components/features/home/HeroSection';
 import HomeOffersCarousel from '@/components/features/home/HomeOffersCarousel';
+import CustomerExperienceCarousel from '@/components/features/home/CustomerExperienceCarousel';
 import AboutSection from '@/components/features/home/AboutSection';
 import ServicesSection from '@/components/features/home/ServicesSection';
 import FlightSearchForm from '@/components/forms/FlightSearchForm';
@@ -45,7 +46,7 @@ export default async function HomePage() {
   const supabase = await createClient();
   const supabaseAdmin = createAdminClient();
 
-  const [offersRes, reviewsRes] = await Promise.all([
+  const [offersRes, reviewsRes, experiencesRes] = await Promise.all([
     supabase
       .from('special_offers')
       .select('*')
@@ -68,9 +69,15 @@ export default async function HomePage() {
       .eq('status', 'approved')
       .order('created_at', { ascending: false })
       .limit(6),
+    supabase
+      .from('customer_experiences')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true }),
   ]);
 
   const offers = ((offersRes.data as SpecialOffer[]) ?? []).filter(Boolean);
+  const experiences = ((experiencesRes.data as CustomerExperience[]) ?? []).filter(Boolean);
   const dbReviews = (reviewsRes.data ?? []) as Record<string, unknown>[];
   const reviewCards =
     dbReviews.length > 0
@@ -116,6 +123,26 @@ export default async function HomePage() {
           )}
         </div>
       </section>
+
+      {/* Customer Experiences carousel */}
+      {experiences.length > 0 && (
+        <section className="bg-neutral-50 py-12 sm:py-16 md:py-20">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6">
+            <div className="mb-8 text-center sm:mb-12">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-brand-100 px-3 py-1 text-xs font-bold uppercase tracking-widest text-brand-700">
+                {t('home.experiences.badge')}
+              </span>
+              <h2 className="mt-3 font-display text-2xl font-bold text-brand-950 sm:text-3xl md:text-4xl">
+                {t('home.experiences.title')}
+              </h2>
+              <p className="mt-2 text-sm text-neutral-600 sm:text-base">
+                {t('home.experiences.subtitle')}
+              </p>
+            </div>
+            <CustomerExperienceCarousel experiences={experiences} />
+          </div>
+        </section>
+      )}
 
       <section className="bg-white py-12 sm:py-16 md:py-20">
         <div className="mx-auto max-w-5xl px-4 sm:px-6">

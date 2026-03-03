@@ -1,13 +1,16 @@
+'use client';
 /**
  * @fileoverview Offer card with gradient header, discount badge,
  *               urgency indicator and countdown.
  * @module components/features/flights/ExclusiveOfferCard
  */
+
 import { Flame, Clock, MapPin, Plane } from 'lucide-react';
 import Link from 'next/link';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import { formatCurrency, calcDiscount } from '@/lib/utils/formatters';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 export interface ExclusiveOfferCardProps {
   id?: string;
@@ -32,6 +35,7 @@ export default function ExclusiveOfferCard({
   availableSeats,
   gradient,
 }: ExclusiveOfferCardProps) {
+  const { t, language } = useLanguage();
   const discount = calcDiscount(originalPrice, offerPrice);
   const urgent = availableSeats < 6;
 
@@ -48,7 +52,9 @@ export default function ExclusiveOfferCard({
           {urgent && (
             <Badge variant="destructive" className="animate-pulse">
               <Flame className="h-3 w-3" />
-              ¡{availableSeats} cupos!
+              {language === 'en'
+                ? `${availableSeats} ${t('offers.carousel.seats')}`
+                : `¡${availableSeats} ${t('offers.carousel.seats')}`}
             </Badge>
           )}
         </div>
@@ -78,21 +84,21 @@ export default function ExclusiveOfferCard({
             {formatCurrency(offerPrice)}
           </span>
         </div>
-        <p className="text-xs text-neutral-500">por persona · impuestos incluidos</p>
+        <p className="text-xs text-neutral-500">{t('offers.card.perPerson')}</p>
 
         {/* Countdown hint */}
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-neutral-50 px-3 py-2 text-sm text-neutral-500">
           <Clock className="h-3.5 w-3.5" />
-          Oferta válida por 48 horas
+          {t('offers.card.valid48h')}
         </div>
 
         {id ? (
           <Link href={`/offers/${id}`}>
-            <Button className="mt-4 w-full">Ver Oferta</Button>
+            <Button className="mt-4 w-full">{t('offers.card.viewOffer')}</Button>
           </Link>
         ) : (
           <Link href="/offers">
-            <Button className="mt-4 w-full">Reservar Ahora</Button>
+            <Button className="mt-4 w-full">{t('offers.card.bookNow')}</Button>
           </Link>
         )}
       </div>

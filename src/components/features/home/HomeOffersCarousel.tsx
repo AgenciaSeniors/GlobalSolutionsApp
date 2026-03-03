@@ -7,12 +7,14 @@ import { ChevronLeft, ChevronRight, Flame } from 'lucide-react';
 import type { SpecialOffer } from '@/types/models';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
-import { calcDiscount, formatCurrency, formatDate } from '@/lib/utils/formatters';
+import { calcDiscount, formatCurrency, formatDate, langToLocale } from '@/lib/utils/formatters';
 import { cn } from '@/lib/utils/cn';
 import { useAuthContext } from '@/components/providers/AuthProvider';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] }) {
   const { profile } = useAuthContext();
+  const { t, language } = useLanguage();
   const isAgent = profile?.role === 'agent' || profile?.role === 'admin';
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: offers.length > 1,
@@ -110,13 +112,15 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
 
                         {seatsLeft <= 5 && (
                           <Badge variant="destructive" className="text-xs font-bold">
-                            ¡{seatsLeft} cupos!
+                            {language === 'en'
+                              ? `${seatsLeft} ${t('offers.carousel.seats')}`
+                              : `¡${seatsLeft} ${t('offers.carousel.seats')}`}
                           </Badge>
                         )}
                       </div>
 
                       <span className="rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/90 backdrop-blur">
-                        {o.valid_dates?.length ?? 0} fechas
+                        {o.valid_dates?.length ?? 0} {t('offers.carousel.dates')}
                       </span>
                     </div>
 
@@ -140,16 +144,18 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
                             {formatCurrency(displayPrice)}
                           </p>
                           {isAgent && o.agent_price && (
-                            <p className="mt-0.5 text-xs text-brand-200">Precio agente</p>
+                            <p className="mt-0.5 text-xs text-brand-200">{t('offers.carousel.agentPrice')}</p>
                           )}
                           <p className="mt-1 text-xs text-white/70">
-                            {firstDate ? `Desde ${formatDate(firstDate)}` : 'Fechas variables'}
+                            {firstDate
+                              ? `${t('offers.carousel.from')} ${formatDate(firstDate, langToLocale(language))}`
+                              : t('offers.carousel.variableDates')}
                           </p>
                         </div>
 
                         <Link href={`/offers/${o.id}`} className="shrink-0">
                           <Button size="sm" className="gap-1.5 sm:gap-2.5 sm:text-sm sm:px-4 sm:py-2.5">
-                            Ver oferta <ChevronRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            {t('offers.carousel.viewOffer')} <ChevronRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                           </Button>
                         </Link>
                       </div>
@@ -170,7 +176,7 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
             onClick={scrollPrev}
             disabled={!canPrev}
             className="rounded-xl border border-neutral-200 bg-white p-2.5 text-neutral-700 shadow-sm transition hover:bg-neutral-50 disabled:opacity-40"
-            aria-label="Anterior"
+            aria-label={t('offers.carousel.prev')}
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
@@ -179,7 +185,7 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
             onClick={scrollNext}
             disabled={!canNext}
             className="rounded-xl border border-neutral-200 bg-white p-2.5 text-neutral-700 shadow-sm transition hover:bg-neutral-50 disabled:opacity-40"
-            aria-label="Siguiente"
+            aria-label={t('offers.carousel.next')}
           >
             <ChevronRight className="h-5 w-5" />
           </button>
@@ -196,7 +202,7 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
                   'h-2.5 w-2.5 rounded-full transition',
                   i === selected ? 'bg-brand-600' : 'bg-neutral-300 hover:bg-neutral-400',
                 )}
-                aria-label={`Ir a slide ${i + 1}`}
+                aria-label={`${t('offers.carousel.goToSlide')} ${i + 1}`}
               />
             ))}
           </div>

@@ -15,11 +15,20 @@ export function formatCurrency(amount: number): string {
 }
 
 /**
- * Format an ISO date string to a human-readable date.
- * @example formatDate('2026-03-15') → "Mar 15, 2026"
+ * Map app language code to browser locale string.
  */
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es-ES', {
+export function langToLocale(lang: string): string {
+  return lang === 'en' ? 'en-US' : 'es-ES';
+}
+
+/**
+ * Format an ISO date string to a human-readable date.
+ * @param iso  ISO date or datetime string.
+ * @param locale  BCP-47 locale string (default 'es-ES'). Pass langToLocale(language) from context.
+ * @example formatDate('2026-03-15', 'en-US') → "Mar 15, 2026"
+ */
+export function formatDate(iso: string, locale: string = 'es-ES'): string {
+  return new Date(iso).toLocaleDateString(locale, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -28,10 +37,12 @@ export function formatDate(iso: string): string {
 
 /**
  * Format an ISO datetime to a time string.
- * @example formatTime('2026-03-15T22:45:00Z') → "22:45"
+ * @param iso  ISO datetime string.
+ * @param locale  BCP-47 locale string (default 'es-ES').
+ * @example formatTime('2026-03-15T22:45:00Z', 'en-US') → "10:45 PM"
  */
-export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('es-ES', {
+export function formatTime(iso: string, locale: string = 'es-ES'): string {
+  return new Date(iso).toLocaleTimeString(locale, {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,

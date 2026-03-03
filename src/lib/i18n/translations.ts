@@ -264,6 +264,29 @@ const DICTIONARY = {
     // ── Reviews ───────────────────────────────────────────
     'reviews.card.traveledTo': 'Viajó a',
     'reviews.card.verified': 'Verificado',
+
+    // ── Customer Experiences (home section) ──────────────
+    'home.experiences.badge': 'Experiencia de Clientes',
+    'home.experiences.title': 'Lo que dicen nuestros clientes',
+    'home.experiences.subtitle': 'Historias reales de viajeros que confiaron en nosotros.',
+    'home.experiences.empty': 'Próximamente historias de nuestros clientes.',
+
+    // ── Offers carousel (HomeOffersCarousel) ──────────────
+    'offers.carousel.seats': 'cupos!',
+    'offers.carousel.dates': 'fechas',
+    'offers.carousel.agentPrice': 'Precio agente',
+    'offers.carousel.from': 'Desde',
+    'offers.carousel.variableDates': 'Fechas variables',
+    'offers.carousel.viewOffer': 'Ver oferta',
+    'offers.carousel.prev': 'Anterior',
+    'offers.carousel.next': 'Siguiente',
+    'offers.carousel.goToSlide': 'Ir a slide',
+
+    // ── Exclusive offer card ──────────────────────────────
+    'offers.card.perPerson': 'por persona · impuestos incluidos',
+    'offers.card.valid48h': 'Oferta válida por 48 horas',
+    'offers.card.viewOffer': 'Ver Oferta',
+    'offers.card.bookNow': 'Reservar Ahora',
   },
   en: {
     'nav.home': 'Home',
@@ -521,6 +544,29 @@ const DICTIONARY = {
     // ── Reviews ───────────────────────────────────────────
     'reviews.card.traveledTo': 'Traveled to',
     'reviews.card.verified': 'Verified',
+
+    // ── Customer Experiences (home section) ──────────────
+    'home.experiences.badge': 'Customer Experiences',
+    'home.experiences.title': 'What our clients say',
+    'home.experiences.subtitle': 'Real stories from travelers who trusted us.',
+    'home.experiences.empty': 'Client stories coming soon.',
+
+    // ── Offers carousel (HomeOffersCarousel) ──────────────
+    'offers.carousel.seats': 'seats left!',
+    'offers.carousel.dates': 'dates',
+    'offers.carousel.agentPrice': 'Agent price',
+    'offers.carousel.from': 'From',
+    'offers.carousel.variableDates': 'Variable dates',
+    'offers.carousel.viewOffer': 'View offer',
+    'offers.carousel.prev': 'Previous',
+    'offers.carousel.next': 'Next',
+    'offers.carousel.goToSlide': 'Go to slide',
+
+    // ── Exclusive offer card ──────────────────────────────
+    'offers.card.perPerson': 'per person · taxes included',
+    'offers.card.valid48h': 'Offer valid for 48 hours',
+    'offers.card.viewOffer': 'View Offer',
+    'offers.card.bookNow': 'Book Now',
   },
 } as const;
 

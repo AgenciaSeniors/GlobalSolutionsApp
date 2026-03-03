@@ -417,6 +417,20 @@ export interface RegisterState {
   confirm_password: string;
 }
 
+/* ------------------------------------------------------------------ */
+/*  CUSTOMER EXPERIENCES                                               */
+/* ------------------------------------------------------------------ */
+
+export interface CustomerExperience {
+  id: string;
+  photo_url: string | null;
+  comment: string | null;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // -------- UI types for Flight Results (Liannah) --------
 
 export interface UiAirline {
