@@ -8,8 +8,7 @@ import Link from 'next/link';
 import { Plane, Car, Shield } from 'lucide-react';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
-import { getServerLanguage } from '@/lib/i18n/serverLanguage';
-import { translate } from '@/lib/i18n/translations';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 const STATS = [
   { value: '15+', key: 'hero.stats.airlines' },
@@ -19,8 +18,7 @@ const STATS = [
 ] as const;
 
 export default function HeroSection() {
-  const lang = getServerLanguage();
-  const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
+  const { t } = useLanguage();
 
   return (
     <section

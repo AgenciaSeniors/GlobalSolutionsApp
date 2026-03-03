@@ -1,8 +1,7 @@
 'use client';
 
 import { Shield, Globe, CheckCircle, Users } from 'lucide-react';
-import { getServerLanguage } from '@/lib/i18n/serverLanguage';
-import { translate } from '@/lib/i18n/translations';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 const ITEMS = [
   { icon: Shield, titleKey: 'trust.securePayments.title', descKey: 'trust.securePayments.desc' },
@@ -12,8 +11,7 @@ const ITEMS = [
 ] as const;
 
 export default function TrustBanner() {
-  const lang = getServerLanguage();
-  const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
+  const { t } = useLanguage();
 
   return (
     <section className="bg-white py-16">

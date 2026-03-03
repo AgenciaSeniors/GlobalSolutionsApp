@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { Plane, Car, Tag } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants/routes';
-import { getServerLanguage } from '@/lib/i18n/serverLanguage';
-import { translate } from '@/lib/i18n/translations';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 const SERVICES = [
   { icon: Plane, titleKey: 'services.flights.title', descKey: 'services.flights.desc', href: ROUTES.FLIGHTS },
@@ -14,8 +13,7 @@ const SERVICES = [
 ] as const;
 
 export default function ServicesSection() {
-  const lang = getServerLanguage();
-  const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
+  const { t } = useLanguage();
 
   return (
     <section className="bg-white py-20">

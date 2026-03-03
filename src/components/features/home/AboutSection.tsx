@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { Globe, Shield, Clock } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants/routes';
-import { getServerLanguage } from '@/lib/i18n/serverLanguage';
-import { translate } from '@/lib/i18n/translations';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 const FEATURES = [
   { icon: Shield, titleKey: 'about.feature.securePayments.title', descKey: 'about.feature.securePayments.desc' },
@@ -14,8 +13,7 @@ const FEATURES = [
 ] as const;
 
 export default function AboutSection() {
-  const lang = getServerLanguage();
-  const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
+  const { t } = useLanguage();
 
   return (
     <section className="relative overflow-hidden bg-gradient-to-br from-navy via-brand-900 to-brand-950 py-20 text-white">
