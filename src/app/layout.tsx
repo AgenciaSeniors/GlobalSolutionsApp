@@ -7,6 +7,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { LanguageProvider } from "@/components/providers/LanguageProvider";
 import ToastProvider from "@/components/providers/ToastProvider";
 import ChatWidget from "@/components/features/chat/ChatWidget";
 import HomeFloatingButton from "@/components/layout/HomeFloatingButton";
@@ -52,10 +53,12 @@ export default function RootLayout({
       </head>
       <body className="font-sans">
         <AuthProvider>
-          {children}
-          <HomeFloatingButton />
-          <ChatWidget />
-          <ToastProvider />
+          <LanguageProvider>
+            {children}
+            <HomeFloatingButton />
+            <ChatWidget />
+            <ToastProvider />
+          </LanguageProvider>
         </AuthProvider>
       </body>
     </html>
