@@ -2,8 +2,9 @@
  * @fileoverview Display card for a single rental vehicle.
  * Now links to /cars/[id] detail page and shows specs.
  * @module components/features/cars/CarRentalCard
- * @author Dev B
  */
+'use client';
+
 import Link from 'next/link';
 import Image from 'next/image';
 import { Car, Users, Fuel, Cog } from 'lucide-react';
@@ -12,13 +13,21 @@ import Button from '@/components/ui/Button';
 import { formatCurrency } from '@/lib/utils/formatters';
 import type { Car as CarType } from '@/lib/cars/types';
 import { CATEGORY_LABELS } from '@/lib/cars/types';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 interface CarRentalCardProps {
   car: CarType;
 }
 
 export default function CarRentalCard({ car }: CarRentalCardProps) {
+  const { t } = useLanguage();
   const specs = car.specs;
+
+  const transmissionLabel =
+    car.transmission === 'automatic' ? t('cars.card.automatic') : t('cars.card.manual');
+
+  const luggageLabel =
+    car.luggage_capacity === 1 ? t('cars.card.suitcase') : t('cars.card.suitcases');
 
   return (
     <Link href={`/cars/${car.id}`} className="block">
@@ -56,10 +65,10 @@ export default function CarRentalCard({ car }: CarRentalCardProps) {
               <Users className="h-3.5 w-3.5" /> {specs?.seats ?? car.passenger_capacity}
             </span>
             <span className="flex items-center gap-1">
-              <Cog className="h-3.5 w-3.5" /> {car.transmission === 'automatic' ? 'Auto' : 'Manual'}
+              <Cog className="h-3.5 w-3.5" /> {transmissionLabel}
             </span>
             <span className="flex items-center gap-1">
-              <Fuel className="h-3.5 w-3.5" /> {car.luggage_capacity} maleta{car.luggage_capacity !== 1 && 's'}
+              <Fuel className="h-3.5 w-3.5" /> {car.luggage_capacity} {luggageLabel}
             </span>
           </div>
 
@@ -88,10 +97,10 @@ export default function CarRentalCard({ car }: CarRentalCardProps) {
               <span className="text-2xl font-extrabold text-brand-600">
                 {formatCurrency(car.daily_rate)}
               </span>
-              <span className="text-sm text-neutral-500"> /día</span>
+              <span className="text-sm text-neutral-500">{t('cars.card.perDay')}</span>
             </div>
             <Button variant="outline" size="sm">
-              Ver Detalle
+              {t('cars.card.viewDetail')}
             </Button>
           </div>
         </div>

@@ -2,7 +2,10 @@
  * @fileoverview Single verified review card with star rating and author meta.
  * @module components/features/reviews/ReviewCard
  */
+'use client';
+
 import { Star, CheckCircle } from 'lucide-react';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 interface ReviewCardProps {
   authorName: string;
@@ -21,6 +24,8 @@ export default function ReviewCard({
   rating,
   comment,
 }: ReviewCardProps) {
+  const { t } = useLanguage();
+
   return (
     <article className="rounded-2xl border border-neutral-100 bg-white p-7 shadow-sm">
       {/* Stars */}
@@ -49,12 +54,12 @@ export default function ReviewCard({
         <div className="flex-1">
           <p className="text-sm font-semibold text-neutral-900">{authorName}</p>
           <p className="text-xs text-neutral-500">
-            Viajó a {destination} · {date}
+            {t('reviews.card.traveledTo')} {destination} · {date}
           </p>
         </div>
         <span className="flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-600">
           <CheckCircle className="h-3 w-3" />
-          Verificado
+          {t('reviews.card.verified')}
         </span>
       </div>
     </article>

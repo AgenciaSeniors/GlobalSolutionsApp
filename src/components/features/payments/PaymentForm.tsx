@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 export default function PaymentForm() {
   const stripe = useStripe();
   const elements = useElements();
   const router = useRouter();
+  const { t } = useLanguage();
 
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +29,7 @@ export default function PaymentForm() {
     });
 
     if (result.error) {
-      setError(result.error.message ?? 'Pago fallido.');
+      setError(result.error.message ?? t('payment.error.failed'));
       setPaying(false);
       return;
     }
@@ -40,13 +42,13 @@ export default function PaymentForm() {
   if (success) {
     return (
       <Card variant="bordered" className="p-6">
-        <p className="font-bold text-emerald-600">Pago confirmado</p>
+        <p className="font-bold text-emerald-600">{t('payment.success.title')}</p>
         <p className="mt-2 text-neutral-700">
-          Tu pago fue procesado. Puedes volver a tus reservas.
+          {t('payment.success.message')}
         </p>
         <div className="mt-4">
           <a className="underline" href="/user/dashboard/bookings">
-            Ir a Mis Reservas
+            {t('payment.success.goToBookings')}
           </a>
         </div>
       </Card>
@@ -55,7 +57,7 @@ export default function PaymentForm() {
 
   return (
     <Card variant="bordered" className="p-6">
-      <h2 className="font-bold text-neutral-900">Método de pago</h2>
+      <h2 className="font-bold text-neutral-900">{t('payment.method')}</h2>
 
       <div className="mt-4">
         <PaymentElement />
@@ -65,12 +67,12 @@ export default function PaymentForm() {
 
       <div className="mt-6">
         <Button onClick={onPay} disabled={!stripe || !elements || paying}>
-          {paying ? 'Procesando...' : 'Pagar'}
+          {paying ? t('payment.paying') : t('payment.pay')}
         </Button>
       </div>
 
       <p className="mt-3 text-xs text-neutral-500">
-        No recargues la página durante el pago.
+        {t('payment.noReload')}
       </p>
     </Card>
   );

@@ -14,6 +14,7 @@ import AirportAutocomplete from '@/components/forms/AirportAutocomplete';
 import MultiLegEditor, { type StopLeg } from '@/components/forms/MultiLegEditor';
 import { ROUTES } from '@/lib/constants/routes';
 import { flightSearchSchema } from '@/lib/validations/flight.schema';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 type TripType = 'roundtrip' | 'oneway' | 'multicity';
 
@@ -56,6 +57,8 @@ type Props = {
 
 export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOnClassChange }: Props) {
   const router = useRouter();
+  const { t } = useLanguage();
+
   const buildInitialFormState = () => ({
     origin: initialValues?.origin || '',
     destination: initialValues?.destination || '',
@@ -142,8 +145,6 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
 
     if (initialValues.tripType === 'multicity') {
       setTripType('multicity');
-      // legs[0] is the main leg (already in origin/destination/departure),
-      // additional legs start from index 1
       if (initialValues.legs && initialValues.legs.length > 1) {
         setLegs(initialValues.legs.slice(1));
       } else {
@@ -163,17 +164,14 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
     setTripType(type);
     setDateError('');
 
-    // Clear return date when switching to oneway
     if (type === 'oneway' || type === 'multicity') {
       setForm((prev) => ({ ...prev, returnDate: '' }));
     }
 
-    // Clear legs when leaving multicity
     if (type !== 'multicity') {
       setLegs([]);
     }
 
-    // Add initial empty leg when entering multicity
     if (type === 'multicity' && legs.length === 0) {
       setLegs([{ origin: '', destination: '', date: '' }]);
     }
@@ -188,7 +186,6 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
       setForm((prev) => {
         const next = { ...prev, [field]: value };
 
-        // Si cambia la fecha de ida y la vuelta queda antes, auto-corregir
         if (field === 'departure' && next.returnDate && next.returnDate < value) {
           next.returnDate = value;
         }
@@ -217,42 +214,38 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
 
     if (!form.origin || !form.destination) return;
 
-    // Multicity: validate legs have dates and airports
     if (tripType === 'multicity') {
       for (let i = 0; i < legs.length; i++) {
         const leg = legs[i];
         if (!leg.origin || !leg.destination) {
-          setDateError(`Escala ${i + 1}: selecciona origen y destino`);
+          setDateError(`${t('search.error.legPrefix')} ${i + 1}: ${t('search.error.legOriginDest')}`);
           return;
         }
         if (!leg.date) {
-          setDateError(`Escala ${i + 1}: selecciona una fecha`);
+          setDateError(`${t('search.error.legPrefix')} ${i + 1}: ${t('search.error.legDate')}`);
           return;
         }
         if (leg.date < today) {
-          setDateError(`Escala ${i + 1}: la fecha no puede ser en el pasado`);
+          setDateError(`${t('search.error.legPrefix')} ${i + 1}: ${t('search.error.legDatePast')}`);
           return;
         }
-        // Validate date sequence: each leg date >= previous leg date
         if (i === 0 && form.departure && leg.date < form.departure) {
-          setDateError(`Escala ${i + 1}: la fecha debe ser igual o posterior a la fecha de ida (${form.departure})`);
+          setDateError(`${t('search.error.legPrefix')} ${i + 1}: ${t('search.error.legDateAfterDep')} (${form.departure})`);
           return;
         }
         if (i > 0 && legs[i - 1].date && leg.date < legs[i - 1].date) {
-          setDateError(`Escala ${i + 1}: la fecha debe ser igual o posterior a la escala anterior (${legs[i - 1].date})`);
+          setDateError(`${t('search.error.legPrefix')} ${i + 1}: ${t('search.error.legDateAfterPrev')} (${legs[i - 1].date})`);
           return;
         }
       }
     }
 
-    // ── Multicity: serialize all legs into URL and navigate ──
     if (tripType === 'multicity') {
       if (!form.departure) {
-        setDateError('Selecciona una fecha de ida');
+        setDateError(t('search.error.selectDeparture'));
         return;
       }
 
-      // Build full legs array: main leg + additional legs from editor
       const allLegs = [
         { origin: form.origin, destination: form.destination, date: form.departure },
         ...legs,
@@ -276,7 +269,6 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
       return;
     }
 
-    // ── Roundtrip / Oneway: validate with Zod and navigate ──
     const result = flightSearchSchema.safeParse({
       origin: form.origin,
       destination: form.destination,
@@ -286,7 +278,7 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
     });
 
     if (!result.success) {
-      const firstError = result.error.issues[0]?.message ?? 'Datos invalidos';
+      const firstError = result.error.issues[0]?.message ?? t('search.error.invalidData');
       setDateError(firstError);
       return;
     }
@@ -322,7 +314,6 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
     const next = { ...form, cabinClass: value };
     if (!next.origin || !next.destination || !next.departure) return;
 
-    // ── Multicity: rebuild URL with all legs + new cabinClass ──
     if (tripType === 'multicity') {
       const allLegs = [
         { origin: next.origin, destination: next.destination, date: next.departure },
@@ -344,7 +335,6 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
       return;
     }
 
-    // ── Roundtrip / Oneway ──
     if (tripType === 'roundtrip' && !next.returnDate) return;
 
     const payload: FlightSearchParams = {
@@ -377,9 +367,9 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <div className="inline-flex gap-0.5 rounded-xl bg-neutral-100 p-1 sm:gap-1">
           {([
-            { key: 'roundtrip' as TripType, label: 'Ida y Vuelta', short: 'Ida/Vuelta' },
-            { key: 'oneway' as TripType, label: 'Solo Ida', short: 'Solo Ida' },
-            { key: 'multicity' as TripType, label: 'Multidestino', short: 'Multi' },
+            { key: 'roundtrip' as TripType, label: t('search.tripType.roundtrip'), short: t('search.tripType.roundtripShort') },
+            { key: 'oneway' as TripType, label: t('search.tripType.oneway'), short: t('search.tripType.oneway') },
+            { key: 'multicity' as TripType, label: t('search.tripType.multicity'), short: t('search.tripType.multicityShort') },
           ]).map(({ key, label, short }) => (
             <button
               key={key}
@@ -403,12 +393,12 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
         {/* Origin */}
         <div>
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
-            <MapPin className="h-3.5 w-3.5 text-brand-500" /> Origen
+            <MapPin className="h-3.5 w-3.5 text-brand-500" /> {t('search.origin')}
           </label>
           <AirportAutocomplete
             value={form.origin}
             onChange={updateField('origin')}
-            placeholder="Ciudad o codigo IATA"
+            placeholder={t('search.airportPlaceholder')}
             required
             excludeCodes={form.destination ? [form.destination] : []}
             testId="origin-input"
@@ -420,7 +410,7 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
           <button
             type="button"
             onClick={swapAirports}
-            title="Intercambiar origen y destino"
+            title={t('search.swapTitle')}
             className="rounded-full border-2 border-neutral-200 bg-white p-2.5 text-neutral-500
                        transition-all hover:border-brand-300 hover:text-brand-600 hover:shadow-sm
                        active:scale-95"
@@ -432,12 +422,12 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
         {/* Destination */}
         <div>
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
-            <MapPin className="h-3.5 w-3.5 text-brand-500" /> Destino
+            <MapPin className="h-3.5 w-3.5 text-brand-500" /> {t('search.destination')}
           </label>
           <AirportAutocomplete
             value={form.destination}
             onChange={updateField('destination')}
-            placeholder="Ciudad o codigo IATA"
+            placeholder={t('search.airportPlaceholder')}
             required
             excludeCodes={form.origin ? [form.origin] : []}
             testId="destination-input"
@@ -463,7 +453,7 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
         {/* Departure */}
         <div>
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
-            <Calendar className="h-3.5 w-3.5 text-brand-500" /> Fecha de Ida
+            <Calendar className="h-3.5 w-3.5 text-brand-500" /> {t('search.departureDate')}
           </label>
           <Input
             type="date"
@@ -479,7 +469,7 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
         {isRoundtrip && (
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
-              <Calendar className="h-3.5 w-3.5 text-brand-500" /> Fecha de Vuelta
+              <Calendar className="h-3.5 w-3.5 text-brand-500" /> {t('search.returnDate')}
             </label>
             <Input
               type="date"
@@ -512,11 +502,11 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
         />
       )}
 
-      {/* ── Passengers + Search ───────────────────────── */}
+      {/* ── Passengers + Class + Search ───────────────── */}
       <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end">
         <div className="w-full sm:w-44">
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
-            <Users className="h-3.5 w-3.5 text-brand-500" /> Pasajeros
+            <Users className="h-3.5 w-3.5 text-brand-500" /> {t('search.passengers')}
           </label>
           <select
             value={form.passengers}
@@ -526,15 +516,15 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
           >
             {Array.from({ length: 9 }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>
-                {n} pasajero{n > 1 ? 's' : ''}
+                {n} {n > 1 ? t('search.passengerPlural') : t('search.passengerSingular')}
               </option>
             ))}
           </select>
         </div>
-        {/* <-- NUEVO: Selector de Clase --> */}
+
         <div className="w-full sm:w-48">
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-neutral-700">
-            <Armchair className="h-3.5 w-3.5 text-brand-500" /> Clase
+            <Armchair className="h-3.5 w-3.5 text-brand-500" /> {t('search.class')}
           </label>
           <select
             value={form.cabinClass}
@@ -542,10 +532,10 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
             className="h-12 w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 px-4 text-[15px] font-medium
                        focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           >
-            <option value="economy">Económica</option>
-            <option value="premium_economy">Premium Económica</option>
-            <option value="business">Ejecutiva</option>
-            <option value="first">Primera</option>
+            <option value="economy">{t('search.cabinClass.economy')}</option>
+            <option value="premium_economy">{t('search.cabinClass.premiumEconomy')}</option>
+            <option value="business">{t('search.cabinClass.business')}</option>
+            <option value="first">{t('search.cabinClass.first')}</option>
           </select>
         </div>
 
@@ -558,7 +548,7 @@ export default function FlightSearchForm({ initialValues, onSearch, autoSubmitOn
         >
           <span className="flex items-center justify-center gap-2.5">
             <Search className="h-5 w-5" />
-            <span>Buscar Vuelos</span>
+            <span>{t('search.submit')}</span>
           </span>
         </Button>
       </div>

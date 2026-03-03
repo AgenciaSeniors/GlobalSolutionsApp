@@ -1,5 +1,8 @@
 // src/components/features/flights/FlightLegTabs.tsx
+'use client';
+
 import { Plane, CheckCircle2 } from 'lucide-react';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 interface FlightLegTabsProps {
   legs: { origin: string; destination: string; date: string }[];
@@ -17,6 +20,8 @@ export default function FlightLegTabs({
   tripType,
   selectedLegs = [],
 }: FlightLegTabsProps) {
+  const { t } = useLanguage();
+
   return (
     <div className="flex gap-2 mb-6 overflow-x-auto pb-2 -mx-1 px-1">
       {legs.map((leg, index) => {
@@ -63,10 +68,10 @@ export default function FlightLegTabs({
             <div className="text-left min-w-0">
               <p className={labelClass}>
                 {tripType === 'multicity'
-                  ? `Tramo ${index + 1}`
+                  ? `${t('flights.legs.leg')} ${index + 1}`
                   : index === 0
-                    ? 'Ida'
-                    : 'Vuelta'}
+                    ? t('flights.legs.outbound')
+                    : t('flights.legs.return')}
               </p>
               <div className="flex items-center gap-1 font-bold text-xs sm:gap-2 sm:text-sm">
                 <span>{leg.origin}</span>

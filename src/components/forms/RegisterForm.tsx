@@ -5,8 +5,10 @@ import Link from "next/link";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import { authService } from "@/services/auth.service";
+import { useLanguage } from "@/components/providers/LanguageProvider";
 
 export default function RegisterForm() {
+  const { t } = useLanguage();
   const [step, setStep] = React.useState<"form" | "otp">("form");
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -26,20 +28,20 @@ export default function RegisterForm() {
     setDuplicateEmail(false);
 
     const normalizedEmail = email.trim().toLowerCase();
-    if (!fullName.trim()) return setErrorMsg("Nombre completo es requerido.");
-    if (!normalizedEmail) return setErrorMsg("Email es requerido.");
-    if (!password) return setErrorMsg("Contraseña es requerida.");
+    if (!fullName.trim()) return setErrorMsg(t('auth.register.error.fullName'));
+    if (!normalizedEmail) return setErrorMsg(t('auth.register.error.email'));
+    if (!password) return setErrorMsg(t('auth.register.error.password'));
 
     setIsLoading(true);
     try {
       await authService.signUpStepOne(normalizedEmail);
       setStep("otp");
-      setInfoMsg("Te enviamos un código a tu correo(revise la bandeja de Spam). Pégalo aquí para completar el registro.");
+      setInfoMsg(t('auth.register.codeHint'));
     } catch (err: any) {
       if (err?.status === 409) {
         setDuplicateEmail(true);
       } else {
-        setErrorMsg(err?.message ?? "No se pudo enviar el código.");
+        setErrorMsg(err?.message ?? t('auth.register.error.sendCode'));
       }
     } finally {
       setIsLoading(false);
@@ -52,16 +54,14 @@ export default function RegisterForm() {
     setInfoMsg(null);
 
     const normalizedEmail = email.trim().toLowerCase();
-    if (!code.trim()) return setErrorMsg("Código es requerido.");
+    if (!code.trim()) return setErrorMsg(t('auth.register.error.code'));
 
     setIsLoading(true);
     try {
       await authService.verifySignupOtp(normalizedEmail, code.trim(), fullName.trim(), password);
-
-      // ✅ Cuenta creada + sesión iniciada — full reload para que las cookies se envíen al middleware
       window.location.href = "/user/dashboard";
     } catch (err: any) {
-      setErrorMsg(err?.message ?? "No se pudo completar el registro.");
+      setErrorMsg(err?.message ?? t('auth.register.error.complete'));
     } finally {
       setIsLoading(false);
     }
@@ -73,7 +73,7 @@ export default function RegisterForm() {
         <form onSubmit={handleSendCode} className="grid gap-4">
           <div className="grid gap-1">
             <label className="text-sm font-medium" htmlFor="name">
-              Nombre Completo
+              {t('auth.register.fullName')}
             </label>
             <Input
               id="name"
@@ -86,7 +86,7 @@ export default function RegisterForm() {
 
           <div className="grid gap-1">
             <label className="text-sm font-medium" htmlFor="email">
-              Correo
+              {t('auth.register.email')}
             </label>
             <Input
               id="email"
@@ -100,7 +100,7 @@ export default function RegisterForm() {
 
           <div className="grid gap-1">
             <label className="text-sm font-medium" htmlFor="password">
-              Contraseña
+              {t('auth.register.password')}
             </label>
             <Input
               id="password"
@@ -116,13 +116,13 @@ export default function RegisterForm() {
           {duplicateEmail && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
               <p className="text-sm font-medium text-amber-800">
-                Ya existe una cuenta con este correo electrónico.
+                {t('auth.register.duplicateEmail')}
               </p>
               <Link
                 href="/login"
                 className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700 underline underline-offset-2"
               >
-                Ir a Iniciar Sesion
+                {t('auth.register.goToLogin')}
               </Link>
             </div>
           )}
@@ -130,18 +130,18 @@ export default function RegisterForm() {
           {infoMsg && <p className="text-sm text-gray-600">{infoMsg}</p>}
 
           <Button type="submit" disabled={isLoading} isLoading={isLoading} className="w-full">
-            {isLoading ? "Enviando código..." : "Enviar código"}
+            {isLoading ? t('auth.register.sending') : t('auth.register.sendCode')}
           </Button>
         </form>
       ) : (
         <form onSubmit={handleVerifyAndCreate} className="grid gap-4">
           <p className="text-sm text-gray-600">
-            Enviamos un código a <strong>{email.trim().toLowerCase()}</strong>
+            {t('auth.register.codeSentTo')} <strong>{email.trim().toLowerCase()}</strong>
           </p>
 
           <div className="grid gap-1">
             <label className="text-sm font-medium" htmlFor="code">
-              Código
+              {t('auth.register.code')}
             </label>
             <Input
               id="code"
@@ -157,7 +157,7 @@ export default function RegisterForm() {
           {infoMsg && <p className="text-sm text-gray-600">{infoMsg}</p>}
 
           <Button type="submit" disabled={isLoading} isLoading={isLoading} className="w-full">
-            {isLoading ? "Creando cuenta..." : "Verificar y crear cuenta"}
+            {isLoading ? t('auth.register.creating') : t('auth.register.verify')}
           </Button>
 
           <button
@@ -171,7 +171,7 @@ export default function RegisterForm() {
               setInfoMsg(null);
             }}
           >
-            Volver
+            {t('auth.register.back')}
           </button>
         </form>
       )}

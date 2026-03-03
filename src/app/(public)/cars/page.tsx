@@ -2,7 +2,6 @@
  * @fileoverview Public car rentals listing with search filters.
  * Server component that queries Supabase directly.
  * @module app/(public)/cars/page
- * @author Dev B
  */
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -13,6 +12,8 @@ import { searchCars } from '@/lib/cars/service';
 import { CAR_CATEGORIES, CATEGORY_LABELS } from '@/lib/cars/types';
 import type { CarSearchParams, CarCategory } from '@/lib/cars/types';
 import { Car, SlidersHorizontal } from 'lucide-react';
+import { getServerLanguage } from '@/lib/i18n/serverLanguage';
+import { translate, type TranslationKey } from '@/lib/i18n/translations';
 
 export const metadata: Metadata = { title: 'Renta de Autos — Global Solutions Travel' };
 
@@ -22,6 +23,8 @@ interface Props {
 
 export default async function CarsPage({ searchParams }: Props) {
   const sp = await searchParams;
+  const lang = getServerLanguage();
+  const t = (key: TranslationKey) => translate(lang, key);
 
   const filters: CarSearchParams = {};
   if (sp.category && CAR_CATEGORIES.includes(sp.category as CarCategory)) {
@@ -39,6 +42,10 @@ export default async function CarsPage({ searchParams }: Props) {
 
   const hasFilters = Object.keys(filters).length > 0;
 
+  const carsCount = cars.length === 1
+    ? `1 ${t('cars.page.countSingular')}`
+    : `${cars.length} ${t('cars.page.countPlural')}`;
+
   return (
     <>
       <Navbar />
@@ -48,13 +55,13 @@ export default async function CarsPage({ searchParams }: Props) {
             {/* Header */}
             <div className="mb-10 text-center">
               <span className="text-sm font-bold uppercase tracking-widest text-brand-500">
-                Renta de Autos
+                {t('cars.page.badge')}
               </span>
               <h1 className="mt-2 font-display text-4xl font-bold text-brand-950">
-                Explora Cuba a tu ritmo
+                {t('cars.page.title')}
               </h1>
               <p className="mx-auto mt-2 max-w-lg text-neutral-600">
-                Vehículos confiables con seguro incluido y asistencia en carretera 24/7
+                {t('cars.page.subtitle')}
               </p>
             </div>
 
@@ -63,17 +70,17 @@ export default async function CarsPage({ searchParams }: Props) {
               <form className="flex flex-wrap items-end gap-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-neutral-700">
                   <SlidersHorizontal className="h-4 w-4" />
-                  Filtros
+                  {t('cars.page.filters')}
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-neutral-500">Categoría</label>
+                  <label className="mb-1 block text-xs font-medium text-neutral-500">{t('cars.page.category')}</label>
                   <select
                     name="category"
                     defaultValue={filters.category ?? ''}
                     className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
                   >
-                    <option value="">Todas</option>
+                    <option value="">{t('cars.page.categoryAll')}</option>
                     {CAR_CATEGORIES.map((c) => (
                       <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
                     ))}
@@ -81,20 +88,20 @@ export default async function CarsPage({ searchParams }: Props) {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-neutral-500">Transmisión</label>
+                  <label className="mb-1 block text-xs font-medium text-neutral-500">{t('cars.page.transmission')}</label>
                   <select
                     name="transmission"
                     defaultValue={filters.transmission ?? ''}
                     className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
                   >
-                    <option value="">Todas</option>
-                    <option value="automatic">Automático</option>
-                    <option value="manual">Manual</option>
+                    <option value="">{t('cars.page.transmissionAll')}</option>
+                    <option value="automatic">{t('cars.page.transmissionAutomatic')}</option>
+                    <option value="manual">{t('cars.page.transmissionManual')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-neutral-500">Precio máx/día</label>
+                  <label className="mb-1 block text-xs font-medium text-neutral-500">{t('cars.page.maxPricePerDay')}</label>
                   <input
                     name="maxPrice"
                     type="number"
@@ -106,13 +113,13 @@ export default async function CarsPage({ searchParams }: Props) {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-neutral-500">Min. asientos</label>
+                  <label className="mb-1 block text-xs font-medium text-neutral-500">{t('cars.page.minSeats')}</label>
                   <select
                     name="minSeats"
                     defaultValue={filters.minSeats ?? ''}
                     className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
                   >
-                    <option value="">Todos</option>
+                    <option value="">{t('cars.page.minSeatsAll')}</option>
                     <option value="4">4+</option>
                     <option value="5">5+</option>
                     <option value="7">7+</option>
@@ -123,7 +130,7 @@ export default async function CarsPage({ searchParams }: Props) {
                   type="submit"
                   className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition-colors"
                 >
-                  Filtrar
+                  {t('cars.page.filter')}
                 </button>
 
                 {hasFilters && (
@@ -131,7 +138,7 @@ export default async function CarsPage({ searchParams }: Props) {
                     href="/cars"
                     className="rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
                   >
-                    Limpiar
+                    {t('cars.page.clearFilters')}
                   </Link>
                 )}
               </form>
@@ -142,22 +149,20 @@ export default async function CarsPage({ searchParams }: Props) {
               <div className="py-20 text-center">
                 <Car className="mx-auto h-16 w-16 text-neutral-300" />
                 <p className="mt-4 text-lg font-medium text-neutral-500">
-                  No se encontraron autos{hasFilters ? ' con esos filtros' : ''}
+                  {t('cars.page.noCars')}{hasFilters ? ` ${t('cars.page.noCarsFiltered')}` : ''}
                 </p>
                 {hasFilters && (
                   <Link
                     href="/cars"
                     className="mt-3 inline-block text-sm font-semibold text-brand-600 hover:underline"
                   >
-                    Ver todos los autos
+                    {t('cars.page.viewAll')}
                   </Link>
                 )}
               </div>
             ) : (
               <>
-                <p className="mb-4 text-sm text-neutral-500">
-                  {cars.length} auto{cars.length !== 1 && 's'} disponible{cars.length !== 1 && 's'}
-                </p>
+                <p className="mb-4 text-sm text-neutral-500">{carsCount}</p>
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                   {cars.map((car) => (
                     <CarRentalCard key={car.id} car={car} />

@@ -1,9 +1,12 @@
+'use client';
+
 import type { FlightOffer } from '@/types/models';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { Plane, ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import FlightStopsDetails from './FlightStopsDetails';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 interface FlightCardProps {
   flight: FlightOffer;
@@ -13,21 +16,22 @@ interface FlightCardProps {
 function formatTime(value: string): string {
   if (!value) return '—';
   // Extract HH:MM directly from the ISO string (airport-local time).
-  // This avoids timezone conversion — the time is already in the airport's local timezone.
   const match = value.match(/T(\d{2}:\d{2})/);
   if (match) return match[1];
   // Fallback for non-ISO formats
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 export default function FlightCard({ flight, onSelect }: FlightCardProps) {
+  const { t } = useLanguage();
+
   const segments = flight.segments ?? [];
   const firstSegment = segments[0];
   const lastSegment = segments[segments.length - 1];
 
-  const airlineName = firstSegment?.airline?.name ?? 'Aerolínea';
+  const airlineName = firstSegment?.airline?.name ?? t('flights.card.airline');
   const airlineCode = firstSegment?.airline?.code ?? '';
   const flightNumber = firstSegment?.flightNumber ?? '';
   const originCode = firstSegment?.origin ?? '';
@@ -38,7 +42,9 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
 
   const isDirect = segments.length <= 1;
   const stopsCount = Math.max(0, segments.length - 1);
-  const stopsLabel = isDirect ? 'Directo' : `${stopsCount} Escala${stopsCount === 1 ? '' : 's'}`;
+  const stopsLabel = isDirect
+    ? t('flights.card.direct')
+    : `${stopsCount} ${stopsCount === 1 ? t('flights.card.stop') : t('flights.card.stops')}`;
 
   const logoUrl = firstSegment?.airline?.logoUrl ?? '';
 
@@ -90,7 +96,7 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
           <p className="text-sm text-neutral-500">
             {airlineCode}
             {airlineCode && flightNumber ? ' · ' : ''}
-            {flightNumber ? `Vuelo ${flightNumber}` : ''}
+            {flightNumber ? `${t('flights.card.flight')} ${flightNumber}` : ''}
           </p>
         </div>
 
@@ -114,12 +120,12 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
                 <button
                   onClick={() => setShowStopsDetails(!showStopsDetails)}
                   className="group/badge flex max-w-full items-center gap-1 rounded-full bg-amber-100 px-2 py-1 transition-all hover:bg-amber-200 hover:shadow-md sm:max-w-[240px] sm:gap-2 sm:px-3"
-                  title={`Vía ${stopAirports}`}
+                  title={`${t('flights.card.via')} ${stopAirports}`}
                   type="button"
                 >
                   <span className="text-xs font-semibold text-amber-700">{stopsLabel}</span>
                   <span className="hidden max-w-[140px] truncate text-[10px] text-amber-700/80 sm:inline">
-                    vía {stopAirportsShort}
+                    {t('flights.card.via')} {stopAirportsShort}
                   </span>
                   {showStopsDetails ? (
                     <ChevronUp className="h-3 w-3 text-amber-700 transition-transform group-hover/badge:scale-110 sm:h-3.5 sm:w-3.5" />
@@ -149,7 +155,7 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
         {/* Price + CTA */}
         <div className="flex flex-row items-center justify-between gap-4 sm:flex-col sm:items-end sm:justify-center">
           <div className="sm:text-right">
-            <span className="text-xs text-neutral-400">Total por pasajero</span>
+            <span className="text-xs text-neutral-400">{t('flights.card.perPassenger')}</span>
             <p className="text-2xl font-extrabold text-[#FF4757] sm:text-3xl">${flight.price}</p>
           </div>
 
@@ -158,7 +164,7 @@ export default function FlightCard({ flight, onSelect }: FlightCardProps) {
             variant="primary"
             className="shrink-0 sm:w-auto"
           >
-            Seleccionar
+            {t('flights.card.select')}
           </Button>
         </div>
       </div>

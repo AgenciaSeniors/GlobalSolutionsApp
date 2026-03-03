@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
@@ -43,6 +44,7 @@ function toStopsCountFilter(stops: string[]): number | null {
 function FlightSearchResultsInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { t } = useLanguage();
 
   const { results, resultsByLeg, isLoading, error, search, hasMore, loadMore } = useFlightSearch();
 
@@ -339,7 +341,7 @@ function FlightSearchResultsInner() {
 
         <section ref={resultsRef} className="bg-neutral-50 py-12">
           <div className="mx-auto max-w-6xl px-6">
-            <h2 className="mb-4 text-2xl font-extrabold text-[#0F2545] sm:mb-6 sm:text-3xl">Resultados de Búsqueda</h2>
+            <h2 className="mb-4 text-2xl font-extrabold text-[#0F2545] sm:mb-6 sm:text-3xl">{t('flights.search.results')}</h2>
 
             {legs.length > 0 && (
               <FlightLegTabs
@@ -431,7 +433,7 @@ function FlightSearchResultsInner() {
 
 export default function FlightSearchResultsPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><p className="text-neutral-500 animate-pulse">Buscando vuelos...</p></div>}>
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><p className="text-neutral-500 animate-pulse">Searching flights...</p></div>}>
       <FlightSearchResultsInner />
     </Suspense>
   );
