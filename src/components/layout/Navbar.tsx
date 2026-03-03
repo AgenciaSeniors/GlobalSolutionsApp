@@ -79,15 +79,21 @@ export default function Navbar() {
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
-        <Link href={ROUTES.HOME} className="flex items-center shrink-0 px-1 py-2">
+        <Link href={ROUTES.HOME} className="flex items-center gap-0 px-2 py-2">
           <Image
-            src="/brand/logoGrande.png"
+            src="/brand/avion-check.png"
             alt="Global Solutions Travel"
-            width={180}
+            width={60}
             height={60}
-            className="h-9 w-auto sm:h-11 object-contain"
+            className="h-10 w-10 sm:h-12 sm:w-12 object-contain shrink-0"
             priority
           />
+          <span className="-ml-2 sm:-ml-3 leading-none">
+            <span className="font-display text-base font-bold tracking-wide text-navy sm:text-xl">
+              GLOBAL SOLUTIONS{' '}
+            </span>
+            <span className="font-script text-base font-bold text-coral sm:text-xl">Travel</span>
+          </span>
         </Link>
 
         {/* ── Desktop Links ── */}
