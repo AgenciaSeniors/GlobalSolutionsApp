@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * @fileoverview Hero section (branding background) with CTAs + trust + stats.
  * @module components/features/home/HeroSection
@@ -31,7 +33,6 @@ export default function HeroSection() {
         <div className="absolute -left-24 top-24 h-72 w-72 rounded-full bg-brand-500/25 blur-3xl" />
         <div className="absolute -right-24 bottom-16 h-72 w-72 rounded-full bg-emerald-400/15 blur-3xl" />
       </div>
-
       <div className="relative z-10 mx-auto flex w-full max-w-7xl justify-center px-6 pb-20">
         <div className="flex max-w-3xl flex-col items-center text-center text-white">
           <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-[13px] font-semibold text-white backdrop-blur">
@@ -62,7 +63,6 @@ export default function HeroSection() {
               </Button>
             </Link>
           </div>
-
           <div className="mt-12 grid w-full grid-cols-2 gap-4 sm:grid-cols-4">
             {STATS.map((s) => (
               <div

@@ -1,17 +1,3 @@
-/**
- * @fileoverview Landing page — Hero, FlightSearch, Offers Carousel,
- *               Trust, About, Services, Reviews and CTA.
- * @module app/page
- */
-import Link from 'next/link';
-import Navbar from '@/components/layout/Navbar';
-import Footer from '@/components/layout/Footer';
-import HeroSection from '@/components/features/home/HeroSection';
-import FlightSearchForm from '@/components/forms/FlightSearchForm';
-import ReviewCard from '@/components/features/reviews/ReviewCard';
-import AboutSection from '@/components/features/home/AboutSection';
-import ServicesSection from '@/components/features/home/ServicesSection';
-import HomeOffersCarousel from '@/components/features/home/HomeOffersCarousel';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { SpecialOffer } from '@/types/models';
@@ -22,7 +8,7 @@ function getInitials(name: string): string {
   return name
     .split(' ')
     .filter(Boolean)
-    .map(w => w[0]?.toUpperCase() ?? '')
+    .map((w) => w[0]?.toUpperCase() ?? '')
     .slice(0, 2)
     .join('');
 }

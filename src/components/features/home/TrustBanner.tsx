@@ -1,7 +1,5 @@
-/**
- * @fileoverview Grid of trust signals displayed on the landing page.
- * @module components/features/home/TrustBanner
- */
+'use client';
+
 import { Shield, Globe, CheckCircle, Users } from 'lucide-react';
 import { getServerLanguage } from '@/lib/i18n/serverLanguage';
 import { translate } from '@/lib/i18n/translations';

@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * @fileoverview Site footer with quick links, legal info and compliance badges.
  * @module components/layout/Footer
