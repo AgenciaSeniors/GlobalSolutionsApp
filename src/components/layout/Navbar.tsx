@@ -14,22 +14,24 @@ import { cn } from '@/lib/utils/cn';
 import { ROUTES } from '@/lib/constants/routes';
 import Button from '@/components/ui/Button';
 import { useAuthContext } from '@/components/providers/AuthProvider';
+import { useLanguage } from '@/components/providers/LanguageProvider';
 import type { UserRole } from '@/types/models';
 
 const NAV_LINKS = [
-  { href: ROUTES.HOME, label: 'Inicio', icon: Home },
-  { href: ROUTES.FLIGHTS, label: 'Vuelos', icon: Plane },
-  { href: ROUTES.CARS, label: 'Autos', icon: Car },
-  { href: ROUTES.OFFERS, label: 'Ofertas', icon: Sparkles },
-  { href: ROUTES.ABOUT, label: 'Nosotros', icon: null },
+  { href: ROUTES.HOME, labelKey: 'nav.home', icon: Home },
+  { href: ROUTES.FLIGHTS, labelKey: 'nav.flights', icon: Plane },
+  { href: ROUTES.CARS, labelKey: 'nav.cars', icon: Car },
+  { href: ROUTES.OFFERS, labelKey: 'nav.offers', icon: Sparkles },
+  { href: ROUTES.ABOUT, labelKey: 'nav.about', icon: null },
 ] as const;
 
 export default function Navbar() {
   const pathname = usePathname();
   const { user, profile } = useAuthContext();
+  const { language, setLanguage, t } = useLanguage();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  
+
   // Estado para la notificación del agente
   const [showAgentNotification, setShowAgentNotification] = useState(false);
 
@@ -52,11 +54,11 @@ export default function Navbar() {
       const hasSeen = localStorage.getItem('has_seen_agent_welcome');
       if (!hasSeen) setShowAgentNotification(true);
     }
-    
+
     // Escuchar cuando limpie la notificación desde la otra pantalla
     const handleSeen = () => setShowAgentNotification(false);
     window.addEventListener('agent_welcome_seen', handleSeen);
-    
+
     return () => window.removeEventListener('agent_welcome_seen', handleSeen);
   }, [profile?.role]);
 
@@ -66,11 +68,7 @@ export default function Navbar() {
   const dashboardHref =
     profile?.role ? dashboardRoute[profile.role] || ROUTES.USER_DASHBOARD : ROUTES.USER_DASHBOARD;
 
-  const avatarLetter = (
-    profile?.full_name?.charAt(0) ||
-    user?.email?.charAt(0) ||
-    'U'
-  ).toUpperCase();
+  const avatarLetter = (profile?.full_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase();
 
   return (
     <header
@@ -81,27 +79,27 @@ export default function Navbar() {
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
-      <Link href={ROUTES.HOME} className="flex items-center gap-0 px-2 py-2">
-  <Image
-    src="/brand/avion-check.png"
-    alt="Global Solutions Travel"
-    width={60}
-    height={60}
-    className="h-10 w-10 sm:h-12 sm:w-12 object-contain shrink-0"
-    priority
-  />
+        <Link href={ROUTES.HOME} className="flex items-center gap-0 px-2 py-2">
+          <Image
+            src="/brand/avion-check.png"
+            alt="Global Solutions Travel"
+            width={60}
+            height={60}
+            className="h-10 w-10 sm:h-12 sm:w-12 object-contain shrink-0"
+            priority
+          />
 
-  <span className="-ml-2 sm:-ml-3 leading-none">
-    <span className="font-display text-base font-bold tracking-wide text-navy sm:text-xl">
-      GLOBAL SOLUTIONS{' '}
-    </span>
-    <span className="font-script text-base font-bold text-coral sm:text-xl">Travel</span>
-  </span>
-</Link>
+          <span className="-ml-2 sm:-ml-3 leading-none">
+            <span className="font-display text-base font-bold tracking-wide text-navy sm:text-xl">
+              GLOBAL SOLUTIONS{' '}
+            </span>
+            <span className="font-script text-base font-bold text-coral sm:text-xl">Travel</span>
+          </span>
+        </Link>
 
         {/* ── Desktop Links ── */}
         <ul className="hidden items-center gap-1 md:flex">
-          {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+          {NAV_LINKS.map(({ href, labelKey, icon: Icon }) => {
             const active =
               href === ROUTES.HOME
                 ? pathname === '/'
@@ -118,7 +116,7 @@ export default function Navbar() {
                   )}
                 >
                   {Icon && <Icon className="h-4 w-4" />}
-                  {label}
+                  {t(labelKey)}
                 </Link>
               </li>
             );
@@ -127,6 +125,22 @@ export default function Navbar() {
 
         {/* ── Auth Actions ── */}
         <div className="flex items-center gap-3 shrink-0">
+          <div className="hidden sm:flex items-center gap-2 rounded-lg border border-brand-200 px-2 py-1">
+            <label htmlFor="language-switcher" className="text-xs font-semibold text-brand-700">
+              {t('lang.label')}
+            </label>
+            <select
+              id="language-switcher"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as 'es' | 'en')}
+              className="bg-transparent text-sm font-semibold text-brand-900 outline-none"
+              aria-label={t('lang.label')}
+            >
+              <option value="es">ES</option>
+              <option value="en">EN</option>
+            </select>
+          </div>
+
           {user ? (
             <Link
               href={dashboardHref}
@@ -136,7 +150,7 @@ export default function Navbar() {
                          hover:bg-brand-50 hover:border-brand-300
                          transition-all duration-200 ease-out
                          hover:-translate-y-0.5 hover:shadow-md active:translate-y-0"
-              aria-label="Ir a Mi Perfil"
+              aria-label={t('nav.profile')}
             >
               {/* Notificación Roja Mágica */}
               {showAgentNotification && (
@@ -154,14 +168,14 @@ export default function Navbar() {
                 {avatarLetter}
               </span>
 
-              <span className="hidden sm:inline whitespace-nowrap text-sm font-semibold leading-none">Mi Perfil</span>
+              <span className="hidden sm:inline whitespace-nowrap text-sm font-semibold leading-none">{t('nav.profile')}</span>
             </Link>
           ) : (
             <Link href={ROUTES.LOGIN}>
-              <Button size="sm" className="hidden sm:inline-flex">Iniciar Sesión</Button>
+              <Button size="sm" className="hidden sm:inline-flex">{t('nav.login')}</Button>
               <Button size="sm" className="sm:hidden gap-1.5">
                 <LogIn className="h-4 w-4" />
-                Entrar
+                {t('nav.enter')}
               </Button>
             </Link>
           )}
@@ -170,7 +184,7 @@ export default function Navbar() {
           <button
             onClick={() => setMobileOpen((v) => !v)}
             className="rounded-xl p-2 text-brand-900 hover:bg-brand-50 md:hidden"
-            aria-label="Abrir menú"
+            aria-label={t('nav.openMenu')}
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -180,8 +194,21 @@ export default function Navbar() {
       {/* ── Mobile Drawer ── */}
       {mobileOpen && (
         <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-6 shadow-xl md:hidden animate-fade-in">
+          <div className="mb-4 flex items-center justify-between rounded-xl border border-brand-200 px-4 py-3">
+            <span className="text-sm font-semibold text-brand-800">{t('lang.label')}</span>
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as 'es' | 'en')}
+              className="bg-transparent text-sm font-semibold text-brand-900 outline-none"
+              aria-label={t('lang.label')}
+            >
+              <option value="es">ES</option>
+              <option value="en">EN</option>
+            </select>
+          </div>
+
           <ul className="flex flex-col gap-2">
-            {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+            {NAV_LINKS.map(({ href, labelKey, icon: Icon }) => {
               const active =
                 href === ROUTES.HOME
                   ? pathname === '/'
@@ -198,7 +225,7 @@ export default function Navbar() {
                     )}
                   >
                     {Icon && <Icon className="h-5 w-5" />}
-                    {label}
+                    {t(labelKey)}
                   </Link>
                 </li>
               );
@@ -213,11 +240,11 @@ export default function Navbar() {
                       <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 border-2 border-white"></span>
                     </span>
                   )}
-                  <Button className="w-full relative">Mi Perfil</Button>
+                  <Button className="w-full relative">{t('nav.profile')}</Button>
                 </Link>
               ) : (
                 <Link href={ROUTES.LOGIN}>
-                  <Button className="w-full">Iniciar Sesión</Button>
+                  <Button className="w-full">{t('nav.login')}</Button>
                 </Link>
               )}
             </li>
