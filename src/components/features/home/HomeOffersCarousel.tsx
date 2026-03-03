@@ -185,20 +185,22 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          {offers.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => emblaApi?.scrollTo(i)}
-              className={cn(
-                'h-2.5 w-2.5 rounded-full transition',
-                i === selected ? 'bg-brand-600' : 'bg-neutral-300 hover:bg-neutral-400',
-              )}
-              aria-label={`Ir a slide ${i + 1}`}
-            />
-          ))}
-        </div>
+        {offers.length > 1 && (
+          <div className="flex items-center gap-2">
+            {offers.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => emblaApi?.scrollTo(i)}
+                className={cn(
+                  'h-2.5 w-2.5 rounded-full transition',
+                  i === selected ? 'bg-brand-600' : 'bg-neutral-300 hover:bg-neutral-400',
+                )}
+                aria-label={`Ir a slide ${i + 1}`}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -13,7 +13,13 @@ print('Connecting to VPS...')
 client.connect(hostname, username=username, password=password, timeout=15)
 print('Connected.\n')
 
-print('=== STEP 1: npm run build ===')
+print('=== STEP 1: git pull ===')
+_, out_pull, _ = client.exec_command('cd /var/www/gst && git pull origin main 2>&1', timeout=60)
+print(out_pull.read().decode('utf-8', errors='replace'))
+pull_exit = out_pull.channel.recv_exit_status()
+print(f'[GIT PULL EXIT CODE: {pull_exit}]')
+
+print('\n=== STEP 2: npm run build ===')
 stdin, stdout, stderr = client.exec_command('cd /var/www/gst && npm run build 2>&1', timeout=720)
 while True:
     chunk = stdout.read(4096)
@@ -26,14 +32,14 @@ exit_code = stdout.channel.recv_exit_status()
 print(f'\n[BUILD EXIT CODE: {exit_code}]')
 
 if exit_code == 0:
-    print('\n=== STEP 2: pm2 restart gst ===')
+    print('\n=== STEP 3: pm2 restart gst ===')
     _, out2, _ = client.exec_command('pm2 restart gst 2>&1', timeout=30)
     print(out2.read().decode('utf-8', errors='replace'))
     print(f'[PM2 EXIT: {out2.channel.recv_exit_status()}]')
 else:
     print('[BUILD FAILED — skipping restart]')
 
-print('\n=== STEP 3: pm2 status ===')
+print('\n=== STEP 4: pm2 status ===')
 _, out3, _ = client.exec_command('pm2 status 2>&1', timeout=15)
 print(out3.read().decode('utf-8', errors='replace'))
 

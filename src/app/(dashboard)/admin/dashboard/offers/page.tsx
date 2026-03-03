@@ -13,6 +13,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Badge from '@/components/ui/Badge';
+import OfferDatePicker from '@/components/ui/OfferDatePicker';
 import { createClient } from '@/lib/supabase/client';
 import {
   Plus,
@@ -883,16 +884,9 @@ export default function AdminOffersPage() {
                   <div className="mt-4 space-y-1">
                     <label className="text-sm font-medium text-neutral-700">
                       <Calendar className="mr-1 inline h-3.5 w-3.5" />
-                      Fechas válidas (separadas por coma, formato YYYY-MM-DD)
+                      Fechas válidas
                     </label>
-                    <textarea
-                      value={validDates}
-                      onChange={(e) => setValidDates(e.target.value)}
-                      className="w-full resize-none rounded-xl border border-neutral-300 px-3 py-2.5 text-sm"
-                      rows={2}
-                      placeholder="2026-03-03, 2026-03-10, 2026-03-17"
-                      required
-                    />
+                    <OfferDatePicker value={validDates} onChange={setValidDates} />
                   </div>
                 </div>
 
