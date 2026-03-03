@@ -1,8 +1,17 @@
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { SpecialOffer } from '@/types/models';
 import { getServerLanguage } from '@/lib/i18n/serverLanguage';
 import { translate } from '@/lib/i18n/translations';
+import Navbar from '@/components/layout/Navbar';
+import Footer from '@/components/layout/Footer';
+import HeroSection from '@/components/features/home/HeroSection';
+import HomeOffersCarousel from '@/components/features/home/HomeOffersCarousel';
+import AboutSection from '@/components/features/home/AboutSection';
+import ServicesSection from '@/components/features/home/ServicesSection';
+import FlightSearchForm from '@/components/forms/FlightSearchForm';
+import ReviewCard from '@/components/features/reviews/ReviewCard';
 
 function getInitials(name: string): string {
   return name
