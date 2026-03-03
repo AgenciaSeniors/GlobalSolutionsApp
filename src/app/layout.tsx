@@ -21,6 +21,12 @@ export const metadata: Metadata = {
   description:
     "Reserva vuelos internacionales y renta de autos con los mejores precios. Seguridad bancaria, atención personalizada y ofertas exclusivas.",
   keywords: ["vuelos", "renta de autos", "viajes", "Cuba", "Estambul", "agencia de viajes"],
+  icons: {
+    icon: [
+      { url: "/brand/logo-centro.png", type: "image/png" },
+    ],
+    apple: "/brand/logo-centro.png",
+  },
   openGraph: {
     type: "website",
     siteName: "Global Solutions Travel",

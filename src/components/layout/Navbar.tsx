@@ -88,7 +88,6 @@ export default function Navbar() {
             className="h-10 w-10 sm:h-12 sm:w-12 object-contain shrink-0"
             priority
           />
-
           <span className="-ml-2 sm:-ml-3 leading-none">
             <span className="font-display text-base font-bold tracking-wide text-navy sm:text-xl">
               GLOBAL SOLUTIONS{' '}
@@ -193,7 +192,7 @@ export default function Navbar() {
 
       {/* ── Mobile Drawer ── */}
       {mobileOpen && (
-        <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-6 shadow-xl md:hidden animate-fade-in">
+        <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-4 sm:p-6 shadow-xl md:hidden animate-fade-in">
           <div className="mb-4 flex items-center justify-between rounded-xl border border-brand-200 px-4 py-3">
             <span className="text-sm font-semibold text-brand-800">{t('lang.label')}</span>
             <select
