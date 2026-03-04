@@ -173,11 +173,7 @@ export default function AdminAgentsPage() {
     const cents = Number(raw);
 
     if (!Number.isFinite(cents) || !Number.isInteger(cents)) {
-      setToast({ ok: null, error: 'El fondo debe ser un número entero.' });
-      return;
-    }
-    if (cents < 0) {
-      setToast({ ok: null, error: 'El fondo no puede ser negativo.' });
+      setToast({ ok: null, error: 'El fondo debe ser un número entero (puede ser negativo si el gestor tiene deuda).' });
       return;
     }
 
@@ -597,11 +593,12 @@ export default function AdminAgentsPage() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
                             <input
-                              className="w-20 md:w-16 rounded-md border border-neutral-300 px-2 py-1.5 font-mono text-[16px] md:text-[11px] outline-none focus:ring-2 focus:ring-brand-500"
+                              className={`w-20 md:w-16 rounded-md border px-2 py-1.5 font-mono text-[16px] md:text-[11px] outline-none focus:ring-2 focus:ring-brand-500 ${Number(editFundById[agent.id] ?? 0) < 0 ? 'border-red-300 text-red-600 bg-red-50' : 'border-neutral-300'}`}
                               value={editFundById[agent.id] ?? '0'}
                               onChange={(e) => setEditFundById((p) => ({ ...p, [agent.id]: e.target.value }))}
                               placeholder="0"
-                              inputMode="numeric"
+                              inputMode="text"
+                              type="text"
                             />
                             <Button
                               size="sm"
