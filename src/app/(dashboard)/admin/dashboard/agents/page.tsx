@@ -7,10 +7,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Sidebar, { ADMIN_SIDEBAR_LINKS } from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
-import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
-import Input from '@/components/ui/Input';
 import { createClient } from '@/lib/supabase/client';
 import { Users, UserCheck, UserX, Search, UserPlus, Save, ClipboardList, Check, X } from 'lucide-react';
 import type { Profile, UserRole, AgentRequest } from '@/types/models';
@@ -31,39 +29,35 @@ export default function AdminAgentsPage() {
   const [agents, setAgents] = useState<Profile[]>([]);
   const [requests, setRequests] = useState<AgentRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Mostrar/Ocultar lista de solicitudes
-  const [showRequests, setShowRequests] = useState(false);
 
-  // Búsqueda en tabla
+  const [showRequests, setShowRequests] = useState(false);
   const [search, setSearch] = useState('');
 
-  // Promover/crear agente desde email
   const [promoteEmail, setPromoteEmail] = useState('');
   const [promoteCode, setPromoteCode] = useState('');
   const [promoteActive, setPromoteActive] = useState(true);
   const [promoteLoading, setPromoteLoading] = useState(false);
-  
+
   const [toast, setToast] = useState<ToastState>({ ok: null, error: null });
 
-  // Edición rápida de agent_code por fila
   const [editCodeById, setEditCodeById] = useState<Record<string, string>>({});
   const [savingCodeById, setSavingCodeById] = useState<Record<string, boolean>>({});
 
-  // Cargar datos iniciales
+  const [editFundById, setEditFundById] = useState<Record<string, string>>({});
+  const [savingFundById, setSavingFundById] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     fetchAgentsData();
     fetchRequestsData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Función exclusiva para cargar la tabla de Gestores
   async function fetchAgentsData() {
     setLoading(true);
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .eq('role', 'agent') // Solo los que tengan rol 'agent'
+      .eq('role', 'agent')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -73,17 +67,19 @@ export default function AdminAgentsPage() {
       const rows = (data ?? []) as Profile[];
       setAgents(rows);
 
-      // Inicializa edit inputs
-      const initial: Record<string, string> = {};
+      const initialCodes: Record<string, string> = {};
+      const initialFunds: Record<string, string> = {};
       for (const a of rows) {
-        initial[a.id] = a.agent_code ?? '';
+        initialCodes[a.id] = a.agent_code ?? '';
+        initialFunds[a.id] = String(a.agent_fund_cents ?? 0);
       }
-      setEditCodeById(initial);
+      setEditCodeById(initialCodes);
+      setEditFundById(initialFunds);
     }
+
     setLoading(false);
   }
 
-  // Función exclusiva para cargar las Solicitudes Pendientes
   async function fetchRequestsData() {
     const { data, error } = await supabase
       .from('agent_requests')
@@ -98,27 +94,23 @@ export default function AdminAgentsPage() {
     }
   }
 
-  // Toggle active status — keeps role as 'agent' so they stay visible in the table
   async function toggleAgentStatus(agent: Profile) {
     setToast({ ok: null, error: null });
 
     const nextActive = !agent.is_active;
-
-    const { error } = await supabase
-      .from('profiles')
-      .update({ is_active: nextActive })
-      .eq('id', agent.id);
+    const { error } = await supabase.from('profiles').update({ is_active: nextActive }).eq('id', agent.id);
 
     if (error) {
       setToast({ ok: null, error: error.message });
       return;
     }
 
-    if (!nextActive) {
-      setToast({ ok: `El gestor ${agent.full_name} fue desactivado. Puede reactivarse en cualquier momento.`, error: null });
-    } else {
-      setToast({ ok: `Gestor activado correctamente: ${agent.full_name}`, error: null });
-    }
+    setToast({
+      ok: !nextActive
+        ? `El gestor ${agent.full_name} fue desactivado. Puede reactivarse en cualquier momento.`
+        : `Gestor activado correctamente: ${agent.full_name}`,
+      error: null,
+    });
 
     fetchAgentsData();
   }
@@ -151,11 +143,7 @@ export default function AdminAgentsPage() {
         return;
       }
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({ agent_code: code })
-        .eq('id', agentId);
-
+      const { error } = await supabase.from('profiles').update({ agent_code: code }).eq('id', agentId);
       if (error) {
         setToast({ ok: null, error: error.message });
         return;
@@ -168,113 +156,113 @@ export default function AdminAgentsPage() {
     }
   }
 
-  // --- LÓGICA DE SOLICITUDES PENDIENTES --- //
-  
+  async function saveAgentFund(agentId: string) {
+    setToast({ ok: null, error: null });
+
+    const raw = (editFundById[agentId] ?? '').trim();
+    const cents = Number(raw);
+
+    if (!Number.isFinite(cents) || !Number.isInteger(cents)) {
+      setToast({ ok: null, error: 'El fondo debe ser un número entero.' });
+      return;
+    }
+    if (cents < 0) {
+      setToast({ ok: null, error: 'El fondo no puede ser negativo.' });
+      return;
+    }
+
+    setSavingFundById((p) => ({ ...p, [agentId]: true }));
+    try {
+      const { error } = await supabase.from('profiles').update({ agent_fund_cents: cents }).eq('id', agentId);
+      if (error) {
+        setToast({ ok: null, error: error.message });
+        return;
+      }
+
+      setToast({ ok: 'Fondo actualizado.', error: null });
+      fetchAgentsData();
+    } finally {
+      setSavingFundById((p) => ({ ...p, [agentId]: false }));
+    }
+  }
+
   const handleToggleRequests = () => {
-    // Si no hay solicitudes pendientes, bloqueamos la acción y no abrimos nada
     if (requests.length === 0) return;
     setShowRequests(!showRequests);
   };
 
-  // Aprobar solicitud
-// Aprobar solicitud
   async function handleApproveRequest(req: AgentRequest) {
     setToast({ ok: null, error: null });
-    
-    // 1. Convertir a agente y activarlo en perfiles
-    const { error: profileErr } =await supabase.from('profiles').update({ role: 'agent', is_active: true }).eq('id', req.user_id);
-      
+
+    const { error: profileErr } = await supabase.from('profiles').update({ role: 'agent', is_active: true }).eq('id', req.user_id);
     if (profileErr) {
       setToast({ ok: null, error: 'Error al cambiar el rol del usuario.' });
       return;
     }
-    
-    // 2. Marcar solicitud como aprobada
-    const { error: reqErr } = await supabase
-      .from('agent_requests')
-      .update({ status: 'approved' })
-      .eq('id', req.id);
-      
+
+    const { error: reqErr } = await supabase.from('agent_requests').update({ status: 'approved' }).eq('id', req.id);
     if (reqErr) {
       setToast({ ok: null, error: 'Error al actualizar la solicitud.' });
       return;
     }
 
-    // 🚀 NUEVO: 3. Obtener el token de sesión y disparar el correo de aprobación
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
       await fetch('/api/notifications', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        },
-        body: JSON.stringify({
-          type: 'agent_approved', // Le pasamos el tipo de notificación
-          email: req.contact_email,
-          data: { name: req.contact_full_name }
-        })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ type: 'agent_approved', email: req.contact_email, data: { name: req.contact_full_name } }),
       });
     } catch (error) {
       console.error('Error enviando email de notificación:', error);
-      // No bloqueamos el flujo si el email falla, el usuario ya fue aprobado en DB
     }
 
     setToast({ ok: `¡Usuario ${req.contact_full_name} aprobado como agente y notificado!`, error: null });
 
-    // 4. Eliminar de la lista visual inmediatamente
-    setRequests(prev => {
-      const updated = prev.filter(r => r.id !== req.id);
-      if (updated.length === 0) setShowRequests(false); // Cierra si era la última
+    setRequests((prev) => {
+      const updated = prev.filter((r) => r.id !== req.id);
+      if (updated.length === 0) setShowRequests(false);
       return updated;
     });
 
-    // 5. Recargar tabla de agentes
     fetchAgentsData();
   }
 
-  // Declinar solicitud
- async function handleDeclineRequest(req: AgentRequest) {
+  async function handleDeclineRequest(req: AgentRequest) {
     setToast({ ok: null, error: null });
-    
-    const { error } = await supabase
-      .from('agent_requests')
-      .update({ status: 'rejected' })
-      .eq('id', req.id);
 
+    const { error } = await supabase.from('agent_requests').update({ status: 'rejected' }).eq('id', req.id);
     if (error) {
       setToast({ ok: null, error: 'Error al declinar solicitud' });
       return;
     }
 
-    // 🚀 ENVIAR CORREO DE RECHAZO
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
       await fetch('/api/notifications', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        },
-        body: JSON.stringify({
-          type: 'agent_rejected', 
-          email: req.contact_email,
-          data: { name: req.contact_full_name }
-        })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ type: 'agent_rejected', email: req.contact_email, data: { name: req.contact_full_name } }),
       });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
 
     setToast({ ok: 'Solicitud declinada y usuario notificado.', error: null });
-    
-    setRequests(prev => {
-      const updated = prev.filter(r => r.id !== req.id);
+
+    setRequests((prev) => {
+      const updated = prev.filter((r) => r.id !== req.id);
       if (updated.length === 0) setShowRequests(false);
       return updated;
     });
   }
 
-  // --- PROMOCION MANUAL --- //
   async function promoteToAgent() {
     setToast({ ok: null, error: null });
 
@@ -292,12 +280,7 @@ export default function AdminAgentsPage() {
 
     setPromoteLoading(true);
     try {
-      const { data: found, error: findErr } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('email', email)
-        .single();
-
+      const { data: found, error: findErr } = await supabase.from('profiles').select('*').eq('email', email).single();
       if (findErr || !found) {
         setToast({ ok: null, error: 'No se encontró un perfil con ese email.' });
         return;
@@ -324,11 +307,7 @@ export default function AdminAgentsPage() {
       const nextRole: UserRole = 'agent';
       const { error: upErr } = await supabase
         .from('profiles')
-        .update({
-          role: nextRole,
-          agent_code: code,
-          is_active: promoteActive,
-        })
+        .update({ role: nextRole, agent_code: code, is_active: promoteActive })
         .eq('id', profile.id);
 
       if (upErr) {
@@ -349,270 +328,294 @@ export default function AdminAgentsPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return agents;
-    return agents.filter((a) =>
-      a.full_name.toLowerCase().includes(q) ||
-      a.email.toLowerCase().includes(q) ||
-      (a.agent_code ?? '').toLowerCase().includes(q),
+    return agents.filter(
+      (a) =>
+        a.full_name.toLowerCase().includes(q) ||
+        a.email.toLowerCase().includes(q) ||
+        (a.agent_code ?? '').toLowerCase().includes(q),
     );
   }, [agents, search]);
 
   const activeCount = agents.filter((a) => a.is_active).length;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden bg-neutral-50/30 w-full">
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
-      <div className="flex-1">
-        <Header
-          title="Gestión de Gestores"
-          subtitle="Aprobar agentes, asignar código y activar/desactivar"
-        />
 
-        <div className="p-8 space-y-6">
+      {/* ✅ min-w-0 PREVIENE que el contenido rompa el ancho del dispositivo móvil */}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden min-w-0">
+        <Header title="Gestión de Gestores" subtitle="Aprobar agentes, asignar código y activar/desactivar" />
+
+        <div className="flex-1 overflow-y-auto p-3 md:p-6 flex flex-col gap-4 min-w-0">
+          
           {/* Alertas */}
-          <div className="flex items-center gap-2 min-h-[32px]">
-            {toast.ok && <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-3 py-1 rounded-md w-full transition-all">{toast.ok}</span>}
-            {toast.error && <span className="text-sm font-medium text-red-600 bg-red-50 px-3 py-1 rounded-md w-full transition-all">{toast.error}</span>}
-          </div>
+          {(toast.ok || toast.error) && (
+            <div className="flex items-center gap-2 shrink-0">
+              {toast.ok && (
+                <span className="text-sm font-medium text-emerald-700 bg-emerald-100/60 border border-emerald-200 px-4 py-2 rounded-lg w-full transition-all">
+                  {toast.ok}
+                </span>
+              )}
+              {toast.error && (
+                <span className="text-sm font-medium text-red-700 bg-red-100/60 border border-red-200 px-4 py-2 rounded-lg w-full transition-all">
+                  {toast.error}
+                </span>
+              )}
+            </div>
+          )}
 
-          {/* Stats */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card variant="bordered">
-              <div className="flex items-center gap-3">
-                <Users className="h-8 w-8 text-brand-500" />
-                <div>
-                  <p className="text-sm text-neutral-500">Total Gestores</p>
-                  <p className="text-2xl font-bold">{agents.length}</p>
-                </div>
+          {/* Stats: Cuadrícula en móviles, en línea en desktop */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 shrink-0">
+            <div className="rounded-xl border border-neutral-200 bg-white p-3 md:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 shadow-sm">
+              <div className="bg-brand-50 p-2 md:p-2.5 rounded-lg shrink-0">
+                <Users className="h-5 w-5 text-brand-600" />
               </div>
-            </Card>
-
-            <Card variant="bordered">
-              <div className="flex items-center gap-3">
-                <UserCheck className="h-8 w-8 text-emerald-500" />
-                <div>
-                  <p className="text-sm text-neutral-500">Activos</p>
-                  <p className="text-2xl font-bold text-emerald-600">{activeCount}</p>
-                </div>
+              <div>
+                <p className="text-[11px] md:text-xs text-neutral-500 font-medium mb-0.5 md:mb-1">Total</p>
+                <p className="text-lg md:text-xl font-bold leading-none text-neutral-900">{agents.length}</p>
               </div>
-            </Card>
+            </div>
 
-            <Card variant="bordered">
-              <div className="flex items-center gap-3">
-                <UserX className="h-8 w-8 text-red-500" />
-                <div>
-                  <p className="text-sm text-neutral-500">Inactivos</p>
-                  <p className="text-2xl font-bold text-red-600">{agents.length - activeCount}</p>
-                </div>
+            <div className="rounded-xl border border-neutral-200 bg-white p-3 md:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 shadow-sm">
+              <div className="bg-emerald-50 p-2 md:p-2.5 rounded-lg shrink-0">
+                <UserCheck className="h-5 w-5 text-emerald-600" />
               </div>
-            </Card>
+              <div>
+                <p className="text-[11px] md:text-xs text-neutral-500 font-medium mb-0.5 md:mb-1">Activos</p>
+                <p className="text-lg md:text-xl font-bold leading-none text-emerald-700">{activeCount}</p>
+              </div>
+            </div>
 
-            {/* Tarjeta de Solicitudes Pendientes */}
-            <div 
+            <div className="rounded-xl border border-neutral-200 bg-white p-3 md:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 shadow-sm">
+              <div className="bg-red-50 p-2 md:p-2.5 rounded-lg shrink-0">
+                <UserX className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <p className="text-[11px] md:text-xs text-neutral-500 font-medium mb-0.5 md:mb-1">Inactivos</p>
+                <p className="text-lg md:text-xl font-bold leading-none text-red-700">{agents.length - activeCount}</p>
+              </div>
+            </div>
+
+            <div
               onClick={handleToggleRequests}
-              className={`rounded-2xl border bg-white p-6 transition select-none ${
-                requests.length > 0 
-                  ? 'cursor-pointer hover:shadow-md border-red-300 ring-2 ring-red-50 hover:border-red-400' 
+              className={`rounded-xl border bg-white p-3 md:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between transition select-none shadow-sm ${
+                requests.length > 0
+                  ? 'cursor-pointer hover:shadow-md border-red-200 ring-1 ring-red-50 hover:border-red-300'
                   : 'border-neutral-200 opacity-60 cursor-default'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <ClipboardList className={`h-8 w-8 transition-colors ${
-                    requests.length > 0 ? 'text-red-500' : 'text-neutral-400'
-                  }`} />
-                  <div>
-                    <p className="text-sm text-neutral-500">Solicitudes Pendientes</p>
-                    <p className={`text-2xl font-bold transition-colors ${
-                      requests.length > 0 ? 'text-red-600' : 'text-neutral-400'
-                    }`}>
-                      {requests.length}
-                    </p>
-                  </div>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full">
+                <div className={`${requests.length > 0 ? 'bg-red-50' : 'bg-neutral-100'} p-2 md:p-2.5 rounded-lg shrink-0`}>
+                  <ClipboardList className={`h-5 w-5 ${requests.length > 0 ? 'text-red-600' : 'text-neutral-500'}`} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-[11px] md:text-xs text-neutral-500 font-medium mb-0.5 md:mb-1">Solicitudes</p>
+                  <p className={`text-lg md:text-xl font-bold leading-none ${requests.length > 0 ? 'text-red-700' : 'text-neutral-500'}`}>
+                    {requests.length}
+                  </p>
                 </div>
                 {requests.length > 0 && (
-                  <span className="text-xs text-neutral-500 font-medium">Ver {showRequests ? 'menos' : 'todas'}</span>
+                  <span className="text-[10px] md:text-xs text-neutral-500 font-medium mt-1 md:mt-0 bg-neutral-100 px-2 py-1 rounded-md">
+                    {showRequests ? 'Ocultar' : 'Ver'}
+                  </span>
                 )}
               </div>
             </div>
           </div>
 
-          {/* LISTA DESPLEGABLE DE SOLICITUDES PENDIENTES */}
+          {/* Lista solicitudes expandible */}
           {showRequests && requests.length > 0 && (
-            <Card variant="bordered" className="border-neutral-200 bg-white shadow-md animate-in fade-in slide-in-from-top-4 duration-300">
-              <h3 className="text-base font-bold text-neutral-900 mb-4 flex items-center gap-2">
-                <ClipboardList className="h-4 w-4 text-neutral-600" /> Solicitudes por Revisar
+            <div className="rounded-xl border border-neutral-200 bg-white shadow-sm p-3 md:p-4 shrink-0 animate-in fade-in slide-in-from-top-2 duration-200">
+              <h3 className="text-sm font-bold text-neutral-900 mb-3 flex items-center gap-2">
+                <ClipboardList className="h-4 w-4 text-neutral-500" /> Solicitudes por Revisar
               </h3>
-              <div className="space-y-3">
-                {requests.map(req => (
-                  <div 
-                    key={req.id} 
-                    className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-4 rounded-xl transition-all duration-300 border bg-neutral-50/50 hover:border-neutral-200"
-                  >
+              <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2">
+                {requests.map((req) => (
+                  <div key={req.id} className="p-3 flex flex-col md:flex-row justify-between md:items-center gap-3 rounded-lg border border-neutral-100 bg-neutral-50/50 hover:bg-neutral-50">
                     <div>
-                      <p className="font-semibold text-sm text-neutral-900">
-                        {req.contact_full_name}
-                      </p>
-                      <p className="text-xs text-neutral-600">{req.contact_email}</p>
-                      <p className="text-[11px] text-neutral-400 mt-1">
-                        Solicitado el: {new Date(req.created_at).toLocaleDateString('es')}
-                      </p>
+                      <p className="font-semibold text-sm text-neutral-900">{req.contact_full_name}</p>
+                      <p className="text-xs text-neutral-500">{req.contact_email}</p>
                     </div>
-                    
                     <div className="flex items-center gap-2">
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        className="text-red-600 hover:bg-red-50 hover:border-red-200" 
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 hover:bg-red-50 hover:border-red-200 text-xs py-1.5"
                         onClick={() => handleDeclineRequest(req)}
                       >
                         <X className="h-3.5 w-3.5 mr-1" /> Declinar
                       </Button>
-                      <Button 
-                        size="sm" 
-                        onClick={() => handleApproveRequest(req)}
-                      >
+                      <Button size="sm" className="text-xs py-1.5" onClick={() => handleApproveRequest(req)}>
                         <Check className="h-3.5 w-3.5 mr-1" /> Aprobar
                       </Button>
                     </div>
                   </div>
                 ))}
               </div>
-            </Card>
+            </div>
           )}
 
-          {/* Promote/Create Agent Manual */}
-          <Card variant="bordered">
-            <div className="flex items-start justify-between gap-4 flex-col md:flex-row md:items-center">
-              <div>
-                <h3 className="text-base font-bold text-neutral-900 flex items-center gap-2">
-                  <UserPlus className="h-4 w-4" /> Aprobar Manualmente / Promover a Agente
-                </h3>
-                <p className="text-sm text-neutral-500">
-                  Convierte un usuario existente en agente asignándole <span className="font-medium">agent_code</span>.
-                </p>
-              </div>
+          {/* Formulario Promover */}
+          <div className="rounded-xl border border-neutral-200 bg-white p-3 md:p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0">
+            <div className="mb-1 lg:mb-0">
+              <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2">
+                <UserPlus className="h-4 w-4 text-brand-500" /> Promover Usuario
+              </h3>
+              <p className="text-xs text-neutral-500 mt-1">Asigna agent_code a un usuario existente.</p>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Input
-                label="Email del usuario"
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+              {/* ✅ text-[16px] en móviles PREVIENE el zoom automático de iOS/Safari */}
+              <input
+                type="email"
                 value={promoteEmail}
                 onChange={(e) => setPromoteEmail(e.target.value)}
-                placeholder="ej: user@email.com"
+                placeholder="Email del usuario..."
+                className="w-full sm:w-48 lg:w-56 rounded-lg border border-neutral-300 px-3 py-2 text-[16px] md:text-sm outline-none focus:ring-2 focus:ring-brand-500 transition-all"
               />
-              <Input
-                label="Agent Code"
+              <input
+                type="text"
                 value={promoteCode}
                 onChange={(e) => setPromoteCode(e.target.value)}
-                placeholder="ej: GST123"
+                placeholder="Código (ej. GST123)"
+                className="w-full sm:w-32 lg:w-40 rounded-lg border border-neutral-300 px-3 py-2 text-[16px] md:text-sm outline-none focus:ring-2 focus:ring-brand-500 transition-all"
               />
-
-              <div className="space-y-1">
-                <label className="block text-sm font-medium text-brand-700">Estado Inicial</label>
-                <select
-                  className="w-full rounded-xl border-2 px-4 py-3 text-[15px] font-medium border-brand-200 bg-white"
-                  value={promoteActive ? 'active' : 'inactive'}
-                  onChange={(e) => setPromoteActive(e.target.value === 'active')}
-                >
-                  <option value="active">Activo</option>
-                  <option value="inactive">Inactivo</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-end">
-              <Button onClick={promoteToAgent} isLoading={promoteLoading} className="gap-2">
-                <UserPlus className="h-4 w-4" /> Promover Agente
+              <select
+                value={promoteActive ? 'active' : 'inactive'}
+                onChange={(e) => setPromoteActive(e.target.value === 'active')}
+                className="w-full sm:w-28 rounded-lg border border-neutral-300 px-3 py-2 text-[16px] md:text-sm bg-white outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+              >
+                <option value="active">Activo</option>
+                <option value="inactive">Inactivo</option>
+              </select>
+              <Button onClick={promoteToAgent} isLoading={promoteLoading} className="w-full sm:w-auto text-sm px-5 py-2">
+                Guardar
               </Button>
             </div>
-          </Card>
+          </div>
 
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-neutral-400" />
+          {/* Búsqueda */}
+          <div className="relative shrink-0">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-neutral-400" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por nombre, email o código..."
-              className="w-full rounded-xl border border-neutral-300 pl-10 pr-4 py-2.5 text-sm"
+              className="w-full rounded-lg border border-neutral-300 pl-9 pr-4 py-2 text-[16px] md:text-sm outline-none focus:ring-2 focus:ring-brand-500 transition-all shadow-sm"
             />
           </div>
 
-          {/* Agents Table */}
+          {/* LA TABLA: Scroll horizontal infinito en móviles dentro de su contenedor (min-w-0 evita que rompa el layout) */}
           {loading ? (
-            <p className="text-neutral-500">Cargando gestores...</p>
+            <div className="flex justify-center py-8">
+              <p className="text-neutral-500 text-sm">Cargando gestores...</p>
+            </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-neutral-200">
-              <table className="w-full text-sm">
-                <thead className="bg-neutral-50 text-left text-xs uppercase text-neutral-500">
-                  <tr>
-                    <th className="px-4 py-3">Nombre</th>
-                    <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Código</th>
-                    <th className="px-4 py-3">Puntos</th>
-                    <th className="px-4 py-3">Estado</th>
-                    <th className="px-4 py-3">Registro</th>
-                    <th className="px-4 py-3">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-100">
-                  {filtered.map((agent) => (
-                    <tr key={agent.id} className={!agent.is_active ? 'bg-red-50/30' : 'hover:bg-neutral-50'}>
-                      <td className="px-4 py-3 font-semibold">{agent.full_name}</td>
-                      <td className="px-4 py-3 text-neutral-600">{agent.email}</td>
+            <div className="flex-1 min-h-[300px] rounded-xl border border-neutral-200 bg-white shadow-sm flex flex-col relative w-full overflow-hidden min-w-0">
+              <div className="overflow-x-auto overflow-y-auto flex-1 w-full">
+                <table className="min-w-[850px] w-full text-xs">
+                  <thead className="sticky top-0 z-10 bg-neutral-100 text-left text-[11px] uppercase tracking-wider text-neutral-500 shadow-sm">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Nombre</th>
+                      <th className="px-4 py-3 font-semibold">Email</th>
+                      <th className="px-4 py-3 font-semibold">Código</th>
+                      <th className="px-4 py-3 font-semibold">Fondo</th>
+                      <th className="px-4 py-3 font-semibold text-center">Pts</th>
+                      <th className="px-4 py-3 font-semibold">Estado</th>
+                      <th className="px-4 py-3 font-semibold hidden lg:table-cell">Registro</th>
+                      <th className="px-4 py-3 font-semibold">Acciones</th>
+                    </tr>
+                  </thead>
 
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <input
-                            className="w-28 rounded-lg border border-neutral-300 px-2 py-1 font-mono text-xs focus:ring-2 focus:ring-brand-500"
-                            value={editCodeById[agent.id] ?? ''}
-                            onChange={(e) =>
-                              setEditCodeById((p) => ({ ...p, [agent.id]: e.target.value }))
-                            }
-                            placeholder="Ej: GST123"
-                          />
+                  <tbody className="divide-y divide-neutral-100">
+                    {filtered.map((agent) => (
+                      <tr key={agent.id} className={`transition-colors ${!agent.is_active ? 'bg-red-50/20' : 'hover:bg-neutral-50'}`}>
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-neutral-900 truncate max-w-[150px]">{agent.full_name}</div>
+                        </td>
+
+                        <td className="px-4 py-3 text-neutral-600 truncate max-w-[180px]" title={agent.email}>
+                          {agent.email}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              className="w-24 md:w-20 rounded-md border border-neutral-300 px-2 py-1.5 font-mono text-[16px] md:text-[11px] uppercase outline-none focus:ring-2 focus:ring-brand-500"
+                              value={editCodeById[agent.id] ?? ''}
+                              onChange={(e) => setEditCodeById((p) => ({ ...p, [agent.id]: e.target.value }))}
+                              placeholder="GST..."
+                            />
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => saveAgentCode(agent.id)}
+                              isLoading={savingCodeById[agent.id] ?? false}
+                              className="h-8 w-8 md:h-7 md:w-7 p-0 text-neutral-500 hover:text-brand-600 hover:bg-brand-50 rounded-md"
+                              title="Guardar código"
+                            >
+                              <Save className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              className="w-20 md:w-16 rounded-md border border-neutral-300 px-2 py-1.5 font-mono text-[16px] md:text-[11px] outline-none focus:ring-2 focus:ring-brand-500"
+                              value={editFundById[agent.id] ?? '0'}
+                              onChange={(e) => setEditFundById((p) => ({ ...p, [agent.id]: e.target.value }))}
+                              placeholder="0"
+                              inputMode="numeric"
+                            />
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => saveAgentFund(agent.id)}
+                              isLoading={savingFundById[agent.id] ?? false}
+                              className="h-8 w-8 md:h-7 md:w-7 p-0 text-neutral-500 hover:text-brand-600 hover:bg-brand-50 rounded-md"
+                              title="Guardar fondo"
+                            >
+                              <Save className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-3 font-medium text-center">{agent.loyalty_points}</td>
+
+                        <td className="px-4 py-3">
+                          <Badge variant={agent.is_active ? 'success' : 'default'} className="text-[10px] px-2 py-0.5">
+                            {agent.is_active ? 'Activo' : 'Inactivo'}
+                          </Badge>
+                        </td>
+
+                        <td className="px-4 py-3 text-neutral-500 hidden lg:table-cell whitespace-nowrap text-[11px]">
+                          {new Date(agent.created_at).toLocaleDateString('es')}
+                        </td>
+
+                        <td className="px-4 py-3">
                           <Button
                             size="sm"
-                            variant="ghost"
-                            onClick={() => saveAgentCode(agent.id)}
-                            isLoading={savingCodeById[agent.id] ?? false}
-                            className="gap-1.5"
+                            variant={agent.is_active ? 'outline' : 'primary'}
+                            onClick={() => toggleAgentStatus(agent)}
+                            className="text-xs px-3 py-2 md:py-1.5"
                           >
-                            <Save className="h-3.5 w-3.5" /> Guardar
+                            {agent.is_active ? 'Desactivar' : 'Activar'}
                           </Button>
-                        </div>
-                      </td>
+                        </td>
+                      </tr>
+                    ))}
 
-                      <td className="px-4 py-3">{agent.loyalty_points}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant={agent.is_active ? 'success' : 'default'}>
-                          {agent.is_active ? 'Activo' : 'Inactivo'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-neutral-500">
-                        {new Date(agent.created_at).toLocaleDateString('es')}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <Button
-                          size="sm"
-                          variant={agent.is_active ? 'outline' : 'primary'}
-                          onClick={() => toggleAgentStatus(agent)}
-                        >
-                          {agent.is_active ? 'Desactivar' : 'Activar'}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {filtered.length === 0 && (
-                    <tr>
-                      <td className="px-4 py-6 text-center text-neutral-500" colSpan={7}>
-                        No hay resultados
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    {filtered.length === 0 && (
+                      <tr>
+                        <td className="px-4 py-8 text-center text-neutral-500 text-sm" colSpan={8}>
+                          No se encontraron gestores con esos criterios.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
