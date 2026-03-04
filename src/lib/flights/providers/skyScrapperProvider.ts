@@ -29,7 +29,7 @@ import {
 const LEG_TIMEOUT_MS = 35_000;
 const SEARCH_ONE_WAY_TIMEOUT_MS = 30_000;
 const POLLING_BUDGET_MS = 60_000;
-const POLL_CALL_TIMEOUT_MS = 12_000;
+const POLL_CALL_TIMEOUT_MS = 20_000;
 const AUTOCOMPLETE_TIMEOUT_MS = 15_000;
 
 /** Backoff per audit spec C1.1: 1.5s, 3s, 6s */
@@ -1223,14 +1223,21 @@ async function searchOneLegInternal(
     `[SkyScrapper] Leg ${legIndex}: resolved ${leg.origin}→${fromEntityId}, ${leg.destination}→${toEntityId} (${Date.now() - t0}ms)`
   );
 
+  // Cuba routes (HAV) return limited data from US market due to trade restrictions in Skyscanner.
+  // Use MX (Mexico) market for any leg involving HAV — covers Copa + Cuban carriers fully.
+  const CUBA_IATA = ["HAV", "SCU", "CMW", "VRA", "HOG", "SNU", "BYM", "MZO", "CCC", "GAO"];
+  const involvesCuba = CUBA_IATA.includes(leg.origin.toUpperCase()) || CUBA_IATA.includes(leg.destination.toUpperCase());
+  const searchMarket = involvesCuba ? "MX" : "US";
+  const searchLocale = involvesCuba ? "es-MX" : "en-US";
+
   const qs = new URLSearchParams({
     fromEntityId,
     toEntityId,
     departDate: date,
     adults: String(passengers),
     cabinClass: cabinClass || "economy",
-    market: "US",
-    locale: "en-US",
+    market: searchMarket,
+    locale: searchLocale,
     currency: "USD",
   });
   console.log(`[SkyScrapper] Leg ${legIndex}: searching ${leg.origin}→${leg.destination} | class=${qs.get('cabinClass')} | pax=${passengers}`);

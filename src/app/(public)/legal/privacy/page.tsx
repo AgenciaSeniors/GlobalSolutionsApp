@@ -119,7 +119,7 @@ export default function PrivacyPage() {
                   requisitos del proveedor.
                 </li>
                 <li>
-                  <strong>Pasarelas de pago:</strong> Stripe y PayPal procesan los datos de pago
+                  <strong>Pasarelas de pago:</strong> Stripe procesa los datos de pago
                   bajo sus propias políticas de privacidad y con certificación PCI-DSS. GST no
                   recibe ni almacena los datos completos de su tarjeta bancaria.
                 </li>

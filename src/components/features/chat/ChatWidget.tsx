@@ -28,7 +28,7 @@ interface ChatMessagePayload {
 const FAQ_RESPONSES: Record<string, string> = {
   equipaje: 'El equipaje permitido varía según la aerolínea. Generalmente incluye: 1 maleta de mano (8kg) y 1 maleta de bodega (23kg). Consulta los detalles al seleccionar tu vuelo.',
   horario: 'Puedes ver los horarios de todos los vuelos disponibles en la sección de búsqueda. Los horarios se muestran en hora local de cada ciudad.',
-  pago: 'Aceptamos Stripe (tarjetas), PayPal y Zelle (transferencia manual). En Zelle el pago se confirma en 2-4 horas por un agente.',
+  pago: 'Aceptamos tarjetas de crédito/débito (Visa, Mastercard, Amex) a través de Stripe, y Zelle (transferencia manual). En Zelle el pago se confirma en 2-4 horas por un agente.',
   cancelar: 'Para cancelar una reserva, dirígete a "Mis Reservas" en tu panel. Las políticas de cancelación dependen de la aerolínea y la tarifa contratada.',
   precio: 'Nuestros precios incluyen el costo base del vuelo + margen de agencia. La comisión de la pasarela de pago se muestra por separado antes de pagar.',
   documento: 'Necesitas tu pasaporte vigente (con al menos 6 meses de validez). Algunos destinos requieren visa. Consulta con tu agente para más detalles.',

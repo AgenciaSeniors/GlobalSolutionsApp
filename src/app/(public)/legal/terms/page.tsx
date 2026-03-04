@@ -42,7 +42,7 @@ export default function TermsPage() {
               </p>
               <p>
                 Los precios mostrados incluyen el costo base del proveedor y el margen de servicio de GST. 
-                Las comisiones de pasarelas de pago (Stripe, PayPal) se desglosan antes de confirmar la compra.
+                Las comisiones de pasarelas de pago se desglosan antes de confirmar la compra.
               </p>
             </section>
 
@@ -73,11 +73,9 @@ export default function TermsPage() {
                 <li>
                   <strong>Depósito de Garantía:</strong> Al momento de recoger el auto en Cuba, el titular de la reserva deberá pagar un depósito de garantía y el seguro obligatorio directamente a Transtur, utilizando una tarjeta bancaria aceptada en el país (no emitida por bancos de EE. UU.).
                 </li>
+                
                 <li>
-                  <strong>Política de Combustible:</strong> El vehículo debe devolverse con la misma cantidad de combustible con la que fue entregado, o según el acuerdo específico firmado en el contrato físico de Transtur.
-                </li>
-                <li>
-                  <strong>Penalidades y Cancelaciones:</strong> Las cancelaciones de autos con menos de 72 horas de antelación o la no presentación (*no-show*) conllevan penalidades que pueden abarcar desde el costo de varios días de renta hasta la pérdida total del importe pagado, según las políticas de Transtur.
+                  <strong>Penalidades y Cancelaciones:</strong> Las cancelaciones de autos con menos de 72 horas de antelación o la no presentación (*no-show*) deben ser gestionada directamente con el proveedor , de parte de GST no son reembolsables.
                 </li>
                 <li>
                   <strong>Conductores Adicionales:</strong> Cualquier conductor adicional debe registrarse y pagar la tarifa correspondiente en la oficina de renta al momento de firmar el contrato.
@@ -95,7 +93,7 @@ export default function TermsPage() {
             <section>
               <h2 className="text-lg font-bold text-brand-900">6. Protección de Datos</h2>
               <p>
-                Global Solutions Travel cumple con estrictos estándares de protección de datos personales. Documentos sensibles como números de pasaporte se almacenan encriptados (AES-256). Los datos de tarjetas de crédito no se almacenan en nuestros servidores; son procesados de forma segura mediante pasarelas certificadas PCI-DSS (Stripe/PayPal).
+                Global Solutions Travel cumple con estrictos estándares de protección de datos personales. Documentos sensibles como números de pasaporte se almacenan encriptados (AES-256). Los datos de tarjetas de crédito no se almacenan en nuestros servidores; son procesados de forma segura mediante Stripe, pasarela certificada PCI-DSS.
               </p>
             </section>
 

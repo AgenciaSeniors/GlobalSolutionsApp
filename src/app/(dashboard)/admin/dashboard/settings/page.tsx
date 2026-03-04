@@ -4,7 +4,7 @@
  * Controls:
  *  - Default markup percentage for new flights
  *  - Min/max markup guardrails
- *  - Payment gateway fee structure (Stripe, PayPal, Zelle)
+ *  - Payment gateway fee structure (Stripe, Zelle)
  *  - Emission SLA timers
  *  - Business identity (name, email, phone)
  *  - Loyalty program settings
@@ -47,11 +47,6 @@ const MARKUP_KEYS = [
 const STRIPE_KEYS = [
   { key: 'stripe_fee_percentage', label: 'Comisión Stripe (%)', type: 'number', step: '0.01', min: '0' },
   { key: 'stripe_fee_fixed', label: 'Cargo fijo Stripe ($)', type: 'number', step: '0.01', min: '0' },
-];
-
-const PAYPAL_KEYS = [
-  { key: 'paypal_fee_percentage', label: 'Comisión PayPal (%)', type: 'number', step: '0.01', min: '0' },
-  { key: 'paypal_fee_fixed', label: 'Cargo fijo PayPal ($)', type: 'number', step: '0.01', min: '0' },
 ];
 
 const ZELLE_KEYS = [
@@ -137,7 +132,7 @@ export default function AdminSettingsPage() {
         return;
       }
 
-      const numKeys = [...MARKUP_KEYS, ...STRIPE_KEYS, ...PAYPAL_KEYS, ...ZELLE_KEYS, ...SLA_KEYS];
+      const numKeys = [...MARKUP_KEYS, ...STRIPE_KEYS, ...ZELLE_KEYS, ...SLA_KEYS];
       const payload = changed.map((key) => {
         const isNum = numKeys.some((nk) => nk.key === key);
         return { key, value: isNum ? (parseFloat(settings[key]) || 0) : settings[key] };
@@ -230,7 +225,6 @@ export default function AdminSettingsPage() {
   const previewMarkup = parseFloat(settings.default_markup_percentage || '10');
   const previewFinal = previewBase * (1 + previewMarkup / 100);
   const previewStripe = previewFinal * (parseFloat(settings.stripe_fee_percentage || '5.4') / 100) + parseFloat(settings.stripe_fee_fixed || '0.30');
-  const previewPaypal = previewFinal * (parseFloat(settings.paypal_fee_percentage || '5.4') / 100) + parseFloat(settings.paypal_fee_fixed || '0.30');
   const previewZelle = previewFinal * (parseFloat(settings.zelle_fee_percentage || '0') / 100) + parseFloat(settings.zelle_fee_fixed || '0');
 
   return (
@@ -303,13 +297,6 @@ export default function AdminSettingsPage() {
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-neutral-500">PayPal:</span>
-                    <span className="font-mono">
-                      Total ${(previewFinal + previewPaypal).toFixed(2)}{' '}
-                      <span className="text-xs text-red-500">(fee: ${previewPaypal.toFixed(2)})</span>
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
                     <span className="text-neutral-500">Zelle:</span>
                     <span className="font-mono">
                       Total ${(previewFinal + previewZelle).toFixed(2)}{' '}
@@ -336,15 +323,6 @@ export default function AdminSettingsPage() {
                 <CreditCard className="h-6 w-6 text-violet-600" />,
                 STRIPE_KEYS,
                 'border-violet-200 bg-violet-50',
-              )}
-
-              {/* PayPal Fees */}
-              {renderGroup(
-                'Comisión PayPal',
-                'Porcentaje + cargo fijo por transacción PayPal',
-                <CreditCard className="h-6 w-6 text-blue-600" />,
-                PAYPAL_KEYS,
-                'border-blue-200 bg-blue-50',
               )}
 
               {/* Zelle Fees */}

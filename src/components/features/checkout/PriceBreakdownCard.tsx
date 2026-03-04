@@ -10,7 +10,7 @@ import type { PriceBreakdown } from '@/types/models';
 import { Receipt } from 'lucide-react';
 import { useLanguage } from '@/components/providers/LanguageProvider';
 
-type Gateway = 'stripe' | 'paypal' | 'zelle';
+type Gateway = 'stripe' | 'zelle';
 
 interface Props {
   breakdown: PriceBreakdown;
@@ -22,7 +22,6 @@ export default function PriceBreakdownCard({ breakdown, gateway }: Props) {
 
   const GATEWAY_LABELS: Record<Gateway, string> = {
     stripe: t('checkout.gateway.card'),
-    paypal: 'PayPal',
     zelle: 'Zelle',
   };
 

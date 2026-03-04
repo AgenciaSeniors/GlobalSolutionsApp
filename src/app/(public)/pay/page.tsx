@@ -5,14 +5,13 @@ export const dynamic = 'force-dynamic';
 /**
  * /pay — Checkout page
  *
- * Stripe:  create-intent → user enters card → Stripe confirms via webhook
- * PayPal:  create-order  → user approves    → capture-order (server-side) → webhook safety net
+ * Stripe: create-intent → user enters card → Stripe confirms via webhook
+ * Zelle:  upload proof  → admin verifies   → manual confirmation
  */
 
 import { Suspense, useRef } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 
@@ -23,7 +22,7 @@ import Button from "@/components/ui/Button";
 import PaymentForm from "@/components/features/payments/PaymentForm";
 import { useAppSettings } from "@/hooks/useAppSettings";
 
-type PaymentMethod = "stripe" | "paypal" | "zelle";
+type PaymentMethod = "stripe" | "zelle";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -44,19 +43,11 @@ function PayPageInner() {
   const methodParam = searchParams.get("method");
 
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(
-    methodParam === "paypal" ? "paypal" : methodParam === "zelle" ? "zelle" : "stripe"
+    methodParam === "zelle" ? "zelle" : "stripe"
   );
   const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
   const [stripeLoading, setStripeLoading] = useState(false);
-  const [paypalCapturing, setPaypalCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const paypalClientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
-
-  const paypalOptions = useMemo(
-    () => ({ clientId: paypalClientId ?? "", currency: "USD", intent: "capture" }),
-    [paypalClientId]
-  );
 
   /* ── Stripe: create intent ── */
   useEffect(() => {
@@ -88,31 +79,10 @@ function PayPageInner() {
   }, [bookingId, selectedMethod]);
 
   useEffect(() => {
-    if (methodParam === "paypal") setSelectedMethod("paypal");
-    else if (methodParam === "zelle") setSelectedMethod("zelle");
-    else if (methodParam === "stripe") setSelectedMethod("stripe");
+    if (methodParam === "zelle") setSelectedMethod("zelle");
+    else setSelectedMethod("stripe");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  /* ── PayPal: capture after approval ── */
-  async function capturePayPal(orderId: string) {
-    setPaypalCapturing(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/payments/paypal/capture-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: orderId, booking_id: bookingId }),
-      });
-      const raw: unknown = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(getStr(raw, "error") ?? "No se pudo capturar el pago.");
-      router.push("/user/dashboard/bookings");
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error al capturar el pago");
-    } finally {
-      setPaypalCapturing(false);
-    }
-  }
 
   /* ── Guards ── */
   if (!bookingId) {
@@ -132,22 +102,6 @@ function PayPageInner() {
     );
   }
 
-  if (!paypalClientId && selectedMethod === "paypal") {
-    return (
-      <>
-        <Navbar />
-        <div className="mx-auto max-w-3xl p-6 pt-24">
-          <Card variant="bordered" className="p-6">
-            <p className="text-sm text-red-600">
-              Falta NEXT_PUBLIC_PAYPAL_CLIENT_ID en .env.local
-            </p>
-          </Card>
-        </div>
-        <Footer />
-      </>
-    );
-  }
-
   /* ── Zelle: payment details + upload proof ── */
   if (selectedMethod === "zelle") {
     return <ZellePaySection bookingId={bookingId} />;
@@ -158,81 +112,25 @@ function PayPageInner() {
       <Navbar />
       <div className="mx-auto max-w-3xl p-6 pt-24">
         <Card variant="bordered" className="p-6 space-y-5">
-          {/* Header + selector */}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-semibold">Pago</h1>
-              <p className="mt-1 text-xs text-neutral-500">
-                Booking: <span className="font-mono">{bookingId}</span>
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setSelectedMethod("stripe")}
-                className={selectedMethod === "stripe" ? "border-brand-500 bg-brand-50" : ""}
-              >
-                Tarjeta (Stripe)
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setSelectedMethod("paypal")}
-                className={selectedMethod === "paypal" ? "border-brand-500 bg-brand-50" : ""}
-              >
-                PayPal
-              </Button>
-            </div>
+          {/* Header */}
+          <div>
+            <h1 className="text-xl font-semibold">Pago con Tarjeta</h1>
           </div>
 
           {/* Errors */}
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
           )}
-          {paypalCapturing && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
-              Capturando pago con PayPal…
-            </div>
-          )}
 
-          {/* Gateway UI */}
-          {selectedMethod === "stripe" ? (
-            <div className="space-y-3">
-              {stripeLoading && <p className="text-sm text-neutral-500">Preparando pago con Stripe…</p>}
-              {!stripeLoading && stripeClientSecret && (
-                <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
+          {/* Stripe UI */}
+          <div className="space-y-3">
+            {stripeLoading && <p className="text-sm text-neutral-500">Preparando pago con Stripe…</p>}
+            {!stripeLoading && stripeClientSecret && (
+              <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
                 <PaymentForm />
               </Elements>
-              )}
-            </div>
-          ) : (
-            <PayPalScriptProvider options={paypalOptions}>
-              <PayPalButtons
-                style={{ layout: "vertical" }}
-                disabled={paypalCapturing}
-                createOrder={async () => {
-                  setError(null);
-                  const res = await fetch("/api/payments/paypal/create-order", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ booking_id: bookingId }),
-                  });
-                  const raw: unknown = await res.json().catch(() => null);
-                  if (!res.ok)
-                    throw new Error(getStr(raw, "error") ?? "No se pudo crear la orden de PayPal.");
-                  const oid = getStr(raw, "order_id");
-                  if (!oid) throw new Error("PayPal: falta order_id.");
-                  return oid;
-                }}
-                onApprove={async (data) => {
-                  await capturePayPal(data.orderID);
-                }}
-                onError={(err: unknown) => {
-                  console.error(err);
-                  setError("PayPal falló. Intenta nuevamente o usa Stripe.");
-                }}
-              />
-            </PayPalScriptProvider>
-          )}
+            )}
+          </div>
         </Card>
       </div>
       <Footer />

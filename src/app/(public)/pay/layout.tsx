@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Pago Seguro',
-  description: 'Procesa tu pago de forma segura. Aceptamos Stripe, PayPal y Zelle.',
+  description: 'Procesa tu pago de forma segura. Aceptamos tarjeta de crédito/débito y Zelle.',
 };
 
 export default function PayLayout({ children }: { children: React.ReactNode }) {

@@ -1,6 +1,6 @@
 // src/app/(public)/checkout/page.tsx
 /**
- * @fileoverview Checkout page — creates booking + passengers, then redirects to /pay for real payment (Stripe/PayPal).
+ * @fileoverview Checkout page — creates booking + passengers, then redirects to /pay for real payment (Stripe/Zelle).
  * Supports two booking modes:
  *   1. Flight-based: ?flight={uuid}&passengers=N  (from flight search)
  *   2. Offer-based:  ?offer={uuid}&date=YYYY-MM-DD&passengers=N  (from exclusive offers)
@@ -28,7 +28,6 @@ import { mapApiFlightToOffer } from '@/lib/flights/flightOffer.mapper';
 import FlightStopsDetails from '@/components/features/flights/FlightStopsDetails';
 import {
   CreditCard,
-  Building,
   Banknote,
   Shield,
   Lock,
@@ -55,7 +54,7 @@ const FormField = ({
   </div>
 );
 
-type Gateway = 'stripe' | 'paypal' | 'zelle';
+type Gateway = 'stripe' | 'zelle';
 
 /** Shape of offer data used in checkout — enriched with flight details */
 interface OfferCheckoutData {
@@ -1896,19 +1895,13 @@ function CheckoutPageInner() {
                 <Card variant="bordered">
                   <h3 className="mb-4 font-bold">Método de Pago</h3>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {([
                       {
                         id: 'stripe' as const,
                         icon: CreditCard,
                         label: 'Tarjeta de Crédito/Débito',
                         sub: 'Visa, Mastercard, Amex',
-                      },
-                      {
-                        id: 'paypal' as const,
-                        icon: Building,
-                        label: 'PayPal',
-                        sub: 'Pago con cuenta PayPal',
                       },
                       {
                         id: 'zelle' as const,
