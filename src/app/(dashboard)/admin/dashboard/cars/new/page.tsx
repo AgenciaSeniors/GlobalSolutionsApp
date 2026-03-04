@@ -14,7 +14,7 @@ export default function NewCarPage() {
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Nuevo Auto" />
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <CarForm mode="create" />
         </div>
       </div>

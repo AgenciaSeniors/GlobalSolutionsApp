@@ -120,7 +120,7 @@ export default function AgentSettingsPage() {
         <Sidebar links={AGENT_SIDEBAR_LINKS} />
         <div className="flex-1">
           <Header title="Configuración" subtitle="Mi Perfil y cuenta" />
-          <div className="p-8"><p className="text-neutral-400">Cargando...</p></div>
+          <div className="p-4 sm:p-8"><p className="text-neutral-400">Cargando...</p></div>
         </div>
       </div>
     );

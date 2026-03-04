@@ -347,7 +347,7 @@ export default function AdminAgentsPage() {
         <Header title="Gestión de Gestores" subtitle="Aprobar agentes, asignar código y activar/desactivar" />
 
         <div className="flex-1 overflow-y-auto p-3 md:p-6 flex flex-col gap-4 min-w-0">
-          
+
           {/* Alertas */}
           {(toast.ok || toast.error) && (
             <div className="flex items-center gap-2 shrink-0">
