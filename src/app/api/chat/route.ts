@@ -286,8 +286,10 @@ function extractPossibleCode(text: string): string | null {
   const gst = t.match(/\bGST-[A-Z0-9]{3,8}\b/);
   if (gst) return gst[0];
 
-  const m = t.match(/\b[A-Z0-9]{6,10}\b/);
-  return m ? m[0] : null;
+  // Require at least one digit to avoid matching common words (e.g. METODOS, CREDITO)
+  const candidates = t.match(/\b[A-Z0-9]{6,10}\b/g) ?? [];
+  const withDigit = candidates.find((c) => /\d/.test(c));
+  return withDigit ?? null;
 }
 
 function looksLikeBookingIntent(message: string) {
@@ -303,7 +305,9 @@ function looksLikeBookingIntent(message: string) {
     'voucher',
     'emitido',
     'emision',
-    'pago',
+    'mi pago',
+    'estado del pago',
+    'pago de mi reserva',
     'reembolso',
     'cancelacion',
     'cancelar',
@@ -590,6 +594,7 @@ export async function POST(req: Request) {
       });
     } catch (e: unknown) {
       const raw = e instanceof Error ? e.message : String(e);
+      console.error('[Chat] OpenAI error:', raw);
       // If no credit/quota: fall back to KB (no 500)
       if (raw.includes('429') || raw.includes('insufficient_quota')) {
         assistantText =
