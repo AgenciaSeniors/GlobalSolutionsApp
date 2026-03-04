@@ -11,8 +11,8 @@ import Button from '@/components/ui/Button';
 import { useLanguage } from '@/components/providers/LanguageProvider';
 
 const STATS = [
-  { value: '15+', key: 'hero.stats.airlines' },
-  { value: '50+', key: 'hero.stats.destinations' },
+  { value: '60+', key: 'hero.stats.airlines' },
+  { value: '100+', key: 'hero.stats.destinations' },
   { value: '24/7', key: 'hero.stats.support' },
   { value: '98%', key: 'hero.stats.satisfaction' },
 ] as const;
