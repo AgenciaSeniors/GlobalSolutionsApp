@@ -47,7 +47,7 @@ export default function EditCarPage() {
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Editar Auto" />
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-6 w-6 animate-spin text-brand-500" />

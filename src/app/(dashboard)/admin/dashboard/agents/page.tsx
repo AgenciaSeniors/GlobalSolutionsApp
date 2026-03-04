@@ -367,7 +367,7 @@ export default function AdminAgentsPage() {
           subtitle="Aprobar agentes, asignar código y activar/desactivar"
         />
 
-        <div className="p-8 space-y-6">
+        <div className="p-4 sm:p-8 space-y-6">
           {/* Alertas */}
           <div className="flex items-center gap-2 min-h-[32px]">
             {toast.ok && <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-3 py-1 rounded-md w-full transition-all">{toast.ok}</span>}
