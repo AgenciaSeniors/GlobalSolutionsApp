@@ -140,6 +140,11 @@ export default function AdminBookingsPage() {
   // Per-row action loading
   const [rowAction, setRowAction] = useState<{ id: string; kind: 'approve' | 'reject' } | null>(null);
 
+  // Multi-select + confirm modal
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmModal, setConfirmModal] = useState<{ ids: string[] } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     fetchBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -252,19 +257,52 @@ export default function AdminBookingsPage() {
     fetchBookings();
   }
 
-  async function deleteBooking(id: string, bookingCode: string) {
-    const confirmation = prompt(`Para eliminar la reserva ${bookingCode}, escribe ELIMINAR:`);
-    if (confirmation !== 'ELIMINAR') {
-      if (confirmation !== null) alert('Texto incorrecto. La reserva NO fue eliminada.');
-      return;
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(filtered.map((b) => b.id)));
+  }
+
+  function clearAll() {
+    setSelectedIds(new Set());
+  }
+
+  async function deleteWithDeps(ids: string[]) {
+    setDeleting(true);
+    try {
+      const depTables = [
+        'agent_commissions',
+        'reviews',
+        'payment_events',
+        'booking_itineraries',
+        'booking_passengers',
+        'passengers',
+      ] as const;
+      for (const table of depTables) {
+        const { error } = await supabase.from(table).delete().in('booking_id', ids);
+        if (error) throw new Error(`Error en ${table}: ${error.message}`);
+      }
+      const { error } = await supabase.from('bookings').delete().in('id', ids);
+      if (error) throw new Error(error.message);
+      setSelectedIds(new Set());
+      setConfirmModal(null);
+      fetchBookings();
+    } catch (err) {
+      alert('Error al eliminar: ' + (err instanceof Error ? err.message : 'Error desconocido'));
+    } finally {
+      setDeleting(false);
     }
-    const { error } = await supabase.from('bookings').delete().eq('id', id);
-    if (error) {
-      console.error('[AdminBookings] deleteBooking error:', error.message);
-      alert('Error al eliminar: ' + error.message);
-      return;
-    }
-    fetchBookings();
+  }
+
+  function deleteBooking(id: string) {
+    setConfirmModal({ ids: [id] });
   }
 
   // Zelle approval
@@ -388,6 +426,39 @@ export default function AdminBookingsPage() {
 
   return (
     <div className="flex min-h-screen">
+      {/* Confirm delete modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-neutral-900">¿Estás seguro?</h3>
+            <p className="mt-2 text-sm text-neutral-600">
+              Se eliminarán permanentemente{' '}
+              <strong>{confirmModal.ids.length} reserva{confirmModal.ids.length !== 1 ? 's' : ''}</strong>{' '}
+              junto con todos sus datos asociados. Esta acción no se puede deshacer.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setConfirmModal(null)}
+                disabled={deleting}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1 border-0 bg-red-600 text-white hover:bg-red-700"
+                onClick={() => deleteWithDeps(confirmModal.ids)}
+                disabled={deleting}
+              >
+                {deleting ? 'Eliminando...' : 'Sí, eliminar'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
       <div className="flex-1 overflow-auto">
         <Header title="Todas las Reservas" subtitle="Base de datos CRM — Historial completo de clientes" />
@@ -417,7 +488,7 @@ export default function AdminBookingsPage() {
           </div>
 
           {/* Filters + Search */}
-          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2">
               {(
                 [
@@ -445,17 +516,48 @@ export default function AdminBookingsPage() {
               ))}
             </div>
 
-            <div className="relative w-full max-w-xs">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-              <input
-                type="text"
-                placeholder="Buscar código, nombre, email..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 py-2.5 pl-10 pr-4 text-sm focus:border-brand-500 focus:outline-none"
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative w-full max-w-xs">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar código, nombre, email..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full rounded-xl border-2 border-neutral-200 bg-neutral-50 py-2.5 pl-10 pr-4 text-sm focus:border-brand-500 focus:outline-none"
+                />
+              </div>
+              <button
+                onClick={selectedIds.size === filtered.length && filtered.length > 0 ? clearAll : selectAll}
+                className="shrink-0 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm font-medium text-neutral-600 hover:bg-neutral-50 transition-colors"
+              >
+                {selectedIds.size === filtered.length && filtered.length > 0 ? 'Deselect. todo' : 'Sel. todo'}
+              </button>
             </div>
           </div>
+
+          {/* Action bar when items selected */}
+          {selectedIds.size > 0 && (
+            <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+              <span className="text-sm font-medium text-red-700">
+                {selectedIds.size} reserva{selectedIds.size !== 1 ? 's' : ''} seleccionada{selectedIds.size !== 1 ? 's' : ''}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={clearAll}
+                  className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  Deseleccionar
+                </button>
+                <button
+                  onClick={() => setConfirmModal({ ids: Array.from(selectedIds) })}
+                  className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 transition-colors"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Eliminar selección
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Error banner */}
           {fetchError && (
@@ -492,15 +594,26 @@ export default function AdminBookingsPage() {
                 const isRejecting = rowAction?.id === b.id && rowAction.kind === 'reject';
 
                 return (
-                  <Card key={b.id} variant="bordered" className="transition-all">
+                  <Card
+                    key={b.id}
+                    variant="bordered"
+                    className={`transition-all ${selectedIds.has(b.id) ? 'border-red-300 ring-2 ring-red-200' : ''}`}
+                  >
                     {/* Main row */}
                     <div
                       className="flex cursor-pointer items-center justify-between"
                       onClick={() => setExpandedId(isExpanded ? null : b.id)}
                     >
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(b.id)}
+                          onChange={() => toggleSelect(b.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-4 w-4 shrink-0 cursor-pointer rounded border-neutral-300 accent-red-600"
+                        />
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono text-sm font-bold text-brand-600">{b.booking_code}</span>
                             <Badge variant={cfg.variant}>{cfg.label}</Badge>
                             <Badge variant={PAYMENT_VARIANT[b.payment_status] || 'warning'}>
@@ -522,7 +635,7 @@ export default function AdminBookingsPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-4">
+                      <div className="flex shrink-0 items-center gap-4">
                         <div className="text-right">
                           <p className="font-semibold">${Number(b.total_amount).toFixed(2)}</p>
                           <p className="text-xs text-neutral-400">
@@ -730,7 +843,7 @@ export default function AdminBookingsPage() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => deleteBooking(b.id, b.booking_code)}
+                              onClick={() => deleteBooking(b.id)}
                               className="gap-1.5 text-red-700 hover:bg-red-50"
                             >
                               <Trash2 className="h-3.5 w-3.5" /> Eliminar
