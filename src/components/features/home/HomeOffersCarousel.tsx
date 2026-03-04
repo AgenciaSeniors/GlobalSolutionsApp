@@ -27,7 +27,6 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
   const [canNext, setCanNext] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
-
   const onSelect = useCallback(() => {
     if (!emblaApi) return;
     setSelected(emblaApi.selectedScrollSnap());
@@ -43,21 +42,19 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
   }, [emblaApi, onSelect]);
 
   useEffect(() => {
-  if (!emblaApi) return;
-  if (offers.length <= 1) return;
-  if (isPaused) return;
+    if (!emblaApi) return;
+    if (offers.length <= 1) return;
+    if (isPaused) return;
 
-  const id = window.setInterval(() => {
-    if (document.hidden) return;
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
 
-    if (emblaApi.canScrollNext()) emblaApi.scrollNext();
-    else emblaApi.scrollTo(0);
-  }, 2500);
+      if (emblaApi.canScrollNext()) emblaApi.scrollNext();
+      else emblaApi.scrollTo(0);
+    }, 2500);
 
-  return () => window.clearInterval(id);
-}, [emblaApi, offers.length, isPaused]);
-
-
+    return () => window.clearInterval(id);
+  }, [emblaApi, offers.length, isPaused]);
 
   const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
   const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
@@ -66,7 +63,6 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
 
   return (
     <div className="relative">
-
       <div ref={emblaRef} className="overflow-hidden">
         <div className="flex gap-6">
           {offers.map((o) => {

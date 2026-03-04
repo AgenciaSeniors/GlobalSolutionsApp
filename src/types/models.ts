@@ -22,6 +22,7 @@ export interface Profile {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  agent_fund_cents: number;
 }
 
 /* ------------------------------------------------------------------ */
