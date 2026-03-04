@@ -234,6 +234,7 @@ export interface SpecialOffer {
   cabin_class: string | null;
   baggage_included: string | null;
   stops: SpecialOfferStop[];
+  note: string | null;
   // Joined relations (populated via Supabase select)
   airline?: { id: string; name: string; iata_code: string; logo_url?: string | null } | null;
   origin_airport?: { iata_code: string; city: string } | null;

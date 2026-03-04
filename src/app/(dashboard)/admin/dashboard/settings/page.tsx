@@ -63,7 +63,7 @@ const SLA_KEYS = [
   { key: 'emission_sla_hours', label: 'SLA emisión (horas)', type: 'number', step: '1', min: '1' },
   { key: 'emission_warning_hours', label: 'Alerta urgente a las (horas)', type: 'number', step: '1', min: '1' },
   { key: 'review_request_delay_days', label: 'Solicitar reseña después de (días)', type: 'number', step: '1', min: '0' },
-  { key: 'loyalty_points_per_dollar', label: 'Puntos fidelidad por $1', type: 'number', step: '1', min: '0' },
+  { key: 'loyalty_points_per_dollar', label: 'Puntos fidelidad por $1', type: 'number', step: '0.001', min: '0' },
 ];
 
 const BUSINESS_KEYS = [

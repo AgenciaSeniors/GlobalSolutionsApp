@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Flame } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Flame, Info } from 'lucide-react';
 import type { SpecialOffer } from '@/types/models';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -132,6 +132,13 @@ export default function HomeOffersCarousel({ offers }: { offers: SpecialOffer[] 
                       {o.urgency_label && (
                         <p className="mt-1 text-sm font-semibold text-amber-300">
                           {o.urgency_label}
+                        </p>
+                      )}
+
+                      {o.note && (
+                        <p className="mt-1.5 flex items-start gap-1 text-xs text-white/75 line-clamp-2">
+                          <Info className="mt-px h-3 w-3 shrink-0 text-blue-300" />
+                          {o.note}
                         </p>
                       )}
 

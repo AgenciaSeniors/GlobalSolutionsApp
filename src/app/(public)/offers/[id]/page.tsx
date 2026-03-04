@@ -28,6 +28,7 @@ import {
   Timer,
   Users,
   Armchair,
+  Info,
 } from 'lucide-react';
 import Link from 'next/link';
 import type { SpecialOffer, SpecialOfferStop } from '@/types/models';
@@ -438,6 +439,16 @@ export default function OfferDetailPage() {
                   {seatsLeft < 9 && (
                     <p className="mt-2 text-xs text-neutral-400">Máx. {seatsLeft} cupo{seatsLeft > 1 ? 's' : ''} disponibles</p>
                   )}
+                </Card>
+              )}
+
+              {/* Admin note */}
+              {offer.note && (
+                <Card variant="bordered" className="bg-blue-50 border-blue-200">
+                  <div className="flex items-start gap-2">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                    <p className="text-sm text-blue-800">{offer.note}</p>
+                  </div>
                 </Card>
               )}
 

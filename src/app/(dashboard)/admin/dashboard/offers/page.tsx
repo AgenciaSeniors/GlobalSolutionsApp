@@ -106,6 +106,9 @@ export default function AdminOffersPage() {
   const [urgencyLabel, setUrgencyLabel] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
+  // --- Form state: Nota ---
+  const [note, setNote] = useState('');
+
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -183,6 +186,7 @@ export default function AdminOffersPage() {
     setMaxSeats('20');
     setUrgencyLabel('');
     setSelectedTags([]);
+    setNote('');
     setEditingId(null);
     setAirlineSearch('');
     setAirlineDropdownOpen(false);
@@ -213,6 +217,7 @@ export default function AdminOffersPage() {
     setUrgencyLabel(offer.urgency_label || '');
     setMaxSeats(offer.max_seats.toString());
     setSelectedTags(offer.tags);
+    setNote(offer.note ?? '');
     setCustomAirlineName((offer as unknown as { custom_airline_name?: string }).custom_airline_name || '');
     setImageFile(null);
     setImagePreviewUrl(null);
@@ -300,6 +305,7 @@ export default function AdminOffersPage() {
         urgency_label: urgencyLabel || null,
         max_seats: parseInt(maxSeats),
         tags: selectedTags,
+        note: note.trim() || null,
       };
 
       const res = editingId
@@ -911,6 +917,20 @@ export default function AdminOffersPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* ── Section 7: Nota ── */}
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-neutral-700">
+                    Nota <span className="font-normal text-neutral-400">(opcional) — información importante visible en la oferta</span>
+                  </label>
+                  <textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={3}
+                    placeholder="Ej: Precio válido para compras antes del 30 de abril. Incluye impuestos de aeropuerto. Sujeto a disponibilidad."
+                    className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 placeholder-neutral-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                  />
                 </div>
 
                 {/* Actions */}
