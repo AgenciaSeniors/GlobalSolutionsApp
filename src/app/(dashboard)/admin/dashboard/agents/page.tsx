@@ -10,10 +10,17 @@ import Header from '@/components/layout/Header';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import { createClient } from '@/lib/supabase/client';
-import { Users, UserCheck, UserX, Search, UserPlus, Save, ClipboardList, Check, X } from 'lucide-react';
+import { Users, UserCheck, UserX, Search, UserPlus, Save, ClipboardList, Check, X, History, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import type { Profile, UserRole, AgentRequest } from '@/types/models';
 
 type ToastState = { ok: string | null; error: string | null };
+
+type FundHistoryEntry = {
+  id: string;
+  old_value_cents: number;
+  new_value_cents: number;
+  changed_at: string;
+};
 
 function isNonEmpty(s: string): boolean {
   return s.trim().length > 0;
@@ -45,6 +52,9 @@ export default function AdminAgentsPage() {
 
   const [editFundById, setEditFundById] = useState<Record<string, string>>({});
   const [savingFundById, setSavingFundById] = useState<Record<string, boolean>>({});
+
+  const [fundHistoryModal, setFundHistoryModal] = useState<{ agentName: string; entries: FundHistoryEntry[] } | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
     fetchAgentsData();
@@ -173,17 +183,41 @@ export default function AdminAgentsPage() {
 
     setSavingFundById((p) => ({ ...p, [agentId]: true }));
     try {
+      const oldCents = agents.find((a) => a.id === agentId)?.agent_fund_cents ?? 0;
+
       const { error } = await supabase.from('profiles').update({ agent_fund_cents: cents }).eq('id', agentId);
       if (error) {
         setToast({ ok: null, error: error.message });
         return;
       }
 
+      // Registrar historial
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from('agent_fund_history').insert({
+        agent_id: agentId,
+        old_value_cents: oldCents,
+        new_value_cents: cents,
+        changed_by: user?.id ?? null,
+      });
+
       setToast({ ok: 'Fondo actualizado.', error: null });
       fetchAgentsData();
     } finally {
       setSavingFundById((p) => ({ ...p, [agentId]: false }));
     }
+  }
+
+  async function openFundHistory(agentId: string, agentName: string) {
+    setLoadingHistory(true);
+    setFundHistoryModal({ agentName, entries: [] });
+    const { data } = await supabase
+      .from('agent_fund_history')
+      .select('id, old_value_cents, new_value_cents, changed_at')
+      .eq('agent_id', agentId)
+      .order('changed_at', { ascending: false })
+      .limit(50);
+    setFundHistoryModal({ agentName, entries: (data ?? []) as FundHistoryEntry[] });
+    setLoadingHistory(false);
   }
 
   const handleToggleRequests = () => {
@@ -339,6 +373,7 @@ export default function AdminAgentsPage() {
   const activeCount = agents.filter((a) => a.is_active).length;
 
   return (
+    <>
     <div className="flex h-screen overflow-hidden bg-neutral-50/30 w-full">
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
 
@@ -578,6 +613,13 @@ export default function AdminAgentsPage() {
                             >
                               <Save className="h-4 w-4" />
                             </Button>
+                            <button
+                              onClick={() => openFundHistory(agent.id, agent.full_name)}
+                              className="h-8 w-8 md:h-7 md:w-7 flex items-center justify-center rounded-md text-neutral-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                              title="Ver historial de cambios"
+                            >
+                              <History className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         </td>
 
@@ -621,5 +663,94 @@ export default function AdminAgentsPage() {
         </div>
       </div>
     </div>
+
+    {/* ── Modal Historial de Fondo ── */}
+    {fundHistoryModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
+            <div>
+              <h3 className="text-base font-bold text-neutral-900 flex items-center gap-2">
+                <History className="h-4 w-4 text-amber-500" /> Historial de Fondo
+              </h3>
+              <p className="text-xs text-neutral-500 mt-0.5">{fundHistoryModal.agentName}</p>
+            </div>
+            <button
+              onClick={() => setFundHistoryModal(null)}
+              className="h-8 w-8 flex items-center justify-center rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="overflow-y-auto flex-1 px-5 py-3">
+            {loadingHistory ? (
+              <p className="text-sm text-neutral-400 text-center py-8">Cargando historial...</p>
+            ) : fundHistoryModal.entries.length === 0 ? (
+              <div className="text-center py-10">
+                <History className="h-8 w-8 text-neutral-200 mx-auto mb-2" />
+                <p className="text-sm text-neutral-400">Sin cambios registrados aún.</p>
+                <p className="text-xs text-neutral-300 mt-1">Los cambios aparecerán aquí cuando guardes el fondo.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {fundHistoryModal.entries.map((entry, i) => {
+                  const diff = entry.new_value_cents - entry.old_value_cents;
+                  const isFirst = i === 0;
+                  return (
+                    <div
+                      key={entry.id}
+                      className={`flex items-center justify-between rounded-xl px-4 py-3 ${isFirst ? 'bg-amber-50 border border-amber-100' : 'bg-neutral-50 border border-neutral-100'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`p-1.5 rounded-lg ${diff > 0 ? 'bg-emerald-100' : diff < 0 ? 'bg-red-100' : 'bg-neutral-100'}`}>
+                          {diff > 0
+                            ? <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
+                            : diff < 0
+                            ? <TrendingDown className="h-3.5 w-3.5 text-red-600" />
+                            : <Minus className="h-3.5 w-3.5 text-neutral-500" />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-neutral-800">
+                            {entry.old_value_cents} → {entry.new_value_cents}
+                            {diff !== 0 && (
+                              <span className={`ml-1.5 font-bold ${diff > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                ({diff > 0 ? '+' : ''}{diff})
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-[11px] text-neutral-400">
+                            {new Date(entry.changed_at).toLocaleString('es', {
+                              day: '2-digit', month: 'short', year: 'numeric',
+                              hour: '2-digit', minute: '2-digit',
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      {isFirst && (
+                        <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">Último</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 py-3 border-t border-neutral-100">
+            <button
+              onClick={() => setFundHistoryModal(null)}
+              className="w-full rounded-xl border border-neutral-200 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50 transition-colors"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
