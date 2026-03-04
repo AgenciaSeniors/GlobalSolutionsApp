@@ -222,7 +222,7 @@ function EmissionsDashboard() {
   const showActions = selectedIds.size > 0;
 
   return (
-    <div className="p-6 lg:p-8 w-full max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 w-full max-w-6xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[#0F2545] flex items-center gap-2">
           <Plane className="text-brand-600" /> Centro de Emisiones

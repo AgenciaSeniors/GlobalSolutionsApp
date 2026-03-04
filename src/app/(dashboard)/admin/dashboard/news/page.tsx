@@ -130,7 +130,7 @@ if (error) {
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Noticias para Gestores" subtitle="Publica actualizaciones en el muro de la comunidad" />
-        <div className="p-8">
+        <div className="p-4 sm:p-8">
           <div className="mb-6 flex justify-end">
            <Button onClick={startCreate} className="gap-2">
   <Plus className="h-4 w-4" /> Nueva Noticia

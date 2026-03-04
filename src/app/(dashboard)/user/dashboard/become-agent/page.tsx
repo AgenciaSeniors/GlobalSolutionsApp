@@ -134,7 +134,7 @@ export default function BecomeAgentPage() {
           subtitle={isApproved ? "¡Bienvenido al equipo!" : "Únete a nuestro equipo y comienza a gestionar vuelos"}
         />
 
-        <div className="p-8 max-w-2xl mx-auto">
+        <div className="p-4 sm:p-8 max-w-2xl mx-auto">
           {loading ? (
             <p className="text-neutral-500">Cargando información...</p>
           ) : isApproved ? (

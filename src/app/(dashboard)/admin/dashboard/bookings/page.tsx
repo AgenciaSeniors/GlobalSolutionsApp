@@ -462,7 +462,7 @@ export default function AdminBookingsPage() {
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
       <div className="flex-1 overflow-auto">
         <Header title="Todas las Reservas" subtitle="Base de datos CRM — Historial completo de clientes" />
-        <div className="p-6 lg:p-8">
+        <div className="p-4 sm:p-6 lg:p-8">
           {/* Summary */}
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
             <Card variant="bordered">

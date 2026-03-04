@@ -364,7 +364,7 @@ export default function AdminOffersPage() {
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Ofertas Exclusivas" subtitle="Motor de ofertas — Vuelos, calendarios, imágenes, urgencia" />
-        <div className="p-8">
+        <div className="p-4 sm:p-8">
           {/* Top bar */}
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-neutral-500">

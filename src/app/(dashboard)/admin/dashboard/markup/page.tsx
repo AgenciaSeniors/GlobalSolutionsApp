@@ -116,7 +116,7 @@ export default function AdminMarkupPage() {
       <div className="flex-1 overflow-auto">
         <Header title="Markup" subtitle="Configura el markup para clientes y gestores" />
 
-        <div className="p-8 max-w-3xl">
+        <div className="p-4 sm:p-8 max-w-3xl">
           <Card variant="bordered">
             <form onSubmit={save} className="space-y-5">
               {error ? (

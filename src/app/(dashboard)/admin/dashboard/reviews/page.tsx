@@ -166,7 +166,7 @@ export default function AdminReviewsPage() {
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Moderar Reseñas" subtitle="Solo compradores verificados pueden opinar" />
-        <div className="p-8 space-y-6">
+        <div className="p-4 sm:p-8 space-y-6">
 
           {/* Info about auto points */}
           <Card variant="bordered" className="border-amber-200 bg-amber-50/20">

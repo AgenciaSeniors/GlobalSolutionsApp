@@ -77,7 +77,7 @@ export default function UserLoyaltyPage() {
       <div className="flex-1">
         <Header title="Puntos de Lealtad" subtitle="Gana puntos con cada viaje y reseña" />
 
-        <div className="p-6 md:p-8 space-y-6 max-w-4xl">
+        <div className="p-4 sm:p-8 space-y-6 max-w-4xl">
           {loading ? (
             <PageLoader message="Cargando tu programa de lealtad..." />
           ) : (

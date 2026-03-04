@@ -99,7 +99,7 @@ export default function UserSettingsPage() {
         <Sidebar links={USER_SIDEBAR_LINKS} />
         <div className="flex-1">
           <Header title="Configuración" subtitle="Mi Perfil y cuenta" />
-          <div className="p-8"><p className="text-neutral-400">Cargando...</p></div>
+          <div className="p-4 sm:p-8"><p className="text-neutral-400">Cargando...</p></div>
         </div>
       </div>
     );
@@ -110,7 +110,7 @@ export default function UserSettingsPage() {
       <Sidebar links={USER_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Configuración" subtitle="Gestiona tu perfil y cuenta" />
-        <div className="p-8 space-y-6 max-w-3xl">
+        <div className="p-4 sm:p-8 space-y-6 max-w-3xl">
 
           {message && (
             <div className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${

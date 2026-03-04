@@ -311,7 +311,7 @@ export default function UserReviewsPage() {
       <Sidebar links={USER_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Mis Reseñas" subtitle="Comparte tu experiencia y gana puntos de lealtad" />
-        <div className="p-8 space-y-8 max-w-4xl">
+        <div className="p-4 sm:p-8 space-y-8 max-w-4xl">
 
           {/* Toast messages */}
           {message && (

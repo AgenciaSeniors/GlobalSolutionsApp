@@ -97,7 +97,7 @@ export default function UserBookingsPage() {
       <div className="flex-1 overflow-auto">
         <Header title="Mis Viajes" subtitle="Historial de reservas y boletos electrónicos" />
         
-        <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
           {loading ? (
             <PageLoader message="Cargando tu historial..." />
           ) : bookings.length === 0 ? (

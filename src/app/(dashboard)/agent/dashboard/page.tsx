@@ -81,7 +81,7 @@ export default function AgentDashboardPage() {
           title="Dashboard de Gestor"
           subtitle={`Bienvenido${user ? `, ${user.user_metadata?.full_name || 'Gestor'}` : ''}`}
         />
-        <div className="p-8 space-y-8 max-w-7xl mx-auto">
+        <div className="p-4 sm:p-8 space-y-8 max-w-7xl mx-auto">
 
           {/* ── KPI Cards (Solo Fondo) ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

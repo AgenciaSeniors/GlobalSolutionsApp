@@ -129,7 +129,7 @@ export default function AgentBookingsPage() {
       <div className="flex-1">
         <Header title="Gestión de Reservas" subtitle="Historial completo de tus ventas" />
 
-        <div className="p-8 space-y-6">
+        <div className="p-4 sm:p-8 space-y-6">
           {/* BARRA DE CONTROL */}
           <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
             {/* Filtros */}

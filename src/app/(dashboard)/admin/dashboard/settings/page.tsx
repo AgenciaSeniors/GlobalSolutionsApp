@@ -241,7 +241,7 @@ export default function AdminSettingsPage() {
           title="Configuración del Sistema"
           subtitle="Markup, comisiones, SLA y datos del negocio"
         />
-        <div className="p-6 lg:p-8">
+        <div className="p-4 sm:p-6 lg:p-8">
           {/* Status messages */}
           {success && (
             <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-700">

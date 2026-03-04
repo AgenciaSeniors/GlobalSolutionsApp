@@ -131,7 +131,7 @@ export default function AgentSettingsPage() {
       <Sidebar links={AGENT_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Configuración" subtitle="Gestiona tu perfil y cuenta" />
-        <div className="p-8 space-y-6 max-w-3xl">
+        <div className="p-4 sm:p-8 space-y-6 max-w-3xl">
 
           {/* ── Message ── */}
           {message && (

@@ -148,7 +148,7 @@ export default function AdminDashboardPage() {
           title="Panel de Administración"
           subtitle="Vista general del sistema en tiempo real"
         />
-        <div className="p-6 lg:p-8">
+        <div className="p-4 sm:p-6 lg:p-8">
           {/* Urgent Alert */}
           {stats.urgentEmissions > 0 && (
             <div className="mb-6 flex items-center gap-3 rounded-xl border-2 border-red-200 bg-red-50 px-5 py-4">

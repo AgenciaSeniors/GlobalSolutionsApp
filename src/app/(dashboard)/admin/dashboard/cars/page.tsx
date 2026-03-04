@@ -93,7 +93,7 @@ export default function AdminCarsPage() {
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Gestión de Autos" />
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <div className="mb-6 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-bold text-neutral-900">Inventario de Autos</h2>

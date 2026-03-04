@@ -157,7 +157,7 @@ export default function UserDashboardPage() {
           subtitle={`${greeting()}${user ? `, ${user.user_metadata?.full_name || 'Viajero'}` : ''}`}
         />
 
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-6">
           {(authLoading || loading) ? (
             /* Inline skeleton — layout stays visible, only data area shimmers */
             <>

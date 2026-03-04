@@ -25,7 +25,7 @@ export default function AgentNewsPage() {
       <Sidebar links={AGENT_SIDEBAR_LINKS} />
       <div className="flex-1">
         <Header title="Noticias" subtitle="Actualizaciones y comunicados importantes" />
-        <div className="p-8">
+        <div className="p-4 sm:p-8">
           {error && (
             <p className="text-red-600 text-sm mb-3">
               Error cargando noticias: {error}
