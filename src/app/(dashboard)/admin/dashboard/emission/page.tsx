@@ -542,7 +542,8 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string; voucherId?
 
   const updatePassenger = (index: number, field: keyof Passenger, value: string) => {
     const newPax = [...passengers];
-    newPax[index] = { ...newPax[index], [field]: value.toUpperCase() };
+    // El equipaje no se convierte a mayúsculas (ej: "1x23kg" no debe ser "1X23KG")
+    newPax[index] = { ...newPax[index], [field]: field === 'baggage' ? value : value.toUpperCase() };
     setPassengers(newPax);
   };
 
@@ -722,6 +723,16 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string; voucherId?
                     onChange={(e) => updatePassenger(index, 'ticketNumber', e.target.value)}
                     className={inputClass}
                     placeholder="Requerido"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-500">EQUIPAJE</label>
+                  <input
+                    type="text"
+                    value={pax.baggage}
+                    onChange={(e) => updatePassenger(index, 'baggage', e.target.value)}
+                    className={inputClass}
+                    placeholder="Ej: 1x23kg"
                   />
                 </div>
               </div>
