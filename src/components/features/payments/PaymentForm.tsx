@@ -7,7 +7,11 @@ import Button from '@/components/ui/Button';
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { useLanguage } from '@/components/providers/LanguageProvider';
 
-export default function PaymentForm() {
+interface PaymentFormProps {
+  bookingId?: string;
+}
+
+export default function PaymentForm({ bookingId }: PaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
   const router = useRouter();
@@ -32,6 +36,27 @@ export default function PaymentForm() {
       setError(result.error.message ?? t('payment.error.failed'));
       setPaying(false);
       return;
+    }
+
+    // ✅ Pago confirmado por Stripe en el cliente.
+    // Llamamos a nuestro backend para actualizar el estado de la reserva
+    // de 'pending' → 'paid' + 'pending_emission' de forma inmediata.
+    // Esto garantiza que aparezca en el panel de emisión sin depender del webhook.
+    if (bookingId) {
+      try {
+        const res = await fetch('/api/payments/stripe/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ booking_id: bookingId }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          console.error('[PaymentForm] confirm endpoint error:', data?.error);
+        }
+      } catch (confirmErr) {
+        // No bloqueamos al usuario — el webhook de Stripe actuará como respaldo
+        console.error('[PaymentForm] confirm fetch failed:', confirmErr);
+      }
     }
 
     setSuccess(true);

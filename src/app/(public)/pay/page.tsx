@@ -127,7 +127,7 @@ function PayPageInner() {
             {stripeLoading && <p className="text-sm text-neutral-500">Preparando pago con Stripe…</p>}
             {!stripeLoading && stripeClientSecret && (
               <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
-                <PaymentForm />
+                <PaymentForm bookingId={bookingId} />
               </Elements>
             )}
           </div>
