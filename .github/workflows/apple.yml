@@ -30,8 +30,12 @@ jobs:
       - name: 4. Compilar el proyecto web (Next.js)
         run: npm run build
 
-      - name: 5. Añadir plataforma iOS
-        run: npx cap add ios
+      - name: 5. Generar iOS desde cero (limpieza y truco de carpeta)
+        run: |
+          rm -rf ios
+          mkdir -p out
+          echo "<html><body>App</body></html>" > out/index.html
+          npx cap add ios
 
       - name: 5.5. Generar iconos nativos
         run: npx @capacitor/assets generate --ios
