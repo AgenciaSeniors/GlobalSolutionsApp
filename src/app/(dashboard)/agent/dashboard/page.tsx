@@ -57,7 +57,7 @@ export default function AgentDashboardPage() {
 
       if (profileRes.data) {
         setFundData({
-          amount: (profileRes.data.agent_fund_cents || 0) / 100,
+          amount: profileRes.data.agent_fund_cents || 0,
           updatedAt: profileRes.data.updated_at,
         });
       }
