@@ -1,6 +1,5 @@
 // src/services/auth.service.ts
 import { createClient } from "@/lib/supabase/client";
-import { Capacitor } from "@capacitor/core";
 import type { Profile } from "@/types/models";
 
 // 🔧 FIX: Prefix incluye email hash para que trusted sea por usuario+dispositivo
@@ -83,22 +82,16 @@ async function signInStepOne(email: string, pass: string) {
 
 /**
  * LOGIN - PASO 2 (solo para dispositivo nuevo):
- * Verifica OTP → en app nativa usa setSession con tokens directos.
- * En web navega al sessionLink (magic link) como antes.
+ * Verifica OTP → el servidor genera un magic link (sessionLink).
+ * Funciona igual en web y en la app nativa (el WebView navega al link,
+ * Supabase redirige de vuelta a /auth/callback y se establece la sesión).
  */
 async function verifyLoginOtp(email: string, code: string) {
   const normalizedEmail = email.trim().toLowerCase();
-  const isNative = Capacitor.isNativePlatform();
-
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (isNative) {
-    // Indicar al servidor que estamos en app nativa para recibir tokens directos
-    headers["X-App-Platform"] = "android";
-  }
 
   const res = await fetch("/api/auth/verify-otp", {
     method: "POST",
-    headers,
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: normalizedEmail, code }),
   });
 
@@ -108,18 +101,6 @@ async function verifyLoginOtp(email: string, code: string) {
   // ✅ Marcar dispositivo como confiable para ESTE email
   markTrustedDevice(normalizedEmail);
 
-  // En app nativa: setSession directamente con los tokens (no hay navegación a supabase.co)
-  if (isNative && data.access_token && data.refresh_token) {
-    const supabase = createClient();
-    const { error: sessionErr } = await supabase.auth.setSession({
-      access_token: data.access_token,
-      refresh_token: data.refresh_token,
-    });
-    if (sessionErr) throw new Error(sessionErr.message);
-    return { ok: true, verified: true } as const;
-  }
-
-  // En web: retornar sessionLink para navegación
   if (!data.sessionLink) {
     throw new Error("No se pudo generar el enlace de sesión. Intenta de nuevo.");
   }
