@@ -1,7 +1,7 @@
 name: Compilar Apps de Apple (iOS y Mac)
 
 on:
-  workflow_dispatch: # Esto nos pone un botón en GitHub para ejecutarlo solo cuando tú quieras
+  workflow_dispatch:
   push:
     branches: [ main ]
 
@@ -20,6 +20,9 @@ jobs:
 
       - name: 3. Instalar dependencias de npm
         run: npm install --legacy-peer-deps
+
+      - name: 3.5. Preparar variables de entorno
+        run: echo "${{ secrets.ENV_FILE }}" > .env.production
 
       - name: 4. Compilar el proyecto web (Next.js)
         run: npm run build
