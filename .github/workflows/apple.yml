@@ -30,8 +30,11 @@ jobs:
       - name: 4. Compilar el proyecto web (Next.js)
         run: npm run build
 
-      - name: 5. Sincronizar Capacitor
-        run: npx cap sync ios
+      - name: 5. Añadir plataforma iOS
+        run: npx cap add ios
+
+      - name: 5.5. Generar iconos nativos
+        run: npx @capacitor/assets generate --ios
 
       - name: 6. Instalar dependencias de Apple (CocoaPods)
         run: |
