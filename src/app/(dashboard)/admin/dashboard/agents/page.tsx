@@ -543,7 +543,103 @@ export default function AdminAgentsPage() {
             </div>
           ) : (
             <div className="flex-1 min-h-[300px] rounded-xl border border-neutral-200 bg-white shadow-sm flex flex-col relative w-full overflow-hidden min-w-0">
-              <div className="overflow-x-auto overflow-y-auto flex-1 w-full">
+
+              {/* ── Mobile: tarjetas (pantallas < md) ── */}
+              <div className="md:hidden flex-1 overflow-y-auto p-3 space-y-3">
+                {filtered.map((agent) => (
+                  <div key={agent.id} className={`rounded-xl border p-4 ${!agent.is_active ? 'bg-red-50/20 border-red-100' : 'bg-white border-neutral-200'}`}>
+                    {/* Encabezado: nombre + estado */}
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-neutral-900 text-sm truncate">{agent.full_name}</p>
+                        <p className="text-xs text-neutral-400 truncate">{agent.email}</p>
+                      </div>
+                      <Badge variant={agent.is_active ? 'success' : 'default'} className="text-[10px] px-2 py-0.5 shrink-0">
+                        {agent.is_active ? 'Activo' : 'Inactivo'}
+                      </Badge>
+                    </div>
+
+                    {/* Código y Fondo en grid 2 columnas */}
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div>
+                        <p className="text-[10px] text-neutral-400 font-medium mb-1">CÓDIGO</p>
+                        <div className="flex items-center gap-1">
+                          <input
+                            className="w-full rounded-md border border-neutral-300 px-2 py-1.5 font-mono text-[16px] uppercase outline-none focus:ring-2 focus:ring-brand-500"
+                            value={editCodeById[agent.id] ?? ''}
+                            onChange={(e) => setEditCodeById((p) => ({ ...p, [agent.id]: e.target.value }))}
+                            placeholder="GST..."
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => saveAgentCode(agent.id)}
+                            isLoading={savingCodeById[agent.id] ?? false}
+                            className="h-8 w-8 p-0 text-neutral-500 hover:text-brand-600 hover:bg-brand-50 rounded-md shrink-0"
+                            title="Guardar código"
+                          >
+                            <Save className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-neutral-400 font-medium mb-1">FONDO</p>
+                        <div className="flex items-center gap-1">
+                          <input
+                            className={`w-full rounded-md border px-2 py-1.5 font-mono text-[16px] outline-none focus:ring-2 focus:ring-brand-500 ${Number(editFundById[agent.id] ?? 0) < 0 ? 'border-red-300 text-red-600 bg-red-50' : 'border-neutral-300'}`}
+                            value={editFundById[agent.id] ?? '0'}
+                            onChange={(e) => setEditFundById((p) => ({ ...p, [agent.id]: e.target.value }))}
+                            placeholder="0"
+                            inputMode="text"
+                            type="text"
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => saveAgentFund(agent.id)}
+                            isLoading={savingFundById[agent.id] ?? false}
+                            className="h-8 w-8 p-0 text-neutral-500 hover:text-brand-600 hover:bg-brand-50 rounded-md shrink-0"
+                            title="Guardar fondo"
+                          >
+                            <Save className="h-4 w-4" />
+                          </Button>
+                          <button
+                            onClick={() => openFundHistory(agent.id, agent.full_name)}
+                            className="h-8 w-8 flex items-center justify-center rounded-md text-neutral-400 hover:text-amber-600 hover:bg-amber-50 transition-colors shrink-0"
+                            title="Ver historial"
+                          >
+                            <History className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Footer: puntos + botón activar/desactivar */}
+                    <div className="flex items-center justify-between pt-2 border-t border-neutral-100">
+                      <span className="text-xs text-neutral-400">
+                        Pts: <span className="font-medium text-neutral-700">{agent.loyalty_points}</span>
+                      </span>
+                      <Button
+                        size="sm"
+                        variant={agent.is_active ? 'outline' : 'primary'}
+                        onClick={() => toggleAgentStatus(agent)}
+                        className="text-xs px-3 py-2"
+                      >
+                        {agent.is_active ? 'Desactivar' : 'Activar'}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+
+                {filtered.length === 0 && (
+                  <div className="flex items-center justify-center py-8 text-neutral-400 text-sm">
+                    No se encontraron gestores con esos criterios.
+                  </div>
+                )}
+              </div>
+
+              {/* ── Desktop: tabla (md+) ── */}
+              <div className="hidden md:block overflow-x-auto overflow-y-auto flex-1 w-full">
                 <table className="min-w-[850px] w-full text-xs">
                   <thead className="sticky top-0 z-10 bg-neutral-100 text-left text-[11px] uppercase tracking-wider text-neutral-500 shadow-sm">
                     <tr>

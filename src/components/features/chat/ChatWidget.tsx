@@ -260,7 +260,7 @@ async function handleEscalate() {
   }
 
   return (
-    <div className={`fixed bottom-6 right-6 z-50 w-[380px] rounded-2xl bg-white shadow-2xl border border-neutral-200 overflow-hidden transition-all ${isMinimized ? 'h-14' : 'h-[520px]'} flex flex-col`}>
+    <div className={`fixed z-50 flex flex-col left-2 right-2 bottom-4 sm:left-auto sm:w-[380px] sm:right-6 sm:bottom-6 rounded-2xl bg-white shadow-2xl border border-neutral-200 overflow-hidden transition-all ${isMinimized ? 'h-14' : 'h-[520px] max-h-[85vh] sm:max-h-none'}`}>
       {/* Header */}
       <div className="flex items-center justify-between bg-brand-600 px-4 py-3 cursor-pointer"
            onClick={() => setIsMinimized(!isMinimized)}>
