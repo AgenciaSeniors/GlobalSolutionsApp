@@ -629,11 +629,15 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string; voucherId?
         if (dbErr) throw new Error('Error DB Voucher: ' + dbErr.message);
       }
 
-      const { error: updateErr } = await supabase
-        .from('bookings')
-        .update({ booking_status: 'confirmed', voucher_pdf_url: publicUrl, emitted_at: new Date().toISOString() })
-        .eq('id', bookingId);
-      if (updateErr) throw new Error('Error DB Booking: ' + updateErr.message);
+      // Solo actualizamos el booking si venimos de una emisión nueva (bookingId presente).
+      // Al editar desde el historial (voucherId sin bookingId) el booking ya está confirmado.
+      if (bookingId) {
+        const { error: updateErr } = await supabase
+          .from('bookings')
+          .update({ booking_status: 'confirmed', voucher_pdf_url: publicUrl, emitted_at: new Date().toISOString() })
+          .eq('id', bookingId);
+        if (updateErr) throw new Error('Error DB Booking: ' + updateErr.message);
+      }
 
       const emailRes = await fetch('/api/emails/emit-voucher', {
         method: 'POST',
