@@ -22,7 +22,10 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: 3.5. Preparar variables de entorno
-        run: echo "${{ secrets.ENV_FILE }}" > .env.production
+        run: |
+          cat << 'EOF' > .env.production
+          ${{ secrets.ENV_FILE }}
+          EOF
 
       - name: 4. Compilar el proyecto web (Next.js)
         run: npm run build
