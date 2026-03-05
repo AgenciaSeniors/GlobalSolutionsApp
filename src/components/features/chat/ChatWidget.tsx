@@ -251,7 +251,8 @@ async function handleEscalate() {
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg shadow-brand-600/30 hover:bg-brand-700 transition-all hover:scale-105"
+        className="fixed right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg shadow-brand-600/30 hover:bg-brand-700 transition-all hover:scale-105"
+        style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
         aria-label="Abrir chat"
       >
         <MessageCircle className="h-6 w-6" />
@@ -260,7 +261,10 @@ async function handleEscalate() {
   }
 
   return (
-    <div className={`fixed z-50 flex flex-col left-2 right-2 bottom-4 sm:left-auto sm:w-[380px] sm:right-6 sm:bottom-6 rounded-2xl bg-white shadow-2xl border border-neutral-200 overflow-hidden transition-all ${isMinimized ? 'h-14' : 'h-[520px] max-h-[85vh] sm:max-h-none'}`}>
+    <div
+      className={`fixed z-50 flex flex-col left-2 right-2 sm:left-auto sm:w-[380px] sm:right-6 rounded-2xl bg-white shadow-2xl border border-neutral-200 overflow-hidden transition-all ${isMinimized ? 'h-14' : 'h-[520px] max-h-[85vh] sm:max-h-none'}`}
+      style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between bg-brand-600 px-4 py-3 cursor-pointer"
            onClick={() => setIsMinimized(!isMinimized)}>

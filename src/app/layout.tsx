@@ -3,7 +3,7 @@
  * Fonts loaded via <link> to avoid build-time fetch issues with next/font/google.
  * @module app/layout
  */
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 import { AuthProvider } from "@/components/providers/AuthProvider";
@@ -12,6 +12,12 @@ import ToastProvider from "@/components/providers/ToastProvider";
 import ChatWidget from "@/components/features/chat/ChatWidget";
 import HomeFloatingButton from "@/components/layout/HomeFloatingButton";
 
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+};
 
 export const metadata: Metadata = {
   title: {

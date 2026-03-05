@@ -12,7 +12,8 @@ export default function HomeFloatingButton() {
       href={ROUTES.HOME}
       aria-label="Volver al inicio"
       title="Volver al inicio"
-      className="fixed bottom-[92px] right-6 z-[60] inline-flex h-14 w-14 items-center justify-center rounded-full bg-red-600 shadow-lg shadow-red-600/25 transition-all hover:scale-105 hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+      className="fixed right-6 z-[60] inline-flex h-14 w-14 items-center justify-center rounded-full bg-red-600 shadow-lg shadow-red-600/25 transition-all hover:scale-105 hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+      style={{ bottom: 'calc(92px + env(safe-area-inset-bottom, 0px))' }}
     >
       {/* Casita en líneas blancas */}
       <svg
