@@ -96,7 +96,7 @@ export default function Sidebar({ links }: SidebarProps) {
       {/* Floating hamburger button — mobile only */}
       <button
         className="fixed left-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg transition-transform active:scale-95 md:hidden"
-        style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
+        style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}
         onClick={() => setMobileOpen(true)}
         aria-label="Abrir menú"
       >
