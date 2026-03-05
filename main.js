@@ -2,20 +2,23 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 
 function createWindow() {
-    // Configuramos la ventana de la aplicación
     const win = new BrowserWindow({
         width: 1280,
         height: 800,
-        // icon: path.join(__dirname, 'public/brand/logo.png'), // Descomenta esto luego para ponerle tu logo
+        minWidth: 800,
+        minHeight: 600,
+        title: 'Global Solutions Travel',
+        icon: path.join(__dirname, 'build', 'icon.png'),
         webPreferences: {
-            nodeIntegration: true
+            nodeIntegration: false,
+            contextIsolation: true,
         }
     });
 
-    // Le decimos que cargue tu aplicación Next.js local
-    win.loadURL('http://localhost:3000');
+    // Igual que la APK de Android: carga la web en producción
+    win.loadURL('https://globalsolutiontravel.com');
 
-    // Ocultamos el menú feo de arriba (Archivo, Editar, Ver) para que se vea como app real
+    // Ocultamos el menú nativo (Archivo, Editar, Ver...)
     win.setMenuBarVisibility(false);
 }
 

@@ -3,6 +3,7 @@
     "version": "1.0.0",
     "main": "main.js",
     "private": true,
+    "author": "Global Solutions Travel",
     "description": "Ecosistema multiplataforma para reserva de vuelos y renta de autos — Global Solutions Travel",
     "scripts": {
         "dev": "next dev",
@@ -24,7 +25,7 @@
         "cap:assets": "npx capacitor-assets generate --iconBackgroundColor '#0F172A' --splashBackgroundColor '#0F172A'"
     },
     "dependencies": {
-        "@capacitor/android": "^8.0.2",
+        "@capacitor/android": "^8.1.0",
         "@capacitor/cli": "^8.0.2",
         "@capacitor/core": "^8.0.2",
         "@capacitor/ios": "^8.0.2",
@@ -85,13 +86,33 @@
         "vitest": "^4.0.18"
     },
     "build": {
-        "appId": "com.globalsolutions.app",
+        "appId": "com.globalsolutions.travel",
         "productName": "Global Solutions Travel",
+        "copyright": "© 2025 Global Solutions Travel",
+        "icon": "build/icon.png",
+        "files": [
+            "main.js",
+            "build/icon.png",
+            "!node_modules/**/*",
+            "!android/**/*",
+            "!src/**/*",
+            "!public/**/*",
+            "!.next/**/*",
+            "!out/**/*"
+        ],
         "directories": {
             "output": "dist-electron"
         },
         "win": {
-            "target": "nsis"
+            "target": "nsis",
+            "icon": "build/icon.png"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "Global Solutions Travel"
         }
     }
 }
