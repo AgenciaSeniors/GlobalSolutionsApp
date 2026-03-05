@@ -52,14 +52,14 @@ jobs:
           mv App.app Payload/
           zip -r GlobalSolutions-iPhone.ipa Payload
 
-      - name: 8. Compilar para Mac (Mac Catalyst)
+      - name: 8. Compilar para Mac (Simulador)
         run: |
           cd ios/App
-          xcodebuild -project App.xcodeproj -scheme App -configuration Release -destination 'platform=macOS,variant=Mac Catalyst' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build_mac
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release -sdk iphonesimulator CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build_mac
 
       - name: 9. Empaquetar la app de Mac (.zip)
         run: |
-          cd ios/App/build_mac/Build/Products/Release-maccatalyst
+          cd ios/App/build_mac/Build/Products/Release-iphonesimulator
           zip -r GlobalSolutions-Mac.zip App.app
 
       - name: 10. Subir archivos para que los descargues en Windows
@@ -68,4 +68,4 @@ jobs:
           name: GlobalSolutions-Apps
           path: |
             ios/App/build_iphone/Build/Products/Release-iphoneos/GlobalSolutions-iPhone.ipa
-            ios/App/build_mac/Build/Products/Release-maccatalyst/GlobalSolutions-Mac.zip
+            ios/App/build_mac/Build/Products/Release-iphonesimulator/GlobalSolutions-Mac.zip
