@@ -76,6 +76,7 @@ export default function Navbar() {
         'fixed inset-x-0 top-0 z-50 border-b border-brand-100 transition-all',
         scrolled ? 'bg-white shadow-sm' : 'bg-white/80 backdrop-blur'
       )}
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-6">
         {/* ── Logo ── */}
@@ -192,7 +193,10 @@ export default function Navbar() {
 
       {/* ── Mobile Drawer ── */}
       {mobileOpen && (
-        <div className="absolute inset-x-0 top-[72px] border-t border-brand-100 bg-white/95 backdrop-blur-xl p-4 sm:p-6 shadow-xl md:hidden animate-fade-in">
+        <div
+          className="absolute inset-x-0 top-full border-t border-brand-100 bg-white/95 backdrop-blur-xl p-4 sm:p-6 shadow-xl md:hidden animate-fade-in"
+          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+        >
           <div className="mb-4 flex items-center justify-between rounded-xl border border-brand-200 px-4 py-3">
             <span className="text-sm font-semibold text-brand-800">{t('lang.label')}</span>
             <select
