@@ -1,0 +1,63 @@
+name: Compilar Apps de Apple (iOS y Mac)
+
+on:
+  workflow_dispatch: # Esto nos pone un botón en GitHub para ejecutarlo solo cuando tú quieras
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: 1. Descargar el código
+        uses: actions/checkout@v4
+
+      - name: 2. Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 3. Instalar dependencias de npm
+        run: npm install --legacy-peer-deps
+
+      - name: 4. Compilar el proyecto web (Next.js)
+        run: npm run build
+
+      - name: 5. Sincronizar Capacitor
+        run: npx cap sync ios
+
+      - name: 6. Instalar dependencias de Apple (CocoaPods)
+        run: |
+          cd ios/App
+          pod install
+
+      - name: 7. Compilar para iPhone (Archivo limpio sin firmar)
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build_iphone
+
+      - name: 8. Empaquetar la app de iPhone (.ipa)
+        run: |
+          cd ios/App/build_iphone/Build/Products/Release-iphoneos
+          mkdir Payload
+          mv App.app Payload/
+          zip -r GlobalSolutions-iPhone.ipa Payload
+
+      - name: 9. Compilar para Mac (Mac Catalyst)
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -destination 'platform=macOS,variant=Mac Catalyst' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build_mac
+
+      - name: 10. Empaquetar la app de Mac (.zip)
+        run: |
+          cd ios/App/build_mac/Build/Products/Release-maccatalyst
+          zip -r GlobalSolutions-Mac.zip App.app
+
+      - name: 11. Subir archivos para que los descargues en Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlobalSolutions-Apps
+          path: |
+            ios/App/build_iphone/Build/Products/Release-iphoneos/GlobalSolutions-iPhone.ipa
+            ios/App/build_mac/Build/Products/Release-maccatalyst/GlobalSolutions-Mac.zip
