@@ -81,10 +81,11 @@ export interface Passenger {
 export interface BookingVoucherProps {
   invoiceId: string;
   issueDate: string;
-  outboundFlights: FlightSegment[]; 
+  outboundFlights: FlightSegment[];
   returnFlights?: FlightSegment[];
   passengers: Passenger[];
   policies?: string; // 🚀 Prop de Políticas editables
+  companyContact?: string; // Correo y teléfono de la empresa (editable desde el formulario)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -308,15 +309,15 @@ export const BookingVoucherDocument = ({ booking }: { booking: VoucherBooking })
 // BookingVoucher (legacy) — estructura manual de vuelos
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFlights, passengers, policies }: BookingVoucherProps) => (
+export const BookingVoucher = ({ invoiceId, issueDate, outboundFlights, returnFlights, passengers, policies, companyContact }: BookingVoucherProps) => (
   <Document>
     <Page size="A4" style={styles.page}>
-      
+
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           {/* Usamos el logo de public/brand/logo.png */}
           <Image src="/brand/logo.png" style={styles.logoImage} />
-          <Text style={styles.brandSub}>support@globalsolutions.travel | +1 (305) 555-0100</Text>
+          <Text style={styles.brandSub}>{companyContact ?? 'support@globalsolutions.travel | +1 (305) 555-0100'}</Text>
         </View>
         <View style={styles.headerDetails}>
           <Text style={styles.invoiceText}>Recibo: {invoiceId}</Text>

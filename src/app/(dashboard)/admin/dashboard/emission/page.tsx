@@ -419,6 +419,7 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string; voucherId?
   const [invoiceId, setInvoiceId] = useState('');
   const [issueDate, setIssueDate] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+  const [companyContact, setCompanyContact] = useState('support@globalsolutions.travel | +1 (305) 555-0100');
   const [passengers, setPassengers] = useState<Passenger[]>([]);
   const [flights, setFlights] = useState<FlightSegment[]>([]);
   const [returnFlights, setReturnFlights] = useState<FlightSegment[]>([]);
@@ -596,6 +597,7 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string; voucherId?
           returnFlights={returnFlights}
           passengers={passengers}
           policies={policies}
+          companyContact={companyContact}
         />
       );
       const blob = await pdf(doc).toBlob();
@@ -680,6 +682,10 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string; voucherId?
           <div className="col-span-2">
             <label className="block text-[10px] font-bold text-slate-500 mb-1">EMAIL CLIENTE *</label>
             <input type="email" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} className={`${inputClass} !lowercase`} required />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-[10px] font-bold text-slate-500 mb-1">CONTACTO EMPRESA (sale en el PDF)</label>
+            <input type="text" value={companyContact} onChange={(e) => setCompanyContact(e.target.value)} className={`${inputClass} !normal-case`} placeholder="correo@empresa.com | +1 (xxx) xxx-xxxx" />
           </div>
         </div>
 
