@@ -43,7 +43,7 @@ jobs:
       - name: 6. Compilar para iPhone (Archivo limpio sin firmar)
         run: |
           cd ios/App
-          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build_iphone
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release -sdk iphoneos CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build_iphone
 
       - name: 7. Empaquetar la app de iPhone (.ipa)
         run: |
@@ -55,7 +55,7 @@ jobs:
       - name: 8. Compilar para Mac (Mac Catalyst)
         run: |
           cd ios/App
-          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -destination 'platform=macOS,variant=Mac Catalyst' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build_mac
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release -destination 'platform=macOS,variant=Mac Catalyst' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build_mac
 
       - name: 9. Empaquetar la app de Mac (.zip)
         run: |
