@@ -51,12 +51,12 @@ const KB: ReadonlyArray<{ title: string; text: string }> = [
   {
     title: 'Destinos principales',
     text:
-      'Operamos vuelos a Cuba (La Habana HAV, Varadero VRA, Holguín HOG, Santiago SCU), México (CDMX MEX, Cancún CUN), Panamá (PTY), España (Madrid MAD, Barcelona BCN) y USA (Miami MIA, Nueva York JFK/EWR).',
+      'Operamos vuelos a México (CDMX MEX, Cancún CUN), Panamá (PTY), España (Madrid MAD, Barcelona BCN), USA (Miami MIA, Nueva York JFK/EWR) y otros destinos internacionales.',
   },
   {
     title: 'Aerolíneas disponibles',
     text:
-      'Trabajamos con Copa Airlines (hub en PTY), Iberia, American Airlines, JetBlue, Aeromexico, Wingo y Cubana de Aviación. La disponibilidad varía según la ruta y fecha.',
+      'Trabajamos con Copa Airlines (hub en PTY), Iberia, American Airlines, JetBlue, Aeromexico y Wingo. La disponibilidad varía según la ruta y fecha.',
   },
   {
     title: 'Proceso de reserva',
@@ -71,17 +71,12 @@ const KB: ReadonlyArray<{ title: string; text: string }> = [
   {
     title: 'Documentos requeridos para viajar',
     text:
-      'Necesitas pasaporte vigente con al menos 6 meses de validez. Ciudadanos cubanos deben presentar pasaporte cubano. Algunos destinos requieren visa (ej: USA, Schengen). Consulta requisitos con tu agente.',
-  },
-  {
-    title: 'Renta de autos',
-    text:
-      'Ofrecemos renta de autos en Cuba. Categorías disponibles: económico, compacto y SUV, con transmisión manual o automática. Se requiere licencia de conducir vigente y pasaporte. El seguro básico está incluido.',
+      'Necesitas pasaporte vigente con al menos 6 meses de validez. Algunos destinos requieren visa (ej: USA, Schengen). Consulta los requisitos específicos de tu destino con tu agente.',
   },
   {
     title: 'Escalas y conexiones frecuentes',
     text:
-      'La mayoría de vuelos hacia Cuba tienen escala en Ciudad de Panamá (PTY) con Copa Airlines o en Miami (MIA). La duración total varía entre 8 y 16 horas según el origen.',
+      'Muchos vuelos internacionales tienen escala en Ciudad de Panamá (PTY) con Copa Airlines o en Miami (MIA). La duración total varía según el origen y destino.',
   },
   {
     title: 'Programa de lealtad',
@@ -96,7 +91,7 @@ const KB: ReadonlyArray<{ title: string; text: string }> = [
   {
     title: 'Contacto y horario de atención',
     text:
-      'Nuestros agentes atienden de lunes a viernes, 9am–6pm (hora de Cuba). Para urgencias puedes contactarnos por WhatsApp. Escribe "Hablar con un agente" en este chat para ser conectado de inmediato.',
+      'Nuestros agentes atienden de lunes a viernes, 9am–6pm (hora del Este, EST). Para urgencias puedes contactarnos por WhatsApp. Escribe "Hablar con un agente" en este chat para ser conectado de inmediato.',
   },
 ] as const;
 

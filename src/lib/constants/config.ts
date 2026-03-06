@@ -13,7 +13,6 @@ export const APP_CONFIG = {
 } as const;
 
 export const AIRPORTS = [
-  { code: 'HAV', city: 'La Habana', country: 'Cuba' },
   { code: 'IST', city: 'Estambul', country: 'Turquía' },
   { code: 'MIA', city: 'Miami', country: 'EE.UU.' },
   { code: 'MAD', city: 'Madrid', country: 'España' },

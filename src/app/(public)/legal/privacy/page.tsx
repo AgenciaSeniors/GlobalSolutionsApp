@@ -109,14 +109,9 @@ export default function PrivacyPage() {
               <ul className="list-disc pl-5 space-y-2 mt-2">
                 <li>
                   <strong>Aerolíneas:</strong> Copa Airlines, American Airlines, Iberia, JetBlue,
-                  Aeromexico, Wingo, Cubana de Aviación y otras aerolíneas operadoras del vuelo
-                  reservado. Los datos transmitidos son los requeridos para la emisión del boleto
+                  Aeromexico, Wingo y otras aerolíneas operadoras del vuelo reservado. Los datos
+                  transmitidos son los requeridos para la emisión del boleto
                   (nombre, pasaporte, nacionalidad).
-                </li>
-                <li>
-                  <strong>Transtur (renta de autos en Cuba):</strong> para la gestión de contratos
-                  de arrendamiento, se transmite información del conductor principal conforme a los
-                  requisitos del proveedor.
                 </li>
                 <li>
                   <strong>Pasarelas de pago:</strong> Stripe procesa los datos de pago
