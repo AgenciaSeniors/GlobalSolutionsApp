@@ -188,8 +188,6 @@ const ALLOWED_TERMS: ReadonlyArray<string> = [
   'equipaje', 'equipage', 'maleta', 'valija', 'bodega', 'cabina', 'carry', 'carryon',
   // Soporte / agente
   'soporte', 'ayuda', 'asistencia', 'agente', 'agent', 'humano', 'persona', 'representante', 'reclamo', 'queja',
-  // Autos
-  'auto', 'carro', 'coche', 'renta', 'alquiler', 'car rental', 'vehiculo',
 ] as const;
 
 function isInScope(rawText: string) {
@@ -218,6 +216,40 @@ function isInScope(rawText: string) {
   }
 
   return false;
+}
+
+// -----------------------------
+// Restricted jurisdiction filter
+// -----------------------------
+const RESTRICTED_JURISDICTION_TERMS: ReadonlyArray<string> = [
+  // Cuba
+  'cuba', 'cubano', 'cubana', 'cubanos', 'cubanas',
+  'habana', 'la habana', 'havana',
+  'varadero', 'holguin', 'holguín', 'camaguey', 'camagüey',
+  'cienfuegos', 'santiago de cuba', 'cayo coco', 'cayo santa maria',
+  'transtur', 'cubana de aviacion',
+  // Iran
+  'iran', 'irán', 'irani', 'iraní', 'iraniano',
+  'tehran', 'teheran', 'teherán', 'mashhad', 'shiraz', 'isfahan', 'tabriz',
+  // North Korea
+  'corea del norte', 'north korea', 'corea norte',
+  'pyongyang', 'pionyang', 'dprk',
+  // Syria
+  'siria', 'syria', 'sirio', 'siria',
+  'damasco', 'damascus', 'aleppo', 'alepo', 'latakia', 'lataquía',
+  // Crimea
+  'crimea', 'crimeia', 'simferopol',
+] as const;
+
+const RESTRICTED_REPLY =
+  'Lo sentimos, no podemos brindar información ni asistencia relacionada con ese destino o jurisdicción. ' +
+  'Si tienes otra consulta sobre vuelos disponibles, reservas o pagos, con gusto te ayudamos.';
+
+function isRestrictedJurisdiction(rawText: string): boolean {
+  const t = normalizeText(rawText);
+  return RESTRICTED_JURISDICTION_TERMS.some((term) =>
+    t.includes(normalizeText(term))
+  );
 }
 
 // -----------------------------
@@ -492,6 +524,11 @@ export async function POST(req: Request) {
 
   const { conversationId, message } = parsed.data;
 
+  // Step 0: block restricted jurisdictions before any other processing
+  if (isRestrictedJurisdiction(message)) {
+    return NextResponse.json({ reply: RESTRICTED_REPLY });
+  }
+
   // Step 1: do not spend tokens out of scope
   if (!isInScope(message)) {
     return NextResponse.json({
@@ -569,6 +606,7 @@ export async function POST(req: Request) {
     `4) Mantén la respuesta en máximo 120 palabras salvo que el usuario pida detalle.\n` +
     `5) Cuando respondas sobre destinos o aerolíneas, menciona datos concretos del KB si están disponibles.\n` +
     `6) Si el usuario pregunta por precios, explica que varían según fecha/disponibilidad y ofrécele ir al buscador de vuelos en la sección Vuelos.\n` +
+    `7) ESTRICTAMENTE PROHIBIDO: si el usuario menciona Cuba, Irán, Corea del Norte, Siria o Crimea, responde ÚNICAMENTE: "Lo sentimos, no podemos brindar información ni asistencia relacionada con ese destino o jurisdicción. Si tienes otra consulta sobre vuelos disponibles, reservas o pagos, con gusto te ayudamos." No añadas nada más.\n` +
     (kbSnippets ? `\n[BASE DE CONOCIMIENTO]\n${kbSnippets}\n` : '');
 
   let assistantText = '';
