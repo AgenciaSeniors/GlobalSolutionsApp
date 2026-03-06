@@ -97,7 +97,7 @@ async function updateBookingPaymentStatus(params: {
     payment_method: 'stripe',
     payment_gateway: 'stripe',
     // 🚀 FIX: Aseguramos que cambie a pending_emission para que salga en el panel
-    booking_status: params.status === 'paid' ? 'pending_emission' : 'pending_payment'
+    booking_status: params.status === 'paid' ? 'pending_emission' : 'cancelled'
   };
 
   if (params.status === 'paid') {
