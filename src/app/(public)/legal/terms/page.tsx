@@ -26,9 +26,9 @@ export default function TermsPage() {
               <h2 className="text-lg font-bold text-brand-900">1. Generalidades</h2>
               <p>
                 Global Solutions Travel (en adelante &quot;GST&quot;) es una agencia de viajes digital
-                que opera como intermediaria entre el cliente y las aerolíneas, proveedores de
-                renta de autos (incluyendo Transtur en Cuba) y otros servicios turísticos. Al utilizar 
-                nuestra plataforma, usted acepta estos términos en su totalidad.
+                que opera como intermediaria entre el cliente y las aerolíneas y otros proveedores
+                de servicios turísticos. Al utilizar nuestra plataforma, usted acepta estos términos
+                en su totalidad.
               </p>
             </section>
 
@@ -62,57 +62,35 @@ export default function TermsPage() {
             </section>
 
             <section>
-              <h2 className="text-lg font-bold text-brand-900">4. Renta de Autos en Cuba (Transtur)</h2>
+              <h2 className="text-lg font-bold text-brand-900">4. Documentación del Viajero</h2>
               <p>
-                Para las reservas de vehículos operadas a través de Transtur, aplican las siguientes condiciones específicas e innegociables del proveedor:
-              </p>
-              <ul className="list-disc pl-5 space-y-2 mt-2">
-                <li>
-                  <strong>Requisitos del Conductor:</strong> El conductor principal debe ser mayor de 21 años (o la edad estipulada por la categoría del vehículo) y poseer una licencia de conducción física, vigente y con al menos 2 años de antigüedad.
-                </li>
-                <li>
-                  <strong>Depósito de Garantía:</strong> Al momento de recoger el auto en Cuba, el titular de la reserva deberá pagar un depósito de garantía y el seguro obligatorio directamente a Transtur, utilizando una tarjeta bancaria aceptada en el país (no emitida por bancos de EE. UU.).
-                </li>
-                
-                <li>
-                  <strong>Penalidades y Cancelaciones:</strong> Las cancelaciones de autos con menos de 72 horas de antelación o la no presentación (*no-show*) deben ser gestionada directamente con el proveedor , de parte de GST no son reembolsables.
-                </li>
-                <li>
-                  <strong>Conductores Adicionales:</strong> Cualquier conductor adicional debe registrarse y pagar la tarifa correspondiente en la oficina de renta al momento de firmar el contrato.
-                </li>
-              </ul>
-            </section>
-
-            <section>
-              <h2 className="text-lg font-bold text-brand-900">5. Documentación del Viajero</h2>
-              <p>
-                Es responsabilidad exclusiva del cliente contar con pasaporte vigente (mínimo 6 meses de validez), visado correspondiente, tarjeta de turista, seguro médico, licencia de conducción adecuada y cualquier otro documento exigido por las autoridades migratorias o el proveedor de servicios. GST no asume responsabilidad ni emitirá reembolsos si se deniega el embarque o el servicio por documentación deficiente.
+                Es responsabilidad exclusiva del cliente contar con pasaporte vigente (mínimo 6 meses de validez), visado correspondiente, tarjeta de turista, seguro médico y cualquier otro documento exigido por las autoridades migratorias o el proveedor de servicios. GST no asume responsabilidad ni emitirá reembolsos si se deniega el embarque o el servicio por documentación deficiente.
               </p>
             </section>
 
             <section>
-              <h2 className="text-lg font-bold text-brand-900">6. Protección de Datos</h2>
+              <h2 className="text-lg font-bold text-brand-900">5. Protección de Datos</h2>
               <p>
                 Global Solutions Travel cumple con estrictos estándares de protección de datos personales. Documentos sensibles como números de pasaporte se almacenan encriptados (AES-256). Los datos de tarjetas de crédito no se almacenan en nuestros servidores; son procesados de forma segura mediante Stripe, pasarela certificada PCI-DSS.
               </p>
             </section>
 
             <section>
-              <h2 className="text-lg font-bold text-brand-900">7. Ofertas y Programa de Fidelidad</h2>
+              <h2 className="text-lg font-bold text-brand-900">6. Ofertas y Programa de Fidelidad</h2>
               <p>
                 Las promociones están sujetas a disponibilidad, vigencia y cupos limitados. Los puntos de fidelidad acumulados por compras y reseñas no tienen valor comercial en efectivo, son intransferibles y solo pueden canjearse dentro del ecosistema de GST bajo las condiciones vigentes del programa.
               </p>
             </section>
 
             <section>
-              <h2 className="text-lg font-bold text-brand-900">8. Limitación de Responsabilidad</h2>
+              <h2 className="text-lg font-bold text-brand-900">7. Limitación de Responsabilidad</h2>
               <p>
-                GST actúa exclusivamente en calidad de intermediario (agente de reservas). La responsabilidad legal por la ejecución del servicio de transporte aéreo, así como por el estado mecánico de los vehículos de renta, averías, accidentes o asistencia en la vía, recae de manera total y exclusiva en el proveedor final (aerolínea o rentadora como Transtur).
+                GST actúa exclusivamente en calidad de intermediario (agente de reservas). La responsabilidad legal por la ejecución del servicio de transporte aéreo recae de manera total y exclusiva en el proveedor final (aerolínea u operador turístico correspondiente).
               </p>
             </section>
 
             <p className="text-neutral-400 text-xs mt-8 border-t border-neutral-100 pt-4">
-              Última actualización: Febrero 2026
+              Última actualización: Marzo 2026
             </p>
           </div>
         </div>
