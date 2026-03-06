@@ -1,14 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { Plane, Car, Tag } from 'lucide-react';
+import { Plane, Tag } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { ROUTES } from '@/lib/constants/routes';
 import { useLanguage } from '@/components/providers/LanguageProvider';
 
 const SERVICES = [
   { icon: Plane, titleKey: 'services.flights.title', descKey: 'services.flights.desc', href: ROUTES.FLIGHTS },
-  { icon: Car, titleKey: 'services.cars.title', descKey: 'services.cars.desc', href: ROUTES.CARS },
   { icon: Tag, titleKey: 'services.offers.title', descKey: 'services.offers.desc', href: ROUTES.OFFERS },
 ] as const;
 

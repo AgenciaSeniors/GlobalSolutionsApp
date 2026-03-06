@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Plane, Car, Sparkles, Home, LogIn } from 'lucide-react';
+import { Menu, X, Plane, Sparkles, Home, LogIn } from 'lucide-react';
 import Image from 'next/image';
 import { cn } from '@/lib/utils/cn';
 import { ROUTES } from '@/lib/constants/routes';
@@ -20,7 +20,6 @@ import type { UserRole } from '@/types/models';
 const NAV_LINKS = [
   { href: ROUTES.HOME, labelKey: 'nav.home', icon: Home },
   { href: ROUTES.FLIGHTS, labelKey: 'nav.flights', icon: Plane },
-  { href: ROUTES.CARS, labelKey: 'nav.cars', icon: Car },
   { href: ROUTES.OFFERS, labelKey: 'nav.offers', icon: Sparkles },
   { href: ROUTES.ABOUT, labelKey: 'nav.about', icon: null },
 ] as const;
