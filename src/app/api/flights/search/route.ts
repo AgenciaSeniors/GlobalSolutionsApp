@@ -15,6 +15,7 @@ import { getRoleAndMarkupPct, applyRoleMarkup } from "@/lib/flights/roleMarkup";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { isRestrictedIATA } from "@/lib/flights/restrictedRoutes";
 
 /* -------------------------------------------------- */
 /* ---- CONSTANTS ----------------------------------- */
@@ -114,6 +115,21 @@ export async function POST(req: NextRequest) {
       { status: 400, headers: { "Cache-Control": "no-store" } }
     );
   }
+
+  // ── Restricted jurisdiction check ──────────────────────────────────────
+  // Block any search leg that touches Cuba, Iran, North Korea, Syria or Crimea.
+  for (const leg of body.legs as unknown[]) {
+    if (!isRecord(leg)) continue;
+    const origin = typeof leg.origin === 'string' ? leg.origin : '';
+    const destination = typeof leg.destination === 'string' ? leg.destination : '';
+    if (isRestrictedIATA(origin) || isRestrictedIATA(destination)) {
+      return NextResponse.json(
+        { error: "Lo sentimos, no operamos vuelos hacia o desde esa jurisdicción." },
+        { status: 403, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+  }
+  // ───────────────────────────────────────────────────────────────────────
 
   // --- Aseguramos que la clase viaje en el request para que se guarde en la sesión ---
   const validBody = {
