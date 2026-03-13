@@ -916,11 +916,14 @@ function CheckoutPageInner() {
   // Use server breakdown when available (accurate: includes age pricing + volatility buffer).
   // Fall back to client-side calculation while server response is pending.
   const breakdown: PriceBreakdown = (() => {
-    // Use serverBreakdown as base but always recalculate gateway fee based on current gateway
+    // Use serverBreakdown as base but always recalculate gateway fee based on current gateway.
+    // Gateway fee must be calculated on (subtotal + volatility_buffer) to match server logic.
     const base = (!isOfferMode && serverBreakdown) ? serverBreakdown : null;
     const subtotal = base ? base.subtotal : pricePerPerson * passengerCount;
-    const gatewayFee = calculateGatewayFee(subtotal, gateway);
-    const total = Math.round((subtotal + gatewayFee) * 100) / 100;
+    const buffer = base?.volatility_buffer ?? 0;
+    const preFeeTotal = subtotal + buffer;
+    const gatewayFee = calculateGatewayFee(preFeeTotal, gateway);
+    const total = Math.round((preFeeTotal + gatewayFee) * 100) / 100;
 
     const result: PriceBreakdown = {
       base_price: base?.base_price ?? pricePerPerson,
