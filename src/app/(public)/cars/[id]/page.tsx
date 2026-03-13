@@ -27,7 +27,19 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const car = await getCarById(id);
   if (!car) return { title: 'Auto no encontrado' };
-  return { title: `${car.brand} ${car.model} — Renta de Autos` };
+  const title = `${car.brand} ${car.model} — Renta de Autos en Cuba`;
+  const description = `Renta ${car.brand} ${car.model} en Cuba desde $${car.daily_rate}/día. ${car.passenger_capacity} pasajeros, ${car.transmission === 'automatic' ? 'automático' : 'manual'}. Reserva con Transtur vía Global Solutions Travel.`;
+  return {
+    title,
+    description,
+    alternates: { canonical: `/cars/${id}` },
+    openGraph: {
+      title,
+      description,
+      url: `/cars/${id}`,
+      ...(car.image_url ? { images: [{ url: car.image_url, width: 1200, height: 630 }] } : {}),
+    },
+  };
 }
 
 export default async function CarDetailPage({ params }: Props) {

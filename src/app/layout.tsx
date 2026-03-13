@@ -11,7 +11,11 @@ import { LanguageProvider } from "@/components/providers/LanguageProvider";
 import ToastProvider from "@/components/providers/ToastProvider";
 import ChatWidget from "@/components/features/chat/ChatWidget";
 import HomeFloatingButton from "@/components/layout/HomeFloatingButton";
+import JsonLd from "@/components/seo/JsonLd";
+import { buildOrganizationSchema, buildWebSiteSchema } from "@/lib/seo/jsonld";
+import { SEO_DEFAULTS } from "@/lib/seo/metadata";
 
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://globalsolutionstravel.com';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -20,16 +24,28 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL(BASE_URL),
   title: {
-    default: "Global Solutions Travel — Vuelos y Renta de Autos",
+    default: "Global Solutions Travel — Vuelos a Cuba y Renta de Autos",
     template: "%s | Global Solutions Travel",
   },
-  description:
-    "Reserva vuelos internacionales con los mejores precios. Seguridad bancaria, atención personalizada y ofertas exclusivas.",
-  keywords: ["vuelos", "viajes internacionales", "agencia de viajes", "vuelos baratos", "Estambul", "ofertas de vuelos", "Cuba", "renta de autos"],
+  description: SEO_DEFAULTS.description,
+  keywords: SEO_DEFAULTS.keywords,
+  alternates: {
+    canonical: '/',
+  },
   openGraph: {
     type: "website",
     siteName: "Global Solutions Travel",
+    locale: 'es_419',
+    url: '/',
+    title: 'Global Solutions Travel — Vuelos a Cuba y Renta de Autos',
+    description: SEO_DEFAULTS.description,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Global Solutions Travel — Vuelos a Cuba y Renta de Autos',
+    description: SEO_DEFAULTS.description,
   },
 };
 
@@ -58,6 +74,7 @@ export default function RootLayout({
 
       </head>
       <body className="font-sans">
+        <JsonLd data={[buildOrganizationSchema(), buildWebSiteSchema()]} />
         <AuthProvider>
           <LanguageProvider>
             {children}

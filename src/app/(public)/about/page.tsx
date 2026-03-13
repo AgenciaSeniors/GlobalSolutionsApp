@@ -7,7 +7,17 @@ import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import TrustBanner from '@/components/features/home/TrustBanner';
 
-export const metadata: Metadata = { title: 'Sobre Nosotros' };
+export const metadata: Metadata = {
+  title: 'Sobre Nosotros — Agencia de Viajes para Cubanos con Zelle y PIX',
+  description: 'Conoce Global Solutions Travel. Agencia verificada con 60+ aerolíneas, 100+ destinos, renta de autos en Cuba. Acepta Zelle, PIX, SPEI. Soporte 24/7.',
+  alternates: { canonical: '/about' },
+  keywords: ['agencia de viajes para cubanos', 'agencia de viajes con Zelle', 'agencia de viajes confiable'],
+  openGraph: {
+    title: 'Sobre Global Solutions Travel',
+    description: 'Conoce Global Solutions Travel. Agencia verificada con 60+ aerolíneas, soporte 24/7.',
+    url: '/about',
+  },
+};
 
 export default function AboutPage() {
   return (
