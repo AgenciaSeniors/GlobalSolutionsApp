@@ -20,7 +20,6 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { isRestrictedQuery, isRestrictedAirport } from '@/lib/flights/restrictedRoutes';
 
 /* ─────────────────────────────────────────────
  * Constants
@@ -465,12 +464,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ results: [] });
   }
 
-  // ── Restricted jurisdiction check ──────────────────
-  // Block queries that reference Cuba, Iran, North Korea, Syria or Crimea
-  if (isRestrictedQuery(query)) {
-    return NextResponse.json({ results: [] });
-  }
-
   try {
     // Step 1: Search local cache AND external API in parallel.
     // Local DB is a fast cache; external API is the primary source for worldwide coverage.
@@ -483,9 +476,7 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Step 3: Merge and deduplicate (local results first)
-    const merged = mergeResults(localResults, apiResults)
-      // Step 3b: Remove any restricted airports that slipped through
-      .filter((r) => !isRestrictedAirport(r.code, r.countryCode));
+    const merged = mergeResults(localResults, apiResults);
 
     // Step 4: Background upsert new airports into local DB (non-blocking)
     if (apiResults.length > 0) {

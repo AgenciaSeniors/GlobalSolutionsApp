@@ -21,12 +21,12 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: "Global Solutions Travel — Vuelos Internacionales",
+    default: "Global Solutions Travel — Vuelos y Renta de Autos",
     template: "%s | Global Solutions Travel",
   },
   description:
     "Reserva vuelos internacionales con los mejores precios. Seguridad bancaria, atención personalizada y ofertas exclusivas.",
-  keywords: ["vuelos", "viajes internacionales", "agencia de viajes", "vuelos baratos", "Estambul", "ofertas de vuelos"],
+  keywords: ["vuelos", "viajes internacionales", "agencia de viajes", "vuelos baratos", "Estambul", "ofertas de vuelos", "Cuba", "renta de autos"],
   openGraph: {
     type: "website",
     siteName: "Global Solutions Travel",

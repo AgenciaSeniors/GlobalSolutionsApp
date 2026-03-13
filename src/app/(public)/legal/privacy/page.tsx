@@ -109,7 +109,7 @@ export default function PrivacyPage() {
               <ul className="list-disc pl-5 space-y-2 mt-2">
                 <li>
                   <strong>Aerolíneas:</strong> Copa Airlines, American Airlines, Iberia, JetBlue,
-                  Aeromexico, Wingo y otras aerolíneas operadoras del vuelo reservado. Los datos
+                  Aeromexico, Wingo, Cubana de Aviación y otras aerolíneas operadoras del vuelo reservado. Los datos
                   transmitidos son los requeridos para la emisión del boleto
                   (nombre, pasaporte, nacionalidad).
                 </li>
@@ -117,6 +117,11 @@ export default function PrivacyPage() {
                   <strong>Pasarelas de pago:</strong> Square procesa los pagos con tarjeta
                   bajo sus propias políticas de privacidad y con certificación PCI-DSS. GST no
                   recibe ni almacena los datos completos de su tarjeta bancaria. Los pagos vía Zelle, PIX y SPEI son coordinados manualmente por un agente.
+                </li>
+                <li>
+                  <strong>Transtur (renta de autos en Cuba):</strong> para la gestión de contratos
+                  de arrendamiento, se transmite información del conductor principal conforme a los
+                  requisitos del proveedor.
                 </li>
               </ul>
               <p className="mt-2">

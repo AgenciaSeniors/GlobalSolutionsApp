@@ -169,7 +169,7 @@ const DICTIONARY = {
 
     // ── Cars page ─────────────────────────────────────────
     'cars.page.badge': 'Renta de Autos',
-    'cars.page.title': 'Explora el mundo a tu ritmo',
+    'cars.page.title': 'Explora Cuba a tu ritmo',
     'cars.page.subtitle': 'Vehículos confiables con seguro incluido y asistencia en carretera 24/7',
     'cars.page.filters': 'Filtros',
     'cars.page.category': 'Categoría',
@@ -449,7 +449,7 @@ const DICTIONARY = {
 
     // ── Cars page ─────────────────────────────────────────
     'cars.page.badge': 'Car Rentals',
-    'cars.page.title': 'Explore the world at your own pace',
+    'cars.page.title': 'Explore Cuba at your own pace',
     'cars.page.subtitle': 'Reliable vehicles with insurance included and 24/7 roadside assistance',
     'cars.page.filters': 'Filters',
     'cars.page.category': 'Category',
