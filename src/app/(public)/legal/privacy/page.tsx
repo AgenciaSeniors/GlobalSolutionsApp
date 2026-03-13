@@ -9,6 +9,7 @@ import Footer from '@/components/layout/Footer';
 
 export const metadata: Metadata = {
   title: 'Política de Privacidad — Global Solutions Travel',
+  robots: { index: false, follow: true },
 };
 
 export default function PrivacyPage() {

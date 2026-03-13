@@ -9,6 +9,7 @@ import Footer from '@/components/layout/Footer';
 
 export const metadata: Metadata = {
   title: 'Términos y Condiciones — Global Solutions Travel',
+  robots: { index: false, follow: true },
 };
 
 export default function TermsPage() {

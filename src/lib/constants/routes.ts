@@ -40,6 +40,21 @@ export const ROUTES = {
   ADMIN_TICKETS: '/admin/dashboard/tickets',
   ADMIN_SETTINGS: '/admin/dashboard/settings',
   ADMIN_CARS: '/admin/dashboard/cars',
+
+  // SEO landing pages — Routes
+  FLIGHTS_CUBA: '/flights/cuba',
+  FLIGHTS_CHARTER_CUBA: '/flights/charter-cuba',
+  FLIGHTS_MIAMI_HABANA: '/flights/miami-habana',
+  FLIGHTS_PANAMA_HABANA: '/flights/panama-habana',
+  FLIGHTS_NYC_CUBA: '/flights/new-york-cuba',
+  FLIGHTS_CANCUN_HABANA: '/flights/cancun-habana',
+  FLIGHTS_MEXICO_CUBA: '/flights/mexico-cuba',
+
+  // SEO landing pages — Payment & Guides
+  PAYMENT_METHODS: '/metodos-de-pago',
+  GUIDE_REQUISITOS_CUBA: '/guia/requisitos-viajar-cuba',
+  GUIDE_ADUANA_CUBA: '/guia/aduana-cuba-equipaje',
+  GUIDE_EVISA_CUBA: '/guia/evisa-cuba-como-tramitar',
 } as const;
 
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES];

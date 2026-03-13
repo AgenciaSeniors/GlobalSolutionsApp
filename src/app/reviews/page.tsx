@@ -1,5 +1,12 @@
 // app/reviews/page.tsx
+import type { Metadata } from 'next';
 import ReviewsFeed from "./reviews-feed";
+
+export const metadata: Metadata = {
+  title: 'Reseñas de Clientes — +5,000 Viajeros Satisfechos',
+  description: 'Lee opiniones reales de viajeros que reservaron vuelos y autos con Global Solutions Travel. Más de 5,000 clientes satisfechos.',
+  alternates: { canonical: '/reviews' },
+};
 
 export default function ReviewsPage() {
   return (

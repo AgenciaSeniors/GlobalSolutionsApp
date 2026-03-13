@@ -1,8 +1,14 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Buscar Vuelos',
-  description: 'Busca y reserva vuelos internacionales con los mejores precios. Comparamos cientos de aerolíneas para encontrar tu mejor opción.',
+  title: 'Vuelos Baratos a Cuba y el Mundo — Compara 60+ Aerolíneas',
+  description: 'Busca vuelos baratos a Cuba, Miami, Panamá, Madrid y más de 100 destinos. Compara precios de 60+ aerolíneas. Paga con Zelle, PIX o SPEI.',
+  alternates: { canonical: '/flights' },
+  openGraph: {
+    title: 'Vuelos Baratos a Cuba y el Mundo',
+    description: 'Busca vuelos baratos a Cuba, Miami, Panamá, Madrid y más de 100 destinos. Compara precios de 60+ aerolíneas. Paga con Zelle, PIX o SPEI.',
+    url: '/flights',
+  },
 };
 
 export default function FlightsLayout({ children }: { children: React.ReactNode }) {

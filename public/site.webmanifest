@@ -1,6 +1,9 @@
 {
-  "name": "MyWebSite",
-  "short_name": "MySite",
+  "name": "Global Solutions Travel",
+  "short_name": "GSTravel",
+  "description": "Vuelos internacionales a Cuba y el mundo. Renta de autos. Paga con Zelle, PIX, SPEI.",
+  "start_url": "/",
+  "lang": "es",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",

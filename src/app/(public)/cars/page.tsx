@@ -15,7 +15,17 @@ import { Car, SlidersHorizontal } from 'lucide-react';
 import { getServerLanguage } from '@/lib/i18n/serverLanguage';
 import { translate, type TranslationKey } from '@/lib/i18n/translations';
 
-export const metadata: Metadata = { title: 'Renta de Autos — Global Solutions Travel' };
+export const metadata: Metadata = {
+  title: 'Renta de Autos en Cuba — Transtur desde $75/día',
+  description: 'Alquila autos en Cuba con Transtur. Categorías: económico, compacto, SUV. Desde $75/día con seguro incluido. Reserva con Zelle, PIX o SPEI.',
+  alternates: { canonical: '/cars' },
+  keywords: ['rentar auto Cuba', 'Transtur Cuba precios', 'alquiler de carro Cuba', 'renta de autos La Habana'],
+  openGraph: {
+    title: 'Renta de Autos en Cuba — Transtur',
+    description: 'Alquila autos en Cuba con Transtur. Categorías: económico, compacto, SUV. Desde $75/día con seguro incluido.',
+    url: '/cars',
+  },
+};
 
 interface Props {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

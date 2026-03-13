@@ -10,7 +10,9 @@ import Card from '@/components/ui/Card';
 import { Mail, Phone, MapPin, Clock, MessageCircle } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Contacto — Global Solutions Travel',
+  title: 'Contacto — Soporte 24/7',
+  description: 'Contacta a Global Solutions Travel. Soporte 24/7 vía WhatsApp, email y chat. Te ayudamos con vuelos a Cuba, renta de autos y más.',
+  alternates: { canonical: '/legal/contact' },
 };
 
 export default function ContactPage() {
