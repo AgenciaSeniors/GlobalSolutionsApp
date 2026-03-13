@@ -42,7 +42,7 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
     subtotal,
     payment_gateway_fee: 0,
     total_amount: totalAmount,
-    payment_method: 'stripe',
+    payment_method: 'zelle',
     payment_status: 'pending',
     booking_status: 'pending_emission',
   })

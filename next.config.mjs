@@ -30,13 +30,12 @@ const nextConfig = {
                 {
                     key: 'Content-Security-Policy',
                     value: "default-src 'self'; " +
-                        "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com https://www.paypal.com https://www.sandbox.paypal.com; " +
+                        "script-src 'self' 'unsafe-eval' 'unsafe-inline'; " +
                         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                         "img-src 'self' data: https: blob:; " +
                         "font-src 'self' https://fonts.gstatic.com; " +
-                        "frame-src 'self' blob: https://js.stripe.com https://hooks.stripe.com https://www.paypal.com https://www.sandbox.paypal.com; " +
-                        /* 🚨 FIX: Añadimos fonts.gstatic.com para descargar la fuente del PDF */
-                        "connect-src 'self' data: blob: https://api.stripe.com https://www.paypal.com https://www.sandbox.paypal.com https://*.supabase.co https://flights-sky.p.rapidapi.com https://fonts.googleapis.com https://fonts.gstatic.com;",
+                        "frame-src 'self' blob:; " +
+                        "connect-src 'self' data: blob: https://*.supabase.co https://flights-sky.p.rapidapi.com https://fonts.googleapis.com https://fonts.gstatic.com;",
                 },
             ],
         }, ];

@@ -7,12 +7,14 @@ export interface AppSettings {
   default_markup_percentage: number;
   min_markup_percentage: number;
   max_markup_percentage: number;
-  stripe_fee_percentage: number;
-  stripe_fee_fixed: number;
-  paypal_fee_percentage: number;
-  paypal_fee_fixed: number;
   zelle_fee_percentage: number;
   zelle_fee_fixed: number;
+  pix_fee_percentage: number;
+  pix_fee_fixed: number;
+  spei_fee_percentage: number;
+  spei_fee_fixed: number;
+  square_fee_percentage: number;
+  square_fee_fixed: number;
   emission_sla_hours: number;
   emission_warning_hours: number;
   review_request_delay_days: number;
@@ -29,12 +31,14 @@ const DEFAULTS: AppSettings = {
   default_markup_percentage: 10,
   min_markup_percentage: 5,
   max_markup_percentage: 50,
-  stripe_fee_percentage: 2.9,
-  stripe_fee_fixed: 0.3,
-  paypal_fee_percentage: 3.49,
-  paypal_fee_fixed: 0.49,
   zelle_fee_percentage: 0,
   zelle_fee_fixed: 0,
+  pix_fee_percentage: 0,
+  pix_fee_fixed: 0,
+  spei_fee_percentage: 0,
+  spei_fee_fixed: 0,
+  square_fee_percentage: 2.9,
+  square_fee_fixed: 0.3,
   emission_sla_hours: 24,
   emission_warning_hours: 12,
   review_request_delay_days: 1,
@@ -86,7 +90,7 @@ function setSetting<K extends AppSettingKey>(obj: AppSettings, key: K, value: Ap
   obj[key] = value;
 }
 
-type FeeMethod = 'stripe' | 'paypal' | 'zelle';
+type FeeMethod = 'zelle' | 'pix' | 'spei' | 'square';
 type FeePctKey = `${FeeMethod}_fee_percentage`;
 type FeeFixedKey = `${FeeMethod}_fee_fixed`;
 

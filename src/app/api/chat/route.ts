@@ -31,7 +31,7 @@ const KB: ReadonlyArray<{ title: string; text: string }> = [
   {
     title: 'Pagos',
     text:
-      'Aceptamos tarjetas de crédito/débito (Visa, Mastercard, Amex) a través de Stripe, y Zelle (transferencia manual). En Zelle un agente confirma el pago antes de emitir.',
+      'Aceptamos pagos manuales vía Zelle (USA), PIX (Brasil), SPEI (México) y tarjeta de crédito/débito (Visa, MC, Amex) vía Square. Todos los pagos son coordinados por un agente vía WhatsApp.',
   },
   {
     title: 'Emisión de boletos',
@@ -66,7 +66,7 @@ const KB: ReadonlyArray<{ title: string; text: string }> = [
   {
     title: 'Tiempos de emisión según método de pago',
     text:
-      'Stripe (tarjeta): el pago se confirma automáticamente y la emisión del boleto toma hasta 24 horas. Zelle: un agente confirma el pago manualmente en 2–4 horas, luego procede la emisión.',
+      'Todos los métodos de pago (Zelle, PIX, SPEI, Square) son manuales: un agente confirma el pago en 2–4 horas, luego procede la emisión del boleto (hasta 24 horas).',
   },
   {
     title: 'Documentos requeridos para viajar',
@@ -174,8 +174,8 @@ const ALLOWED_TERMS: ReadonlyArray<string> = [
   'iata', 'terminal', 'puerta', 'gate',
   'asiento', 'seat', 'checkin', 'check in', 'check-in',
   // Pagos
-  'pago', 'pagos', 'pagar', 'stripe', 'tarjeta', 'targeta', 'credito', 'debito',
-  'zelle', 'sel', 'transferencia', 'banco', 'bank',
+  'pago', 'pagos', 'pagar', 'tarjeta', 'targeta', 'credito', 'debito',
+  'zelle', 'sel', 'pix', 'spei', 'square', 'transferencia', 'banco', 'bank',
   'comision', 'comicion', 'fee', 'cargo', 'impuesto', 'tax', 'factura', 'recibo', 'receipt',
   // Reembolsos / cambios
   'reembolso', 'reembolo', 'reembolzo', 'refund', 'devolucion',
@@ -389,7 +389,7 @@ function formatBookingResponse(booking: BookingRow) {
   if (!paid) {
     lines.push('');
     lines.push('Siguiente paso: completa el **pago** para poder emitir el boleto.');
-    lines.push('Si necesitas ayuda con el pago, dime si usarás **Stripe** (tarjeta) o **Zelle**.');
+    lines.push('Si necesitas ayuda con el pago, dime si usarás **Zelle**, **PIX**, **SPEI** o **Square** (tarjeta).');
   } else if (bookingStatus === 'pending_emission' && !emitted) {
     lines.push('');
     lines.push('Tu pago está confirmado ✅. La **emisión** puede tardar hasta **24 horas**.');

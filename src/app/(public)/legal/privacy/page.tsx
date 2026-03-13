@@ -114,9 +114,9 @@ export default function PrivacyPage() {
                   (nombre, pasaporte, nacionalidad).
                 </li>
                 <li>
-                  <strong>Pasarelas de pago:</strong> Stripe procesa los datos de pago
+                  <strong>Pasarelas de pago:</strong> Square procesa los pagos con tarjeta
                   bajo sus propias políticas de privacidad y con certificación PCI-DSS. GST no
-                  recibe ni almacena los datos completos de su tarjeta bancaria.
+                  recibe ni almacena los datos completos de su tarjeta bancaria. Los pagos vía Zelle, PIX y SPEI son coordinados manualmente por un agente.
                 </li>
               </ul>
               <p className="mt-2">

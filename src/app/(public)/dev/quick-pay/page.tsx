@@ -47,7 +47,7 @@ export default function QuickPayDevPage() {
         ],
       });
 
-      router.push(`/pay?booking_id=${booking.id}&method=stripe`);
+      router.push(`/pay?booking_id=${booking.id}&method=zelle`);
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : "Error creando booking";
       setMsg(errorMessage);
@@ -60,7 +60,7 @@ export default function QuickPayDevPage() {
     <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
       <h1 style={{ fontSize: 22, fontWeight: 700 }}>DEV: Quick Pay</h1>
       <p style={{ marginTop: 8 }}>
-        Esto crea una booking dummy y te manda al checkout visual (Stripe).
+        Esto crea una booking dummy y te manda al checkout visual.
       </p>
 
       <div style={{ marginTop: 16 }}>
@@ -77,7 +77,7 @@ export default function QuickPayDevPage() {
         disabled={loading}
         style={{ marginTop: 16, padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
       >
-        {loading ? "Creando booking..." : "Crear booking y abrir pago (Stripe)"}
+        {loading ? "Creando booking..." : "Crear booking y abrir pago"}
       </button>
 
       {msg && <p style={{ marginTop: 12, color: "crimson" }}>{msg}</p>}

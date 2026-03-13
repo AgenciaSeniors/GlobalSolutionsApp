@@ -7,7 +7,7 @@
  * - Search by booking code, client name, email
  * - Expandable detail with passenger data
  * - Quick action: link to emission, mark as completed, cancel
- * - Zelle pending filter + approve/reject actions
+ * - Manual payment pending filter + approve/reject actions (Zelle, PIX, SPEI, Square)
  * - Offer bookings support (offer_id → special_offers join)
  */
 'use client';
@@ -123,7 +123,18 @@ const PAYMENT_VARIANT: Record<string, 'success' | 'warning' | 'destructive' | 'i
   refunded: 'destructive',
 };
 
-type FilterKey = 'all' | 'pending_emission' | 'confirmed' | 'completed' | 'cancelled' | 'zelle_pending';
+type FilterKey = 'all' | 'pending_emission' | 'confirmed' | 'completed' | 'cancelled' | 'manual_pending';
+
+/** Payment methods that require manual admin approval */
+const MANUAL_METHODS = ['zelle', 'pix', 'spei', 'square'];
+
+/** Human-readable labels for manual payment methods */
+const MANUAL_METHOD_LABELS: Record<string, string> = {
+  zelle: 'Zelle',
+  pix: 'PIX',
+  spei: 'SPEI',
+  square: 'Square',
+};
 
 export default function AdminBookingsPage() {
   const supabase = createClient();
@@ -203,14 +214,14 @@ export default function AdminBookingsPage() {
         .range(page * pageSize, (page + 1) * pageSize - 1);
 
       // Normal booking_status filters
-      if (filter !== 'all' && filter !== 'zelle_pending') {
+      if (filter !== 'all' && filter !== 'manual_pending') {
         query = query.eq('booking_status', filter);
       }
 
-      // Zelle Pending filter
-      if (filter === 'zelle_pending') {
+      // Manual payment pending filter (Zelle, PIX, SPEI, Square)
+      if (filter === 'manual_pending') {
         query = query
-          .eq('payment_method', 'zelle')
+          .in('payment_method', ['zelle', 'pix', 'spei', 'square'])
           .eq('payment_status', 'pending_admin_approval');
       }
 
@@ -305,56 +316,58 @@ export default function AdminBookingsPage() {
     setConfirmModal({ ids: [id] });
   }
 
-  // Zelle approval
-  async function approveZelle(bookingId: string) {
-    if (!confirm('¿Confirmar pago por Zelle? Esto marcará la reserva como PAGADA.')) return;
+  // Manual payment approval (Zelle, PIX, SPEI, Square)
+  async function approveManualPayment(bookingId: string, method: string) {
+    const label = MANUAL_METHOD_LABELS[method] || method;
+    if (!confirm(`¿Confirmar pago por ${label}? Esto marcará la reserva como PAGADA.`)) return;
 
     try {
       setRowAction({ id: bookingId, kind: 'approve' });
 
-      const res = await fetch('/api/payments/zelle/confirm', {
+      const res = await fetch('/api/payments/manual/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ booking_id: bookingId }),
+        body: JSON.stringify({ booking_id: bookingId, payment_method: method }),
       });
 
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        alert(data?.error || 'Error aprobando pago Zelle.');
+        alert(data?.error || `Error aprobando pago ${label}.`);
         return;
       }
 
       await fetchBookings();
-      alert('✅ Pago Zelle confirmado.');
+      alert(`Pago ${label} confirmado.`);
     } finally {
       setRowAction(null);
     }
   }
 
-  // Zelle rejection
-  async function rejectZelle(bookingId: string) {
+  // Manual payment rejection (Zelle, PIX, SPEI, Square)
+  async function rejectManualPayment(bookingId: string, method: string) {
+    const label = MANUAL_METHOD_LABELS[method] || method;
     const reason = prompt('Razón del rechazo (opcional):') || undefined;
-    if (!confirm('¿Rechazar pago Zelle? Esto marcará la reserva como FALLIDA.')) return;
+    if (!confirm(`¿Rechazar pago ${label}? Esto marcará la reserva como FALLIDA.`)) return;
 
     try {
       setRowAction({ id: bookingId, kind: 'reject' });
 
-      const res = await fetch('/api/payments/zelle/reject', {
+      const res = await fetch('/api/payments/manual/reject', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ booking_id: bookingId, reason }),
+        body: JSON.stringify({ booking_id: bookingId, payment_method: method, reason }),
       });
 
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        alert(data?.error || 'Error rechazando pago Zelle.');
+        alert(data?.error || `Error rechazando pago ${label}.`);
         return;
       }
 
       await fetchBookings();
-      alert('❌ Pago Zelle rechazado.');
+      alert(`Pago ${label} rechazado.`);
     } finally {
       setRowAction(null);
     }
@@ -497,7 +510,7 @@ export default function AdminBookingsPage() {
                   'confirmed',
                   'completed',
                   'cancelled',
-                  'zelle_pending',
+                  'manual_pending',
                 ] as FilterKey[]
               ).map((f) => (
                 <button
@@ -509,8 +522,8 @@ export default function AdminBookingsPage() {
                 >
                   {f === 'all'
                     ? 'Todas'
-                    : f === 'zelle_pending'
-                      ? 'Zelle Pendientes'
+                    : f === 'manual_pending'
+                      ? 'Pagos Pendientes'
                       : STATUS_CONFIG[f]?.label || f}
                 </button>
               ))}
@@ -587,8 +600,8 @@ export default function AdminBookingsPage() {
                 const offer = norm(b.offer);
                 const isOfferBooking = !!b.offer_id;
 
-                const isZellePending =
-                  b.payment_method === 'zelle' && b.payment_status === 'pending_admin_approval';
+                const isManualPending =
+                  MANUAL_METHODS.includes(b.payment_method ?? '') && b.payment_status === 'pending_admin_approval';
 
                 const isApproving = rowAction?.id === b.id && rowAction.kind === 'approve';
                 const isRejecting = rowAction?.id === b.id && rowAction.kind === 'reject';
@@ -617,10 +630,12 @@ export default function AdminBookingsPage() {
                             <span className="font-mono text-sm font-bold text-brand-600">{b.booking_code}</span>
                             <Badge variant={cfg.variant}>{cfg.label}</Badge>
                             <Badge variant={PAYMENT_VARIANT[b.payment_status] || 'warning'}>
-                              {b.payment_status === 'pending_admin_approval' ? 'Zelle Pendiente' : b.payment_status}
+                              {b.payment_status === 'pending_admin_approval'
+                                ? `${MANUAL_METHOD_LABELS[b.payment_method ?? ''] || b.payment_method || 'Pago'} Pendiente`
+                                : b.payment_status}
                             </Badge>
-                            {b.payment_method === 'zelle' && (
-                              <Badge variant="info">Zelle</Badge>
+                            {MANUAL_METHODS.includes(b.payment_method ?? '') && (
+                              <Badge variant="info">{MANUAL_METHOD_LABELS[b.payment_method ?? ''] || b.payment_method}</Badge>
                             )}
                             {isOfferBooking && (
                               <Badge variant="info">
@@ -735,7 +750,7 @@ export default function AdminBookingsPage() {
                                   rel="noopener noreferrer"
                                   className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-blue-50 border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
                                 >
-                                  📎 Ver comprobante Zelle
+                                  Ver comprobante de pago
                                 </a>
                               )}
                             </div>
@@ -787,28 +802,28 @@ export default function AdminBookingsPage() {
 
                         {/* Actions */}
                         <div className="mt-4 flex flex-wrap gap-3">
-                          {/* Zelle actions */}
-                          {isZellePending && (
+                          {/* Manual payment actions (Zelle, PIX, SPEI, Square) */}
+                          {isManualPending && (
                             <>
                               <Button
                                 size="sm"
                                 className="gap-1.5"
-                                onClick={() => approveZelle(b.id)}
+                                onClick={() => approveManualPayment(b.id, b.payment_method!)}
                                 disabled={isApproving || isRejecting}
                               >
                                 <CheckCircle className="h-3.5 w-3.5" />
-                                {isApproving ? 'Aprobando...' : 'Aprobar Zelle'}
+                                {isApproving ? 'Aprobando...' : `Aprobar ${MANUAL_METHOD_LABELS[b.payment_method ?? ''] || b.payment_method}`}
                               </Button>
 
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="gap-1.5"
-                                onClick={() => rejectZelle(b.id)}
+                                onClick={() => rejectManualPayment(b.id, b.payment_method!)}
                                 disabled={isApproving || isRejecting}
                               >
                                 <XCircle className="h-3.5 w-3.5" />
-                                {isRejecting ? 'Rechazando...' : 'Rechazar Zelle'}
+                                {isRejecting ? 'Rechazando...' : `Rechazar ${MANUAL_METHOD_LABELS[b.payment_method ?? ''] || b.payment_method}`}
                               </Button>
                             </>
                           )}

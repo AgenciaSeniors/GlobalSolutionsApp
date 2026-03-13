@@ -71,7 +71,7 @@ export default function TermsPage() {
             <section>
               <h2 className="text-lg font-bold text-brand-900">5. Protección de Datos</h2>
               <p>
-                Global Solutions Travel cumple con estrictos estándares de protección de datos personales. Documentos sensibles como números de pasaporte se almacenan encriptados (AES-256). Los datos de tarjetas de crédito no se almacenan en nuestros servidores; son procesados de forma segura mediante Stripe, pasarela certificada PCI-DSS.
+                Global Solutions Travel cumple con estrictos estándares de protección de datos personales. Documentos sensibles como números de pasaporte se almacenan encriptados (AES-256). Los datos de tarjetas de crédito no se almacenan en nuestros servidores; los pagos con tarjeta son procesados de forma segura mediante Square, pasarela certificada PCI-DSS.
               </p>
             </section>
 

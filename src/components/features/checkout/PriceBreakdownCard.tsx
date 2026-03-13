@@ -10,7 +10,7 @@ import type { PriceBreakdown } from '@/types/models';
 import { Receipt } from 'lucide-react';
 import { useLanguage } from '@/components/providers/LanguageProvider';
 
-type Gateway = 'stripe' | 'zelle';
+type Gateway = 'zelle' | 'pix' | 'spei' | 'square';
 
 interface Props {
   breakdown: PriceBreakdown;
@@ -21,12 +21,15 @@ export default function PriceBreakdownCard({ breakdown, gateway }: Props) {
   const { t } = useLanguage();
 
   const GATEWAY_LABELS: Record<Gateway, string> = {
-    stripe: t('checkout.gateway.card'),
     zelle: 'Zelle',
+    pix: 'PIX',
+    spei: 'SPEI',
+    square: 'Tarjeta (Square)',
   };
 
   const subtotalWithBuffer = breakdown.subtotal + (breakdown.volatility_buffer ?? 0);
-  const showTax = gateway !== 'zelle' && breakdown.gateway_fee > 0;
+  const NO_FEE_GATEWAYS = new Set<Gateway>(['zelle', 'pix', 'spei']);
+  const showTax = !NO_FEE_GATEWAYS.has(gateway) && breakdown.gateway_fee > 0;
 
   const gatewayLabel = GATEWAY_LABELS[gateway] ?? gateway;
   const taxParts: string[] = [];

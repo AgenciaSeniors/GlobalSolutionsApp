@@ -3,149 +3,62 @@
 export const dynamic = 'force-dynamic';
 
 /**
- * /pay — Checkout page
+ * /pay — Manual Payment Page
  *
- * Stripe: create-intent → user enters card → Stripe confirms via webhook
- * Zelle:  upload proof  → admin verifies   → manual confirmation
+ * All methods (Zelle, PIX, SPEI, Square) follow the same flow:
+ * 1. Show booking summary
+ * 2. Select payment method
+ * 3. Contact via WhatsApp with pre-built message
+ * 4. Upload payment proof
+ * 5. Admin confirms manually
  */
 
 import { Suspense, useRef } from "react";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { loadStripe } from "@stripe/stripe-js";
-import { Elements } from "@stripe/react-stripe-js";
+import { Banknote, CreditCard, MessageCircle } from "lucide-react";
 
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import PaymentForm from "@/components/features/payments/PaymentForm";
 import { useAppSettings } from "@/hooks/useAppSettings";
 
-type PaymentMethod = "stripe" | "zelle";
+type PaymentMethod = "zelle" | "pix" | "spei" | "square";
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
+const PAYMENT_METHODS: Array<{
+  id: PaymentMethod;
+  label: string;
+  sub: string;
+  icon: typeof Banknote;
+}> = [
+  { id: "zelle", label: "Zelle", sub: "Transferencia USA", icon: Banknote },
+  { id: "pix", label: "PIX", sub: "Transferencia Brasil", icon: Banknote },
+  { id: "spei", label: "SPEI", sub: "Transferencia Mexico", icon: Banknote },
+  { id: "square", label: "Tarjeta / Square", sub: "Visa, Mastercard, Amex", icon: CreditCard },
+];
 
-function getStr(obj: unknown, key: string): string | null {
-  if (!isRecord(obj)) return null;
-  const v = obj[key];
-  return typeof v === "string" && v.length > 0 ? v : null;
-}
+const METHOD_LABELS: Record<PaymentMethod, string> = {
+  zelle: "Zelle (USA)",
+  pix: "PIX (Brasil)",
+  spei: "SPEI (Mexico)",
+  square: "Tarjeta de credito/debito (Square)",
+};
 
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "");
+type BookingPassenger = {
+  first_name: string;
+  last_name: string;
+  passport_number: string;
+  passport_expiry_date: string;
+  nationality: string;
+};
 
-function PayPageInner() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const bookingId = searchParams.get("booking_id");
-  const methodParam = searchParams.get("method");
-
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(
-    methodParam === "zelle" ? "zelle" : "stripe"
-  );
-  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
-  const [stripeLoading, setStripeLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  /* ── Stripe: create intent ── */
-  useEffect(() => {
-    if (!bookingId || selectedMethod !== "stripe") return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        setError(null);
-        setStripeLoading(true);
-        const res = await fetch("/api/payments/create-intent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ booking_id: bookingId }),
-        });
-        const raw: unknown = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(getStr(raw, "error") ?? "No se pudo iniciar el pago con Stripe.");
-        const cs = getStr(raw, "client_secret");
-        if (!cs) throw new Error("Stripe: falta client_secret en la respuesta.");
-        if (!cancelled) setStripeClientSecret(cs);
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Error inesperado");
-      } finally {
-        if (!cancelled) setStripeLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [bookingId, selectedMethod]);
-
-  useEffect(() => {
-    if (methodParam === "zelle") setSelectedMethod("zelle");
-    else setSelectedMethod("stripe");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /* ── Guards ── */
-  if (!bookingId) {
-    return (
-      <>
-        <Navbar />
-        <div className="mx-auto max-w-3xl p-6 pt-24">
-          <Card variant="bordered" className="p-6">
-            <p className="text-sm text-red-600">Falta booking_id en la URL.</p>
-            <div className="mt-4">
-              <Button onClick={() => router.push("/flights")}>Volver</Button>
-            </div>
-          </Card>
-        </div>
-        <Footer />
-      </>
-    );
-  }
-
-  /* ── Zelle: payment details + upload proof ── */
-  if (selectedMethod === "zelle") {
-    return <ZellePaySection bookingId={bookingId} />;
-  }
-
-  return (
-    <>
-      <Navbar />
-      <div className="mx-auto max-w-3xl p-6 pt-24">
-        <Card variant="bordered" className="p-6 space-y-5">
-          {/* Header */}
-          <div>
-            <h1 className="text-xl font-semibold">Pago con Tarjeta</h1>
-          </div>
-
-          {/* Errors */}
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
-          )}
-
-          {/* Stripe UI */}
-          <div className="space-y-3">
-            {stripeLoading && <p className="text-sm text-neutral-500">Preparando pago con Stripe…</p>}
-            {!stripeLoading && stripeClientSecret && (
-              <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
-                <PaymentForm bookingId={bookingId} />
-              </Elements>
-            )}
-          </div>
-        </Card>
-      </div>
-      <Footer />
-    </>
-  );
-}
-
-/* ── Zelle Payment Section ── */
-type ZellePassenger = { first_name: string; last_name: string; passport_number: string; passport_expiry_date: string; nationality: string };
-type ZelleBookingData = {
+type BookingData = {
   booking_code?: string;
   total_amount?: number;
   contact_email?: string;
   contact_phone?: string;
-  passengers?: ZellePassenger[];
+  passengers?: BookingPassenger[];
   flight?: {
     departure_datetime?: string;
     origin_airport?: { iata_code?: string; city?: string };
@@ -153,9 +66,20 @@ type ZelleBookingData = {
   } | null;
 };
 
-function ZellePaySection({ bookingId }: { bookingId: string }) {
+function PayPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const bookingId = searchParams.get("booking_id");
+  const methodParam = searchParams.get("method");
+
+  const validMethods: PaymentMethod[] = ["zelle", "pix", "spei", "square"];
+  const initialMethod: PaymentMethod = validMethods.includes(methodParam as PaymentMethod)
+    ? (methodParam as PaymentMethod)
+    : "zelle";
+
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(initialMethod);
   const { settings } = useAppSettings();
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
@@ -165,14 +89,14 @@ function ZellePaySection({ bookingId }: { bookingId: string }) {
   const [referenceNumber, setReferenceNumber] = useState("");
   const [bookingCode, setBookingCode] = useState<string | null>(null);
   const [totalAmount, setTotalAmount] = useState<number | null>(null);
-  const [bookingData, setBookingData] = useState<ZelleBookingData>({});
+  const [bookingData, setBookingData] = useState<BookingData>({});
 
-  // Fetch booking details including passengers and contact info for WhatsApp message
+  // Fetch booking details
   useEffect(() => {
     async function fetchBookingDetails() {
       try {
         const res = await fetch(`/api/bookings?id=${bookingId}`);
-        const data: ZelleBookingData = await res.json().catch(() => null);
+        const data: BookingData = await res.json().catch(() => null);
         if (data?.booking_code) setBookingCode(data.booking_code);
         if (data?.total_amount) setTotalAmount(Number(data.total_amount));
         setBookingData(data ?? {});
@@ -192,12 +116,12 @@ function ZellePaySection({ bookingId }: { bookingId: string }) {
 
     try {
       const formData = new FormData();
-      formData.append("booking_id", bookingId);
+      formData.append("booking_id", bookingId!);
       formData.append("file", file);
       if (senderName.trim()) formData.append("sender_name", senderName.trim());
       if (referenceNumber.trim()) formData.append("reference_number", referenceNumber.trim());
 
-      const res = await fetch("/api/payments/zelle/upload-proof", {
+      const res = await fetch("/api/payments/manual/upload-proof", {
         method: "POST",
         body: formData,
       });
@@ -214,37 +138,59 @@ function ZellePaySection({ bookingId }: { bookingId: string }) {
     }
   }
 
+  /* ── Guards ── */
+  if (!bookingId) {
+    return (
+      <>
+        <Navbar />
+        <div className="mx-auto max-w-3xl p-6 pt-24">
+          <Card variant="bordered" className="p-6">
+            <p className="text-sm text-red-600">Falta booking_id en la URL.</p>
+            <div className="mt-4">
+              <Button onClick={() => router.push("/flights")}>Volver</Button>
+            </div>
+          </Card>
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  /* ── WhatsApp message builder ── */
   const displayCode = bookingCode || bookingId.slice(0, 8);
   const whatsappPhone = (settings.business_phone || "").replace(/[^0-9+]/g, "").replace(/^\+/, "");
 
-  // Build comprehensive WhatsApp message with all reservation data
   const passengerLines = (bookingData.passengers ?? []).map((p, i) =>
     `  ${i + 1}. ${p.first_name} ${p.last_name}\n     Pasaporte: ${p.passport_number} (vence: ${p.passport_expiry_date}) | Nac.: ${p.nationality}`
   ).join('\n');
 
   const fl = bookingData.flight;
-  const orig = fl?.origin_airport?.city || fl?.origin_airport?.iata_code || '';
-  const dest = fl?.destination_airport?.city || fl?.destination_airport?.iata_code || '';
+  const origCode = fl?.origin_airport?.iata_code || '';
+  const destCode = fl?.destination_airport?.iata_code || '';
+  const origCity = fl?.origin_airport?.city || origCode;
+  const destCity = fl?.destination_airport?.city || destCode;
   const depDate = fl?.departure_datetime
     ? new Date(fl.departure_datetime.slice(0, 10) + 'T12:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })
     : '';
-  const routeLines = orig && dest ? `  ${orig} → ${dest}${depDate ? ` | Salida: ${depDate}` : ''}` : '';
+
+  const routeDisplay = origCity && destCity
+    ? `${origCity}${origCode ? ` (${origCode})` : ''} → ${destCity}${destCode ? ` (${destCode})` : ''}`
+    : '';
+
+  const methodLabel = METHOD_LABELS[selectedMethod];
 
   const whatsappMsgText = [
-    `Estimados, me comunico para coordinar el pago de mi reserva por Zelle y solicitar la verificación correspondiente.`,
+    `Hola, quiero coordinar el pago de mi reserva.`,
     ``,
-    `📋 *DATOS DE LA RESERVA*`,
-    `• Código: *${displayCode}*`,
-    totalAmount ? `• Total a pagar: *$${totalAmount.toFixed(2)} USD*` : '',
-    routeLines ? `\n✈️ *RUTA*\n${routeLines}` : '',
-    passengerLines ? `\n👤 *PASAJERO(S)*\n${passengerLines}` : '',
-    (bookingData.contact_email || bookingData.contact_phone) ? `\n📞 *DATOS DE CONTACTO*` : '',
-    bookingData.contact_email ? `• Email: ${bookingData.contact_email}` : '',
-    bookingData.contact_phone ? `• Teléfono: ${bookingData.contact_phone}` : '',
+    `📋 RESERVA: ${displayCode}`,
+    routeDisplay ? `✈️ RUTA: ${routeDisplay}` : '',
+    depDate ? `📅 Fecha: ${depDate}` : '',
+    bookingData.passengers?.length ? `👤 Pasajeros: ${bookingData.passengers.length}` : '',
+    totalAmount ? `💰 Total: $${totalAmount.toFixed(2)} USD` : '',
     ``,
-    `Por favor, proporcione los datos de la cuenta Zelle para proceder con el pago. Una vez realizada la transferencia, enviaré el comprobante para que un agente pueda verificarlo y confirmar la reserva.`,
+    `💳 Metodo de pago: ${methodLabel}`,
     ``,
-    `Gracias por su atención.`,
+    `Quedo atento a los datos bancarios para realizar la transferencia.`,
   ].filter(Boolean).join('\n');
 
   const whatsappUrl = whatsappPhone
@@ -254,32 +200,68 @@ function ZellePaySection({ bookingId }: { bookingId: string }) {
   return (
     <>
       <Navbar />
-      <div className="mx-auto max-w-3xl p-6 pt-24">
-        <Card variant="bordered" className="p-6 space-y-5">
-          <h1 className="text-xl font-semibold">Pago por Zelle</h1>
+      <div className="mx-auto max-w-3xl p-6 pt-24 pb-16">
+        <Card variant="bordered" className="p-6 space-y-6">
+          <h1 className="text-xl font-semibold">Pagar Reserva</h1>
 
           {/* Booking Summary */}
           <div className="rounded-lg bg-neutral-50 border border-neutral-200 p-4 flex items-center justify-between">
             <div>
               <p className="text-xs text-neutral-500 uppercase font-medium">Reserva</p>
               <p className="text-lg font-bold font-mono text-brand-600">{displayCode}</p>
+              {routeDisplay && (
+                <p className="text-sm text-neutral-600 mt-1">{routeDisplay}</p>
+              )}
+              {depDate && (
+                <p className="text-xs text-neutral-500">{depDate}</p>
+              )}
             </div>
             {totalAmount !== null && (
               <div className="text-right">
                 <p className="text-xs text-neutral-500 uppercase font-medium">Total a pagar</p>
                 <p className="text-2xl font-extrabold text-neutral-900">${totalAmount.toFixed(2)}</p>
+                <p className="text-xs text-neutral-500">USD</p>
               </div>
             )}
+          </div>
+
+          {/* Payment Method Selector */}
+          <div className="space-y-3">
+            <h2 className="font-semibold text-neutral-800">Selecciona tu metodo de pago</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {PAYMENT_METHODS.map((m) => {
+                const Icon = m.icon;
+                const isSelected = selectedMethod === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setSelectedMethod(m.id)}
+                    className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all text-center ${
+                      isSelected
+                        ? "border-brand-600 bg-brand-50 shadow-sm"
+                        : "border-neutral-200 bg-white hover:border-neutral-300"
+                    }`}
+                  >
+                    <Icon className={`h-6 w-6 ${isSelected ? "text-brand-600" : "text-neutral-400"}`} />
+                    <span className={`text-sm font-semibold ${isSelected ? "text-brand-700" : "text-neutral-700"}`}>
+                      {m.label}
+                    </span>
+                    <span className="text-xs text-neutral-500">{m.sub}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Step 1: Contact via WhatsApp */}
           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-5 space-y-3">
             <div className="flex items-center gap-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-white text-sm font-bold">1</span>
-              <h2 className="font-bold text-emerald-800">Solicita los datos de pago por WhatsApp</h2>
+              <h2 className="font-bold text-emerald-800">Contacta por WhatsApp para recibir los datos de pago</h2>
             </div>
             <p className="text-sm text-emerald-700">
-              Contáctanos por WhatsApp para recibir los datos de la cuenta Zelle donde realizar la transferencia.
+              Un agente te enviara los datos para realizar tu pago por <strong>{PAYMENT_METHODS.find(m => m.id === selectedMethod)?.label}</strong>.
+              {selectedMethod === "square" && " Te enviaremos un link de pago para que pagues con tarjeta."}
             </p>
             {whatsappUrl ? (
               <a
@@ -288,88 +270,90 @@ function ZellePaySection({ bookingId }: { bookingId: string }) {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] hover:bg-[#1ebe5d] text-white px-5 py-3 font-semibold text-sm transition-colors shadow-sm"
               >
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                <MessageCircle className="h-5 w-5" />
                 Contactar por WhatsApp
               </a>
             ) : (
-              <p className="text-sm text-emerald-700">Contáctenos directamente para recibir los datos de la cuenta Zelle.</p>
+              <p className="text-sm text-emerald-700">Contactenos directamente para recibir los datos de pago.</p>
             )}
           </div>
 
-          {/* Step 2: Upload Proof */}
-          <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-white text-sm font-bold">2</span>
-              <h2 className="font-bold text-blue-800">Sube tu comprobante de pago</h2>
-            </div>
-            <p className="text-sm text-blue-700">
-              Una vez realizada la transferencia, sube el comprobante e ingresa los datos de la transacción.
-            </p>
+          {/* Step 2: Upload Proof (not for Square since they pay via link) */}
+          {selectedMethod !== "square" && (
+            <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-white text-sm font-bold">2</span>
+                <h2 className="font-bold text-blue-800">Sube tu comprobante de pago</h2>
+              </div>
+              <p className="text-sm text-blue-700">
+                Una vez realizada la transferencia, sube el comprobante e ingresa los datos de la transaccion.
+              </p>
 
-            {/* Sender Info Fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-blue-800">Nombre del remitente</label>
-                <input
-                  type="text"
-                  value={senderName}
-                  onChange={(e) => setSenderName(e.target.value)}
-                  placeholder="Nombre completo"
-                  className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                />
+              {/* Sender Info Fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-blue-800">Nombre del remitente</label>
+                  <input
+                    type="text"
+                    value={senderName}
+                    onChange={(e) => setSenderName(e.target.value)}
+                    placeholder="Nombre completo"
+                    className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-blue-800">Referencia de transferencia</label>
+                  <input
+                    type="text"
+                    value={referenceNumber}
+                    onChange={(e) => setReferenceNumber(e.target.value)}
+                    placeholder="Numero de confirmacion"
+                    className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-blue-800">Referencia de transferencia</label>
-                <input
-                  type="text"
-                  value={referenceNumber}
-                  onChange={(e) => setReferenceNumber(e.target.value)}
-                  placeholder="Número de confirmación"
-                  className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-            </div>
 
-            {proofUrl ? (
-              <div className="rounded-lg bg-white p-4 border border-emerald-300 space-y-2">
-                <p className="text-sm font-semibold text-emerald-700">
-                  ✅ Comprobante subido exitosamente
-                </p>
-                <p className="text-xs text-neutral-500">{fileName}</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,application/pdf"
-                  className="block w-full text-sm text-neutral-600
-                    file:mr-4 file:rounded-lg file:border-0
-                    file:bg-blue-600 file:px-4 file:py-2
-                    file:text-sm file:font-semibold file:text-white
-                    hover:file:bg-blue-700 file:cursor-pointer"
-                />
-                {uploadError && (
-                  <p className="text-sm text-red-600">{uploadError}</p>
-                )}
-                <Button
-                  onClick={handleUpload}
-                  isLoading={uploading}
-                  disabled={uploading}
-                  className="w-full"
-                >
-                  Subir Comprobante
-                </Button>
-              </div>
-            )}
-          </div>
+              {proofUrl ? (
+                <div className="rounded-lg bg-white p-4 border border-emerald-300 space-y-2">
+                  <p className="text-sm font-semibold text-emerald-700">
+                    Comprobante subido exitosamente
+                  </p>
+                  <p className="text-xs text-neutral-500">{fileName}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    className="block w-full text-sm text-neutral-600
+                      file:mr-4 file:rounded-lg file:border-0
+                      file:bg-blue-600 file:px-4 file:py-2
+                      file:text-sm file:font-semibold file:text-white
+                      hover:file:bg-blue-700 file:cursor-pointer"
+                  />
+                  {uploadError && (
+                    <p className="text-sm text-red-600">{uploadError}</p>
+                  )}
+                  <Button
+                    onClick={handleUpload}
+                    isLoading={uploading}
+                    disabled={uploading}
+                    className="w-full"
+                  >
+                    Subir Comprobante
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Info */}
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             <p>
-              <strong>¿Qué sucede después?</strong> Un administrador verificará tu pago y
-              confirmará tu reserva. Recibirás una notificación por correo cuando esté listo.
-              Tiempo estimado: <strong>2–4 horas</strong>.
+              <strong>Que sucede despues?</strong> Un agente verificara tu pago y
+              confirmara tu reserva. Recibiras una notificacion por correo cuando este listo.
+              Tiempo estimado: <strong>2-4 horas</strong>.
             </p>
           </div>
 

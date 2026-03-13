@@ -8,8 +8,6 @@ export const runtime = 'nodejs';
  * - Age-based passenger multipliers (infant 10%, child 75%, adult 100%)
  * - Volatility buffer (3%)
  * - Gateway fees (from app_settings DB)
- *
- * This ensures the checkout preview matches what Stripe/PayPal actually charges.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -31,7 +29,7 @@ const PassengerSchema = z.object({
 const BodySchema = z.object({
   flight_id: z.string().uuid(),
   passengers: z.array(PassengerSchema).min(1).max(9),
-  gateway: z.enum(['stripe', 'paypal', 'zelle']),
+  gateway: z.enum(['zelle', 'pix', 'spei', 'square']),
 });
 
 function parseNumber(v: unknown): number | null {
@@ -88,35 +86,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Precio de vuelo invalido.' }, { status: 400 });
     }
 
-    // For zelle, no gateway fee
-    const effectiveGateway: PaymentGateway = gateway === 'zelle' ? 'stripe' : gateway;
-    const isZelle = gateway === 'zelle';
-
-    // Fetch gateway fee from DB (or use none for zelle)
-    const gatewayFeePolicy = isZelle
-      ? { type: 'none' as const }
-      : await fetchGatewayFeePolicy(effectiveGateway);
+    // Fetch gateway fee from DB (falls back to GATEWAY_FEE_POLICY defaults)
+    const gatewayFeePolicy = await fetchGatewayFeePolicy(gateway);
 
     // Calculate using the same engine as the payment route
     const breakdown = calculateBookingTotal(
       finalPrice,
       passengers,
-      effectiveGateway,
+      gateway,
       gatewayFeePolicy,
     );
 
     // Per-passenger detail
     const passengerDetails = getPassengerPricingDetails(finalPrice, passengers);
 
-    // Fetch fee display values for the UI (both gateways are 'mixed' type)
-    const stripePolicy = GATEWAY_FEE_POLICY.stripe as { type: 'mixed'; percentage: number; fixed_amount: number };
-    const paypalPolicy = GATEWAY_FEE_POLICY.paypal as { type: 'mixed'; percentage: number; fixed_amount: number };
-    const feeDisplayPct = isZelle ? 0 : (
-      gateway === 'stripe' ? stripePolicy.percentage : paypalPolicy.percentage
-    );
-    const feeDisplayFixed = isZelle ? 0 : (
-      gateway === 'stripe' ? stripePolicy.fixed_amount : paypalPolicy.fixed_amount
-    );
+    // Fee display values for the UI
+    const policy = GATEWAY_FEE_POLICY[gateway];
+    const hasFee = policy.type !== 'none';
+    const feeDisplayPct = hasFee && 'percentage' in policy ? policy.percentage : 0;
+    const feeDisplayFixed = hasFee && 'fixed_amount' in policy ? policy.fixed_amount : 0;
 
     return NextResponse.json({
       flight_id,
@@ -129,12 +117,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         subtotal: breakdown.subtotal,
         markup_amount: finalPrice - (basePrice ?? finalPrice),
         volatility_buffer: breakdown.volatility_buffer_amount,
-        gateway_fee: isZelle ? 0 : breakdown.gateway_fee_amount,
+        gateway_fee: breakdown.gateway_fee_amount,
         gateway_fee_pct: feeDisplayPct,
         gateway_fixed_fee: feeDisplayFixed,
-        total: isZelle
-          ? breakdown.subtotal + breakdown.volatility_buffer_amount
-          : breakdown.total_amount,
+        total: breakdown.total_amount,
         passengers: passengers.length,
       },
       passenger_details: passengerDetails.map((p) => ({

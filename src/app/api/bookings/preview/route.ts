@@ -18,7 +18,7 @@ import {
 
 const Body = z.object({
   booking_id: z.string().uuid(),
-  gateway: z.enum(["stripe", "paypal"]),
+  gateway: z.enum(["zelle", "pix", "spei", "square"]),
 });
 
 type JsonRecord = Record<string, unknown>;
