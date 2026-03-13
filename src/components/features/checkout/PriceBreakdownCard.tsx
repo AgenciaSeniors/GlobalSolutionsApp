@@ -27,7 +27,7 @@ export default function PriceBreakdownCard({ breakdown, gateway }: Props) {
     square: 'Tarjeta (Square)',
   };
 
-  const subtotalWithBuffer = breakdown.subtotal + (breakdown.volatility_buffer ?? 0);
+  const buffer = breakdown.volatility_buffer ?? 0;
   const NO_FEE_GATEWAYS = new Set<Gateway>(['zelle', 'pix', 'spei']);
   const showTax = !NO_FEE_GATEWAYS.has(gateway) && breakdown.gateway_fee > 0;
 
@@ -77,8 +77,16 @@ export default function PriceBreakdownCard({ breakdown, gateway }: Props) {
         {/* Subtotal */}
         <div className="flex justify-between text-neutral-700">
           <span>{t('checkout.summary.subtotal')}</span>
-          <span>${subtotalWithBuffer.toFixed(2)}</span>
+          <span>${breakdown.subtotal.toFixed(2)}</span>
         </div>
+
+        {/* Volatility buffer */}
+        {buffer > 0 && (
+          <div className="flex justify-between text-neutral-500">
+            <span>Protección de tipo de cambio (3%)</span>
+            <span>${buffer.toFixed(2)}</span>
+          </div>
+        )}
 
         {/* Gateway tax */}
         {showTax && (

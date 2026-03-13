@@ -959,6 +959,8 @@ function CheckoutPageInner() {
     const clamped = Math.max(1, Math.min(newCount, maxPassengers));
     if (clamped === passengerCount) return;
     setPassengerCount(clamped);
+    // Invalidate stale server breakdown so client falls back to pricePerPerson * newCount
+    setServerBreakdown(null);
     setPassengers((prev) => {
       if (clamped > prev.length) {
         // Add empty forms
@@ -1060,6 +1062,16 @@ function CheckoutPageInner() {
     if (!validatePassengers()) return;
     if (!validateContact()) return;
 
+    // Defensive: verify passenger count doesn't exceed available seats
+    if (!isMulticityMode && !isOfferMode && flight && passengerCount > flight.available_seats) {
+      setError(`Solo quedan ${flight.available_seats} asiento(s) disponible(s). Has seleccionado ${passengerCount} pasajero(s).`);
+      return;
+    }
+    if (isOfferMode && offerData && passengerCount > (offerData.max_seats - offerData.sold_seats)) {
+      setError(`Solo quedan ${offerData.max_seats - offerData.sold_seats} cupo(s) disponible(s). Has seleccionado ${passengerCount} pasajero(s).`);
+      return;
+    }
+
     setProcessing(true);
 
     // Abrimos la ventana de WhatsApp de forma síncrona (antes de cualquier await)
@@ -1075,8 +1087,11 @@ function CheckoutPageInner() {
           const raw = leg.rawFlight as Record<string, unknown>;
           return acc + Number(raw.final_price ?? raw.price ?? 0) * passengerCount;
         }, 0);
-        const gatewayFeeMulticity = calculateGatewayFee(totalSubtotal, gateway);
-        const totalMulticity = Math.round((totalSubtotal + gatewayFeeMulticity) * 100) / 100;
+        // Apply 3% volatility buffer (same as server-side bookingPricing.ts)
+        const volatilityBuffer = Math.round(totalSubtotal * 3) / 100;
+        const preFeeTotalMulticity = totalSubtotal + volatilityBuffer;
+        const gatewayFeeMulticity = calculateGatewayFee(preFeeTotalMulticity, gateway);
+        const totalMulticity = Math.round((preFeeTotalMulticity + gatewayFeeMulticity) * 100) / 100;
 
         const { data: booking, error: bookingErr } = await supabase
           .from('bookings')
@@ -1099,6 +1114,7 @@ function CheckoutPageInner() {
               base_price: pricePerPerson,
               markup_amount: 0,
               subtotal: totalSubtotal,
+              volatility_buffer: volatilityBuffer,
               gateway_fee: Math.round(gatewayFeeMulticity * 100) / 100,
               gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
               gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
