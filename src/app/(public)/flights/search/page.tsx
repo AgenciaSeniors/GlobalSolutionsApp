@@ -394,7 +394,7 @@ function FlightSearchResultsInner() {
                         });
                         const json = (await res.json()) as { id?: string };
                         if (res.ok && json?.id) {
-                          router.push(`/flights/${json.id}?passengers=${passengerCount}`);
+                          router.push(`/checkout?flight=${json.id}&passengers=${passengerCount}`);
                           return;
                         }
                       }

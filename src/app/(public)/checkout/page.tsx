@@ -41,6 +41,7 @@ import {
   Luggage,
   Mail,
   Phone,
+  Users,
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -439,8 +440,11 @@ function CheckoutPageInner() {
   const offerId = searchParams.get('offer');
   const offerDate = searchParams.get('date');
   const flightId = searchParams.get('flight');
-  const passengerCount = parseInt(searchParams.get('passengers') || '1', 10);
+  const initialPassengerCount = parseInt(searchParams.get('passengers') || '1', 10);
   const checkoutMode = searchParams.get('mode'); // 'multicity' | null
+
+  // Mutable passenger count — editable in the checkout UI
+  const [passengerCount, setPassengerCount] = useState(initialPassengerCount);
 
   const isOfferMode = Boolean(offerId);
   const isMulticityMode = checkoutMode === 'multicity';
@@ -938,7 +942,40 @@ function CheckoutPageInner() {
     return result;
   })();
 
+  // --- Max passengers (based on available seats) ---
+  const maxPassengers = isMulticityMode
+    ? 9
+    : isOfferMode && offerData
+      ? Math.min(9, offerData.max_seats - offerData.sold_seats)
+      : flight
+        ? Math.min(9, flight.available_seats)
+        : 9;
+
   // --- Helpers ---
+  function handlePassengerCountChange(newCount: number) {
+    const clamped = Math.max(1, Math.min(newCount, maxPassengers));
+    if (clamped === passengerCount) return;
+    setPassengerCount(clamped);
+    setPassengers((prev) => {
+      if (clamped > prev.length) {
+        // Add empty forms
+        return [
+          ...prev,
+          ...Array.from({ length: clamped - prev.length }, () => ({
+            first_name: '',
+            last_name: '',
+            dob: '',
+            nationality: '',
+            passport_number: '',
+            passport_expiry: '',
+          })),
+        ];
+      }
+      // Trim excess forms (keep data of remaining passengers)
+      return prev.slice(0, clamped);
+    });
+  }
+
   function updatePassenger(index: number, field: string, value: string) {
     setPassengers((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: value } : p)));
   }
@@ -1713,6 +1750,32 @@ function CheckoutPageInner() {
                       Solo quedan {flight.available_seats} asientos disponibles
                     </p>
                   )}
+                </Card>
+
+                {/* Passenger count selector */}
+                <Card variant="bordered">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="flex items-center gap-2 font-bold">
+                        <Users className="h-4 w-4 text-brand-600" />
+                        Cantidad de Pasajeros
+                      </h3>
+                      <p className="mt-0.5 text-sm text-neutral-500">
+                        ${pricePerPerson.toFixed(2)} por persona
+                      </p>
+                    </div>
+                    <select
+                      value={passengerCount}
+                      onChange={(e) => handlePassengerCountChange(Number(e.target.value))}
+                      className="rounded-xl border border-neutral-300 px-3 py-2.5 text-sm font-medium focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                    >
+                      {Array.from({ length: maxPassengers }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {i + 1} pasajero{i > 0 ? 's' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </Card>
 
                 {/* Passenger forms */}
