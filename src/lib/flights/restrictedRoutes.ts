@@ -1,6 +1,6 @@
 /**
  * @fileoverview Restricted jurisdictions — blocked per US OFAC sanctions
- * and Stripe's prohibited businesses policy.
+ * and US payment processor compliance policies.
  *
  * Covers: Cuba, Iran, North Korea, Syria, and Crimea (occupied territory).
  *

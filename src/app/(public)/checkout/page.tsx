@@ -1,6 +1,6 @@
 // src/app/(public)/checkout/page.tsx
 /**
- * @fileoverview Checkout page — creates booking + passengers, then redirects to /pay for real payment (Stripe/Zelle).
+ * @fileoverview Checkout page — creates booking + passengers, then coordinates manual payment (Zelle/PIX/SPEI/Square).
  * Supports two booking modes:
  *   1. Flight-based: ?flight={uuid}&passengers=N  (from flight search)
  *   2. Offer-based:  ?offer={uuid}&date=YYYY-MM-DD&passengers=N  (from exclusive offers)
@@ -54,7 +54,14 @@ const FormField = ({
   </div>
 );
 
-type Gateway = 'stripe' | 'zelle';
+type Gateway = 'zelle' | 'pix' | 'spei' | 'square';
+
+const METHOD_LABELS: Record<Gateway, string> = {
+  zelle: 'Zelle (USA)',
+  pix: 'PIX (Brasil)',
+  spei: 'SPEI (Mexico)',
+  square: 'Tarjeta (Square)',
+};
 
 /** Shape of offer data used in checkout — enriched with flight details */
 interface OfferCheckoutData {
@@ -364,52 +371,33 @@ function isUuidLike(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
 
-// ─── WhatsApp helper for Zelle payment verification ─────────────────────────
-interface ZelleWhatsAppOpts {
+// ─── WhatsApp helper for manual payment coordination ─────────────────────────
+interface ManualPaymentWhatsAppOpts {
   bookingCode: string;
-  passengers: Array<{
-    first_name: string;
-    last_name: string;
-    nationality: string;
-    passport_number: string;
-    passport_expiry: string;
-    dob: string;
-  }>;
-  contactEmail: string;
-  contactPhone: string;
+  originCode: string;
+  destinationCode: string;
+  date: string;
+  passengerCount: number;
   total: number;
-  flightInfo: string;
+  methodLabel: string;
   businessPhone: string;
 }
 
-function buildZelleWhatsAppUrl(opts: ZelleWhatsAppOpts): string {
+function buildManualPaymentWhatsAppUrl(opts: ManualPaymentWhatsAppOpts): string {
   const phone = opts.businessPhone.replace(/[^0-9+]/g, '').replace(/^\+/, '');
 
-  const passengerLines = opts.passengers
-    .map(
-      (p, i) =>
-        `  ${i + 1}. ${p.first_name.trim()} ${p.last_name.trim()}\n` +
-        `     Pasaporte: ${p.passport_number.trim()} | Nac: ${p.nationality.trim().toUpperCase()} | Vence: ${p.passport_expiry}`
-    )
-    .join('\n');
-
   const msg = [
-    `🛫 *RESERVA POR ZELLE — Global Solutions Travel*`,
+    `Hola, quiero coordinar el pago de mi reserva.`,
     ``,
-    `📋 *Código de reserva:* ${opts.bookingCode}`,
-    `💰 *Total a pagar:* $${opts.total.toFixed(2)} USD`,
+    `📋 RESERVA: ${opts.bookingCode}`,
+    `✈️ RUTA: ${opts.originCode} → ${opts.destinationCode}`,
+    `📅 Fecha: ${opts.date}`,
+    `👤 Pasajeros: ${opts.passengerCount}`,
+    `💰 Total: $${opts.total.toFixed(2)} USD`,
     ``,
-    `✈️ *DETALLES DEL VUELO*`,
-    opts.flightInfo,
+    `💳 Metodo de pago: ${opts.methodLabel}`,
     ``,
-    `👥 *PASAJEROS (${opts.passengers.length})*`,
-    passengerLines,
-    ``,
-    `📞 *DATOS DE CONTACTO*`,
-    `  • Email: ${opts.contactEmail}`,
-    `  • Teléfono: ${opts.contactPhone}`,
-    ``,
-    `Quisiera realizar el pago por Zelle para confirmar esta reserva. ¿Me pueden facilitar los datos de la cuenta Zelle a la que debo realizar la transferencia? Quedo en espera, muchas gracias.`,
+    `Quedo atento a los datos bancarios para realizar la transferencia.`,
   ].join('\n');
 
   return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
@@ -474,7 +462,7 @@ function CheckoutPageInner() {
 
   // --- Shared state ---
   const [loading, setLoading] = useState(true);
-  const [gateway, setGateway] = useState<Gateway>('stripe');
+  const [gateway, setGateway] = useState<Gateway>('zelle');
   const [passengers, setPassengers] = useState<
     Array<{
       first_name: string;
@@ -492,7 +480,7 @@ function CheckoutPageInner() {
   const [contactPhone, setContactPhone] = useState('');
   const [success, setSuccess] = useState(false);
   const [bookingCode, setBookingCode] = useState('');
-  const [zelleWhatsAppUrl, setZelleWhatsAppUrl] = useState('');
+  const [manualWhatsAppUrl, setManualWhatsAppUrl] = useState('');
   const [serverBreakdown, setServerBreakdown] = useState<PriceBreakdown | null>(null);
   const [pricingLoading, setPricingLoading] = useState(false);
 
@@ -928,13 +916,13 @@ function CheckoutPageInner() {
     const base = (!isOfferMode && serverBreakdown) ? serverBreakdown : null;
     const subtotal = base ? base.subtotal : pricePerPerson * passengerCount;
     const gatewayFee = calculateGatewayFee(subtotal, gateway);
-    const total = Math.round((subtotal + (gateway === 'zelle' ? 0 : gatewayFee)) * 100) / 100;
+    const total = Math.round((subtotal + gatewayFee) * 100) / 100;
 
     const result: PriceBreakdown = {
       base_price: base?.base_price ?? pricePerPerson,
       markup_amount: base?.markup_amount ?? 0,
       subtotal,
-      gateway_fee: gateway === 'zelle' ? 0 : Math.round(gatewayFee * 100) / 100,
+      gateway_fee: Math.round(gatewayFee * 100) / 100,
       gateway_fee_pct: settings[`${gateway}_fee_percentage` as keyof typeof settings] as number,
       gateway_fixed_fee: settings[`${gateway}_fee_fixed` as keyof typeof settings] as number,
       total,
@@ -1004,20 +992,20 @@ function CheckoutPageInner() {
     return true;
   }
 
-  async function requestZelle(bookingId: string) {
-  const res = await fetch('/api/payments/zelle/request', {
+  async function requestManualPayment(bookingId: string) {
+  const res = await fetch('/api/payments/manual/request', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       booking_id: bookingId,
-      note: 'Checkout: user selected Zelle',
+      payment_method: gateway,
     }),
   });
 
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {
-    throw new Error(data?.error || 'Failed to request Zelle');
+    throw new Error(data?.error || 'Failed to request manual payment');
   }
 
   return data as { success: boolean; already_requested?: boolean; repaired?: boolean };
@@ -1036,7 +1024,7 @@ function CheckoutPageInner() {
 
     // Abrimos la ventana de WhatsApp de forma síncrona (antes de cualquier await)
     // para que el navegador no la bloquee como popup. Luego le asignamos la URL real.
-    const waWindowRef = gateway === 'zelle' ? window.open('about:blank', '_blank') : null;
+    const waWindowRef = window.open('about:blank', '_blank');
 
     try {
       const newBookingCode = `GST-${Date.now().toString(36).toUpperCase().slice(-6)}`;
@@ -1059,8 +1047,8 @@ function CheckoutPageInner() {
             flight_id: null,
             trip_type: 'multicity',
             subtotal: totalSubtotal,
-            payment_gateway_fee: gateway === 'zelle' ? 0 : Math.round(gatewayFeeMulticity * 100) / 100,
-            total_amount: gateway === 'zelle' ? totalSubtotal : totalMulticity,
+            payment_gateway_fee: Math.round(gatewayFeeMulticity * 100) / 100,
+            total_amount: totalMulticity,
             payment_method: gateway,
             payment_status: 'pending',
             booking_status: 'pending_emission',
@@ -1134,38 +1122,24 @@ function CheckoutPageInner() {
           }
         }
 
-        if (gateway === 'zelle') {
-          await requestZelle(booking.id);
-          // Open WhatsApp with full booking details for agent verification
-          const zelleFlightInfoMulticity = multicityLegs
-            .map((leg, i) => {
-              const raw = leg.rawFlight as Record<string, unknown>;
-              const depRaw = String(raw.departure_datetime ?? raw.departureTime ?? '');
-              const depFormatted = depRaw ? depRaw.replace('T', ' ').slice(0, 16) : null;
-              return (
-                `  Tramo ${i + 1}: ${leg.legMeta.origin} → ${leg.legMeta.destination}\n` +
-                `  Fecha: ${leg.legMeta.date}` +
-                (depFormatted ? `\n  Salida: ${depFormatted}` : '')
-              );
-            })
-            .join('\n\n');
-          const waUrlMulticity = buildZelleWhatsAppUrl({
-            bookingCode: newBookingCode,
-            passengers,
-            contactEmail: contactEmail.trim(),
-            contactPhone: contactPhone.trim(),
-            total: totalSubtotal,
-            flightInfo: zelleFlightInfoMulticity,
-            businessPhone: settings.business_phone || '',
-          });
-          setZelleWhatsAppUrl(waUrlMulticity);
-          if (waWindowRef) waWindowRef.location.href = waUrlMulticity;
-          setBookingCode(newBookingCode);
-          setSuccess(true);
-          return;
-        }
-
-        router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
+        await requestManualPayment(booking.id);
+        // Open WhatsApp with booking details for agent coordination
+        const firstLeg = multicityLegs[0];
+        const lastLeg = multicityLegs[multicityLegs.length - 1];
+        const waUrlMulticity = buildManualPaymentWhatsAppUrl({
+          bookingCode: newBookingCode,
+          originCode: firstLeg.legMeta.origin,
+          destinationCode: lastLeg.legMeta.destination,
+          date: firstLeg.legMeta.date,
+          passengerCount,
+          total: totalMulticity,
+          methodLabel: METHOD_LABELS[gateway],
+          businessPhone: settings.business_phone || '',
+        });
+        setManualWhatsAppUrl(waUrlMulticity);
+        if (waWindowRef) waWindowRef.location.href = waUrlMulticity;
+        setBookingCode(newBookingCode);
+        setSuccess(true);
       } else if (isOfferMode && offerData) {
         // ═══ OFFER BOOKING ═══
         const { data: booking, error: bookingErr } = await supabase
@@ -1215,34 +1189,24 @@ function CheckoutPageInner() {
           .update({ sold_seats: offerData.sold_seats + passengerCount })
           .eq('id', offerData.offer_id);
 
-        if (gateway === 'zelle') {
-          await requestZelle(booking.id);
-          // Open WhatsApp with full booking details for agent verification
-          const zelleFlightInfoOffer = [
-            offerData.airline_name ? `  • Aerolínea: ${offerData.airline_name}` : null,
-            offerData.flight_number ? `  • Vuelo: ${offerData.flight_number}` : null,
-            `  • Ruta: ${offerData.origin_code ?? offerData.origin_city ?? 'N/A'} → ${offerData.destination_code ?? offerData.destination_city ?? offerData.destination}`,
-            `  • Fecha: ${offerData.selected_date}`,
-            offerData.departure_time ? `  • Salida: ${offerData.departure_time}` : null,
-            offerData.arrival_time ? `  • Llegada: ${offerData.arrival_time}` : null,
-          ].filter((x): x is string => x !== null).join('\n');
-          const waUrlOffer = buildZelleWhatsAppUrl({
-            bookingCode: newBookingCode,
-            passengers,
-            contactEmail: contactEmail.trim(),
-            contactPhone: contactPhone.trim(),
-            total: breakdown.total,
-            flightInfo: zelleFlightInfoOffer,
-            businessPhone: settings.business_phone || '',
-          });
-          setZelleWhatsAppUrl(waUrlOffer);
-          if (waWindowRef) waWindowRef.location.href = waUrlOffer;
-          setBookingCode(newBookingCode);
-          setSuccess(true);
-          return;
-        }
-
-        router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
+        await requestManualPayment(booking.id);
+        // Open WhatsApp with booking details for agent coordination
+        const offerOrigin = offerData.origin_code ?? offerData.origin_city ?? 'N/A';
+        const offerDest = offerData.destination_code ?? offerData.destination_city ?? offerData.destination;
+        const waUrlOffer = buildManualPaymentWhatsAppUrl({
+          bookingCode: newBookingCode,
+          originCode: offerOrigin,
+          destinationCode: offerDest,
+          date: offerData.selected_date,
+          passengerCount,
+          total: breakdown.total,
+          methodLabel: METHOD_LABELS[gateway],
+          businessPhone: settings.business_phone || '',
+        });
+        setManualWhatsAppUrl(waUrlOffer);
+        if (waWindowRef) waWindowRef.location.href = waUrlOffer;
+        setBookingCode(newBookingCode);
+        setSuccess(true);
       } else if (flight && flightDbId) {
         // ═══ FLIGHT BOOKING ═══
         if (!isUuidLike(flightDbId)) {
@@ -1295,37 +1259,27 @@ function CheckoutPageInner() {
           .update({ available_seats: flight.available_seats - passengerCount })
           .eq('id', flightDbId);
 
-        if (gateway === 'zelle') {
-          await requestZelle(booking.id);
-          // Open WhatsApp with full booking details for agent verification
-          const zelleFlightInfoFlight = [
-            `  • Aerolínea: ${flight.airline?.name ?? 'N/A'}`,
-            `  • Vuelo: ${flight.flight_number}`,
-            `  • Ruta: ${flight.origin_airport?.iata_code ?? '?'} → ${flight.destination_airport?.iata_code ?? '?'}`,
-            flight.departure_datetime
-              ? `  • Salida: ${flight.departure_datetime.replace('T', ' ').slice(0, 16)}`
-              : null,
-            flight.arrival_datetime
-              ? `  • Llegada: ${flight.arrival_datetime.replace('T', ' ').slice(0, 16)}`
-              : null,
-          ].filter((x): x is string => x !== null).join('\n');
-          const waUrlFlight = buildZelleWhatsAppUrl({
-            bookingCode: newBookingCode,
-            passengers,
-            contactEmail: contactEmail.trim(),
-            contactPhone: contactPhone.trim(),
-            total: breakdown.total,
-            flightInfo: zelleFlightInfoFlight,
-            businessPhone: settings.business_phone || '',
-          });
-          setZelleWhatsAppUrl(waUrlFlight);
-          if (waWindowRef) waWindowRef.location.href = waUrlFlight;
-          setBookingCode(newBookingCode);
-          setSuccess(true);
-          return;
-        }
-
-        router.push(`/pay?booking_id=${encodeURIComponent(booking.id)}&method=${encodeURIComponent(gateway)}`);
+        await requestManualPayment(booking.id);
+        // Open WhatsApp with booking details for agent coordination
+        const flightOrigin = flight.origin_airport?.iata_code ?? '?';
+        const flightDest = flight.destination_airport?.iata_code ?? '?';
+        const flightDateStr = flight.departure_datetime
+          ? flight.departure_datetime.slice(0, 10)
+          : '';
+        const waUrlFlight = buildManualPaymentWhatsAppUrl({
+          bookingCode: newBookingCode,
+          originCode: flightOrigin,
+          destinationCode: flightDest,
+          date: flightDateStr,
+          passengerCount,
+          total: breakdown.total,
+          methodLabel: METHOD_LABELS[gateway],
+          businessPhone: settings.business_phone || '',
+        });
+        setManualWhatsAppUrl(waUrlFlight);
+        if (waWindowRef) waWindowRef.location.href = waUrlFlight;
+        setBookingCode(newBookingCode);
+        setSuccess(true);
       }
     } catch (err) {
       console.error('[Checkout] Submit error:', err);
@@ -1337,66 +1291,43 @@ function CheckoutPageInner() {
     }
   }
 
-  // --- Success screen (Zelle) ---
+  // --- Success screen (manual payment) ---
   if (success) {
-    // Build WhatsApp URL with comprehensive reservation data for agent verification
-    const whatsappPhone = (settings.business_phone || '').replace(/[^0-9+]/g, '').replace(/^\+/, '');
+    // The WhatsApp URL was already set during the submit flow (manualWhatsAppUrl state).
+    // Build a fallback URL in case it wasn't set (e.g. page refresh).
+    const successWhatsappUrl = manualWhatsAppUrl || (() => {
+      const whatsappPhone = (settings.business_phone || '').replace(/[^0-9+]/g, '').replace(/^\+/, '');
+      if (!whatsappPhone) return '';
 
-    const passengerLines = passengers.map((p, i) =>
-      `  ${i + 1}. ${p.first_name} ${p.last_name}\n     Pasaporte: ${p.passport_number} (vence: ${p.passport_expiry}) | Nac.: ${p.nationality}`
-    ).join('\n');
+      let originCode = '';
+      let destCode = '';
+      let dateStr = '';
 
-    let routeLines = '';
-    if (isMulticityMode && multicityLegs.length > 0) {
-      routeLines = multicityLegs.map((leg, i) =>
-        `  Tramo ${i + 1}: ${leg.legMeta.origin} → ${leg.legMeta.destination} (${leg.legMeta.date})`
-      ).join('\n');
-    } else if (isOfferMode && offerData) {
-      const orig = offerData.origin_city || offerData.origin_code || '';
-      const dest = offerData.destination_city || offerData.destination_code || offerData.destination || '';
-      const depDate = offerData.selected_date
-        ? new Date(offerData.selected_date + 'T12:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })
-        : '';
-      routeLines = `  ${orig} → ${dest}${depDate ? ` | Fecha: ${depDate}` : ''}`;
-    } else if (flight) {
-      // Prefer IATA code (always meaningful); only use city if it's not the 'Origen'/'Destino' placeholder
-      const origIata = flight.origin_airport?.iata_code || '';
-      const destIata = flight.destination_airport?.iata_code || '';
-      const origCity = flight.origin_airport?.city;
-      const destCity = flight.destination_airport?.city;
-      const orig = origIata || (origCity && origCity !== 'Origen' ? origCity : '') || '';
-      const dest = destIata || (destCity && destCity !== 'Destino' ? destCity : '') || '';
-      const depDate = flight.departure_datetime
-        ? new Date(flight.departure_datetime.slice(0, 10) + 'T12:00:00').toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })
-        : '';
-      if (orig || dest) {
-        routeLines = `  ${orig} → ${dest}${depDate ? ` | Salida: ${depDate}` : ''}`;
+      if (isMulticityMode && multicityLegs.length > 0) {
+        originCode = multicityLegs[0].legMeta.origin;
+        destCode = multicityLegs[multicityLegs.length - 1].legMeta.destination;
+        dateStr = multicityLegs[0].legMeta.date;
+      } else if (isOfferMode && offerData) {
+        originCode = offerData.origin_code ?? offerData.origin_city ?? '';
+        destCode = offerData.destination_code ?? offerData.destination_city ?? offerData.destination ?? '';
+        dateStr = offerData.selected_date;
+      } else if (flight) {
+        originCode = flight.origin_airport?.iata_code ?? '';
+        destCode = flight.destination_airport?.iata_code ?? '';
+        dateStr = flight.departure_datetime ? flight.departure_datetime.slice(0, 10) : '';
       }
-    }
 
-    const zelleMsg = [
-      `Estimados, me comunico para coordinar el pago de mi reserva por Zelle y solicitar la verificación correspondiente.`,
-      ``,
-      `📋 *DATOS DE LA RESERVA*`,
-      `• Código: *${bookingCode}*`,
-      `• Total a pagar: *$${breakdown.total.toFixed(2)} USD*`,
-      routeLines ? `\n✈️ *RUTA*\n${routeLines}` : '',
-      ``,
-      `👤 *PASAJERO(S)*`,
-      passengerLines,
-      ``,
-      `📞 *DATOS DE CONTACTO*`,
-      `• Email: ${contactEmail}`,
-      `• Teléfono: ${contactPhone}`,
-      ``,
-      `Por favor, proporcione los datos de la cuenta Zelle para proceder con el pago. Una vez realizada la transferencia, enviaré el comprobante para que un agente pueda verificarlo y confirmar la reserva.`,
-      ``,
-      `Gracias por su atención.`,
-    ].filter(Boolean).join('\n');
-
-    const zelleWhatsappUrl = whatsappPhone
-      ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(zelleMsg)}`
-      : '';
+      return buildManualPaymentWhatsAppUrl({
+        bookingCode,
+        originCode,
+        destinationCode: destCode,
+        date: dateStr,
+        passengerCount,
+        total: breakdown.total,
+        methodLabel: METHOD_LABELS[gateway],
+        businessPhone: settings.business_phone || '',
+      });
+    })();
 
     return (
       <>
@@ -1409,11 +1340,11 @@ function CheckoutPageInner() {
               <p className="mt-2 font-mono text-lg font-bold text-brand-600">{bookingCode}</p>
             </div>
             <p className="text-sm text-neutral-600">
-              Tu reserva está pendiente de pago. Contáctanos por WhatsApp para recibir los datos de la cuenta Zelle y coordinar la verificación de tu transferencia.
+              Tu reserva está pendiente de pago. Contáctanos por WhatsApp para coordinar el pago mediante <strong>{METHOD_LABELS[gateway]}</strong> y confirmar tu reserva.
             </p>
-            {zelleWhatsappUrl ? (
+            {successWhatsappUrl ? (
               <a
-                href={zelleWhatsappUrl}
+                href={successWhatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex w-full items-center justify-center gap-3 rounded-xl bg-[#25D366] hover:bg-[#1ebe5d] text-white px-6 py-4 font-bold text-base transition-colors shadow-md"
@@ -1425,7 +1356,7 @@ function CheckoutPageInner() {
               </a>
             ) : (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                Contáctanos directamente para recibir los datos de pago por Zelle.
+                Contáctanos directamente para coordinar tu pago.
               </div>
             )}
             <p className="text-xs text-neutral-400">
@@ -1898,18 +1829,30 @@ function CheckoutPageInner() {
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {([
                       {
-                        id: 'stripe' as const,
-                        icon: CreditCard,
-                        label: 'Tarjeta de Crédito/Débito',
-                        sub: 'Visa, Mastercard, Amex',
-                      },
-                      {
-                        id: 'zelle' as const,
+                        id: 'zelle' as Gateway,
                         icon: Banknote,
                         label: 'Zelle',
-                        sub: 'Transferencia directa',
+                        sub: 'Transferencia USA',
                       },
-                    ] as const).map((m) => (
+                      {
+                        id: 'pix' as Gateway,
+                        icon: Banknote,
+                        label: 'PIX',
+                        sub: 'Transferencia Brasil',
+                      },
+                      {
+                        id: 'spei' as Gateway,
+                        icon: Banknote,
+                        label: 'SPEI',
+                        sub: 'Transferencia Mexico',
+                      },
+                      {
+                        id: 'square' as Gateway,
+                        icon: CreditCard,
+                        label: 'Tarjeta / Square',
+                        sub: 'Visa, Mastercard, Amex',
+                      },
+                    ]).map((m) => (
                       <button
                         key={m.id}
                         type="button"
@@ -1931,12 +1874,10 @@ function CheckoutPageInner() {
                     ))}
                   </div>
 
-                  {gateway === 'zelle' && (
-                    <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                      <strong>Zelle:</strong> Te contactaremos por WhatsApp para compartir los datos de la cuenta.
-                      Luego sube tu comprobante de pago y un agente confirmará tu reserva en 2–4 horas.
-                    </div>
-                  )}
+                  <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                    Te contactaremos por WhatsApp para compartir los datos de pago.
+                    Luego sube tu comprobante y un agente confirmará tu reserva en 2-4 horas.
+                  </div>
                 </Card>
               </div>
 
@@ -1982,7 +1923,7 @@ function CheckoutPageInner() {
                   className="w-full gap-2"
                 >
                   <Lock className="h-4 w-4" />
-                  {gateway === 'zelle' ? `Reservar $${breakdown.total.toFixed(2)}` : `Continuar a pagar`}
+                  {`Reservar $${breakdown.total.toFixed(2)}`}
                 </Button>
 
                 <p className="flex items-center justify-center gap-1.5 text-xs text-neutral-400">

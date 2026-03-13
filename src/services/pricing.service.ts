@@ -162,12 +162,16 @@ export async function fetchGatewayFeePolicy(
     if (row.key === fixedKey) fixedAmount = val;
   }
 
-  // Fallback defaults (real processor rates)
-  const defaultPct = gateway === "stripe" ? 2.9 : 3.49;
-  const defaultFixed = gateway === "stripe" ? 0.30 : 0.49;
-
-  const pct = percentage ?? defaultPct;
-  const fixed = fixedAmount ?? defaultFixed;
+  // Fallback defaults per gateway
+  const FALLBACK_FEES: Record<string, { pct: number; fixed: number }> = {
+    zelle:  { pct: 0, fixed: 0 },
+    pix:    { pct: 0, fixed: 0 },
+    spei:   { pct: 0, fixed: 0 },
+    square: { pct: 2.9, fixed: 0.30 },
+  };
+  const defaults = FALLBACK_FEES[gateway] ?? { pct: 0, fixed: 0 };
+  const pct = percentage ?? defaults.pct;
+  const fixed = fixedAmount ?? defaults.fixed;
 
   if (pct === 0 && fixed === 0) {
     return { type: "none" };
@@ -185,11 +189,11 @@ export async function fetchGatewayFeePolicy(
  *  1. Fetches booking, flight, and passengers from DB (via admin client)
  *  2. Applies age-based multipliers (Infant 10%, Child 75%, Adult 100%)
  *  3. Adds volatility buffer (3%)
- *  4. Adds gateway fee (Stripe: 2.9%+$0.30 | PayPal: 3.49%+$0.49)
+ *  4. Adds gateway fee (Square: 2.9%+$0.30 | Zelle/PIX/SPEI: 0%)
  *  5. Returns full desglose (breakdown)
  *
  * @param bookingId - UUID of the booking
- * @param gateway - 'stripe' | 'paypal'
+ * @param gateway - 'zelle' | 'pix' | 'spei' | 'square'
  * @returns BookingPricingResult with full breakdown
  */
 export async function calculateFinalBookingPrice(

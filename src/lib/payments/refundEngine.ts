@@ -245,7 +245,7 @@ export async function processRefund(
   
   // Log refund event
   const { error: logError } = await supabaseAdmin.rpc("log_payment_event_once", {
-    p_provider: calculation.booking_id.toLowerCase().includes("paypal") ? "paypal" : "stripe",
+    p_provider: "manual",
     p_event_id: `refund_${bookingId}_${Date.now()}`,
     p_event_type: "refund.processed",
     p_booking_id: bookingId,

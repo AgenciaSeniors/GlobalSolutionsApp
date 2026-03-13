@@ -4,16 +4,16 @@
  * Uses the deterministic math engine in `priceEngine.ts` and applies:
  * - Passenger age multipliers (Infant: 10%, Child: 75%, Adult: 100%)
  * - Volatility buffer (3% to cover FX fluctuations)
- * - Payment gateway fees (Stripe: 2.9% + $0.30, PayPal: 3.49% + $0.49)
+ * - Payment gateway fees (Square: 2.9% + $0.30 | Zelle/PIX/SPEI: 0%)
  *
- * IMPORTANT: This module is backend source-of-truth. 
+ * IMPORTANT: This module is backend source-of-truth.
  * Do NOT calculate totals in the frontend for security.
  */
 
 import { priceEngine, type PriceBreakdown, type FeePolicy } from "./priceEngine";
 import { passengerTypeFromDobIso, AGE_MULTIPLIERS, type PassengerType } from "./passengerRules";
 
-export type PaymentGateway = "stripe" | "paypal";
+export type PaymentGateway = "zelle" | "pix" | "spei" | "square";
 
 export interface PassengerInput {
   /** Passenger date of birth, expected as ISO date-only: "YYYY-MM-DD". */
@@ -34,13 +34,17 @@ export { AGE_MULTIPLIERS };
 export const VOLATILITY_BUFFER_PERCENT = 3;
 
 /**
- * Gateway fees (USD) - Module 2 spec:
- * - Stripe: 2.9% + $0.30
- * - PayPal: 3.49% + $0.49
+ * Gateway fees (USD):
+ * - Zelle: 0% (free P2P transfer)
+ * - PIX: 0% (free Brazilian instant transfer)
+ * - SPEI: 0% (free Mexican bank transfer)
+ * - Square: 2.9% + $0.30 (card processing)
  */
 export const GATEWAY_FEE_POLICY: Readonly<Record<PaymentGateway, FeePolicy>> = {
-  stripe: { type: "mixed", percentage: 2.9, fixed_amount: 0.30 },
-  paypal: { type: "mixed", percentage: 3.49, fixed_amount: 0.49 },
+  zelle:  { type: "none" },
+  pix:    { type: "none" },
+  spei:   { type: "none" },
+  square: { type: "mixed", percentage: 2.9, fixed_amount: 0.30 },
 } as const;
 
 function assertFiniteNonNegative(name: string, value: number): void {
@@ -58,7 +62,7 @@ function assertFiniteNonNegative(name: string, value: number): void {
  * 
  * @param basePrice - Base price per adult passenger, in major units (e.g. 199.99)
  * @param passengers - Array of passengers with DOB for age classification
- * @param gateway - Payment gateway to apply fee policy ('stripe' | 'paypal')
+ * @param gateway - Payment gateway to apply fee policy ('zelle' | 'pix' | 'spei' | 'square')
  * @returns Complete price breakdown with all components
  */
 export function calculateBookingTotal(
@@ -122,40 +126,11 @@ export function getPassengerPricingDetails(
   });
 }
 
-/**
- * Compare pricing between different payment gateways
- * Useful for showing users the price difference
- * 
- * @param basePrice - Base price per adult passenger
- * @param passengers - Array of passengers with DOB
- * @returns Comparison of pricing for each gateway
- */
-export function compareGatewayPricing(
-  basePrice: number,
-  passengers: ReadonlyArray<PassengerInput>
-): {
-  stripe: PriceBreakdown;
-  paypal: PriceBreakdown;
-  difference: number;
-  savings_gateway: PaymentGateway | null;
-} {
-  const stripePricing = calculateBookingTotal(basePrice, passengers, "stripe");
-  const paypalPricing = calculateBookingTotal(basePrice, passengers, "paypal");
-  
-  const difference = Math.abs(stripePricing.total_amount - paypalPricing.total_amount);
-  const savings_gateway = stripePricing.total_amount < paypalPricing.total_amount 
-    ? "stripe" 
-    : paypalPricing.total_amount < stripePricing.total_amount 
-      ? "paypal" 
-      : null;
-  
-  return {
-    stripe: stripePricing,
-    paypal: paypalPricing,
-    difference,
-    savings_gateway,
-  };
-}
+/** All supported manual payment methods. */
+export const MANUAL_PAYMENT_METHODS: readonly PaymentGateway[] = ["zelle", "pix", "spei", "square"] as const;
+
+/** Methods that have zero gateway fees. */
+export const NO_FEE_METHODS: ReadonlySet<PaymentGateway> = new Set(["zelle", "pix", "spei"]);
 
 /**
  * Format price breakdown for display or storage

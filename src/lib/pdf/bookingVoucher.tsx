@@ -170,7 +170,7 @@ export const BookingVoucherDocument = ({ booking }: { booking: VoucherBooking })
 
   const payStatusMap: Record<string, string> = { paid: 'PAGADO', pending: 'PENDIENTE', refunded: 'REEMBOLSADO', failed: 'FALLIDO' };
   const bkStatusMap: Record<string, string> = { confirmed: 'CONFIRMADO', pending: 'PENDIENTE', cancelled: 'CANCELADO', completed: 'COMPLETADO' };
-  const pmtMap: Record<string, string> = { stripe: 'Tarjeta (Stripe)', paypal: 'PayPal', zelle: 'Zelle', cash: 'Efectivo' };
+  const pmtMap: Record<string, string> = { zelle: 'Zelle', pix: 'PIX', spei: 'SPEI', square: 'Tarjeta (Square)', cash: 'Efectivo' };
 
   const issueDate = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
   const isPaid = booking.payment_status === 'paid';

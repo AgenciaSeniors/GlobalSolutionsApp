@@ -4,7 +4,7 @@
  * Controls:
  *  - Default markup percentage for new flights
  *  - Min/max markup guardrails
- *  - Payment gateway fee structure (Stripe, Zelle)
+ *  - Payment gateway fee structure (PIX, SPEI, Square, Zelle)
  *  - Emission SLA timers
  *  - Business identity (name, email, phone)
  *  - Loyalty program settings
@@ -44,9 +44,19 @@ const MARKUP_KEYS = [
   { key: 'max_markup_percentage', label: 'Markup máximo permitido (%)', type: 'number', step: '0.5', min: '0', max: '100' },
 ];
 
-const STRIPE_KEYS = [
-  { key: 'stripe_fee_percentage', label: 'Comisión Stripe (%)', type: 'number', step: '0.01', min: '0' },
-  { key: 'stripe_fee_fixed', label: 'Cargo fijo Stripe ($)', type: 'number', step: '0.01', min: '0' },
+const PIX_KEYS = [
+  { key: 'pix_fee_percentage', label: 'Comision PIX (%)', type: 'number', step: '0.01', min: '0' },
+  { key: 'pix_fee_fixed', label: 'Cargo fijo PIX ($)', type: 'number', step: '0.01', min: '0' },
+];
+
+const SPEI_KEYS = [
+  { key: 'spei_fee_percentage', label: 'Comision SPEI (%)', type: 'number', step: '0.01', min: '0' },
+  { key: 'spei_fee_fixed', label: 'Cargo fijo SPEI ($)', type: 'number', step: '0.01', min: '0' },
+];
+
+const SQUARE_KEYS = [
+  { key: 'square_fee_percentage', label: 'Comision Square (%)', type: 'number', step: '0.01', min: '0' },
+  { key: 'square_fee_fixed', label: 'Cargo fijo Square ($)', type: 'number', step: '0.01', min: '0' },
 ];
 
 const ZELLE_KEYS = [
@@ -132,7 +142,7 @@ export default function AdminSettingsPage() {
         return;
       }
 
-      const numKeys = [...MARKUP_KEYS, ...STRIPE_KEYS, ...ZELLE_KEYS, ...SLA_KEYS];
+      const numKeys = [...MARKUP_KEYS, ...PIX_KEYS, ...SPEI_KEYS, ...SQUARE_KEYS, ...ZELLE_KEYS, ...SLA_KEYS];
       const payload = changed.map((key) => {
         const isNum = numKeys.some((nk) => nk.key === key);
         return { key, value: isNum ? (parseFloat(settings[key]) || 0) : settings[key] };
@@ -224,8 +234,10 @@ export default function AdminSettingsPage() {
   const previewBase = 1000;
   const previewMarkup = parseFloat(settings.default_markup_percentage || '10');
   const previewFinal = previewBase * (1 + previewMarkup / 100);
-  const previewStripe = previewFinal * (parseFloat(settings.stripe_fee_percentage || '5.4') / 100) + parseFloat(settings.stripe_fee_fixed || '0.30');
+  const previewSquare = previewFinal * (parseFloat(settings.square_fee_percentage || '5.4') / 100) + parseFloat(settings.square_fee_fixed || '0.30');
   const previewZelle = previewFinal * (parseFloat(settings.zelle_fee_percentage || '0') / 100) + parseFloat(settings.zelle_fee_fixed || '0');
+  const previewPix = previewFinal * (parseFloat(settings.pix_fee_percentage || '0') / 100) + parseFloat(settings.pix_fee_fixed || '0');
+  const previewSpei = previewFinal * (parseFloat(settings.spei_fee_percentage || '0') / 100) + parseFloat(settings.spei_fee_fixed || '0');
 
   return (
     <div className="flex min-h-screen">
@@ -290,22 +302,36 @@ export default function AdminSettingsPage() {
                   <hr />
                   <p className="text-xs font-semibold uppercase text-neutral-400">Si paga con...</p>
                   <div className="flex justify-between text-sm">
-                    <span className="text-neutral-500">Stripe:</span>
-                    <span className="font-mono">
-                      Total ${(previewFinal + previewStripe).toFixed(2)}{' '}
-                      <span className="text-xs text-red-500">(fee: ${previewStripe.toFixed(2)})</span>
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
                     <span className="text-neutral-500">Zelle:</span>
                     <span className="font-mono">
                       Total ${(previewFinal + previewZelle).toFixed(2)}{' '}
                       <span className="text-xs text-emerald-600">(fee: $0.00)</span>
                     </span>
                   </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-neutral-500">PIX:</span>
+                    <span className="font-mono">
+                      Total ${(previewFinal + previewPix).toFixed(2)}{' '}
+                      <span className="text-xs text-emerald-600">(fee: $0.00)</span>
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-neutral-500">SPEI:</span>
+                    <span className="font-mono">
+                      Total ${(previewFinal + previewSpei).toFixed(2)}{' '}
+                      <span className="text-xs text-emerald-600">(fee: $0.00)</span>
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-neutral-500">Square:</span>
+                    <span className="font-mono">
+                      Total ${(previewFinal + previewSquare).toFixed(2)}{' '}
+                      <span className="text-xs text-red-500">(fee: ${previewSquare.toFixed(2)})</span>
+                    </span>
+                  </div>
                   <hr />
                   <div className="flex justify-between text-sm">
-                    <span className="font-medium text-neutral-700">Tu ganancia neta (Stripe):</span>
+                    <span className="font-medium text-neutral-700">Tu ganancia neta (Square):</span>
                     <span className="font-mono font-bold text-emerald-600">
                       ${(previewFinal - previewBase).toFixed(2)}
                     </span>
@@ -316,12 +342,30 @@ export default function AdminSettingsPage() {
                 </div>
               </Card>
 
-              {/* Stripe Fees */}
+              {/* PIX Fees */}
               {renderGroup(
-                'Comisión Stripe',
+                'Comisiones PIX (Brasil)',
+                'Porcentaje + cargo fijo por transacción PIX',
+                <CreditCard className="h-6 w-6 text-green-600" />,
+                PIX_KEYS,
+                'border-green-200 bg-green-50',
+              )}
+
+              {/* SPEI Fees */}
+              {renderGroup(
+                'Comisiones SPEI (Mexico)',
+                'Porcentaje + cargo fijo por transacción SPEI',
+                <CreditCard className="h-6 w-6 text-blue-600" />,
+                SPEI_KEYS,
+                'border-blue-200 bg-blue-50',
+              )}
+
+              {/* Square Fees */}
+              {renderGroup(
+                'Comisiones Square (Tarjeta)',
                 'Porcentaje + cargo fijo por transacción con tarjeta',
                 <CreditCard className="h-6 w-6 text-violet-600" />,
-                STRIPE_KEYS,
+                SQUARE_KEYS,
                 'border-violet-200 bg-violet-50',
               )}
 
