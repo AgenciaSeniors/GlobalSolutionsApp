@@ -3,7 +3,6 @@
  * @module lib/validations/flight.schema
  */
 import { z } from 'zod';
-import { isRestrictedIATA } from '@/lib/flights/restrictedRoutes';
 
 /* ── Helpers ─────────────────────────────────────── */
 
@@ -38,16 +37,6 @@ export const flightSearchSchema = z
       .or(z.literal('')),
     passengers: z.coerce.number().int().min(1).max(9),
     cabinClass: z.enum(['economy', 'premium_economy', 'business', 'first']).default('economy'),
-  })
-  /* origin must not be a restricted jurisdiction */
-  .refine((d) => !isRestrictedIATA(d.origin), {
-    message: 'Lo sentimos, no operamos vuelos hacia o desde esa jurisdicción.',
-    path: ['origin'],
-  })
-  /* destination must not be a restricted jurisdiction */
-  .refine((d) => !isRestrictedIATA(d.destination), {
-    message: 'Lo sentimos, no operamos vuelos hacia o desde esa jurisdicción.',
-    path: ['destination'],
   })
   /* origin !== destination */
   .refine((d) => d.origin !== d.destination, {
