@@ -44,7 +44,12 @@ export default function CarRentalCard({ car }: CarRentalCardProps) {
               sizes="(max-width: 768px) 100vw, 33vw"
             />
           ) : (
-            <Car className="h-16 w-16 text-brand-300" />
+            <div className="flex flex-col items-center gap-2">
+              <Car className="h-14 w-14 text-brand-400" />
+              <span className="text-xs font-semibold text-brand-500 uppercase tracking-wider">
+                {car.brand}
+              </span>
+            </div>
           )}
           <Badge variant="offer" className="absolute left-4 top-4">
             {CATEGORY_LABELS[car.category as keyof typeof CATEGORY_LABELS] ?? car.category}

@@ -5,7 +5,7 @@
 import type { MetadataRoute } from 'next';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://globalsolutionstravel.com';
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://globalsolutiontravel.com';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const supabase = createAdminClient();

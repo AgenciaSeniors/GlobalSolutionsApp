@@ -7,7 +7,7 @@ import type { Metadata } from 'next';
 /* ── Constants ── */
 
 export const SITE_NAME = 'Global Solutions Travel';
-export const SITE_DOMAIN = 'globalsolutionstravel.com';
+export const SITE_DOMAIN = 'globalsolutiontravel.com';
 
 export function getBaseUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || `https://${SITE_DOMAIN}`;

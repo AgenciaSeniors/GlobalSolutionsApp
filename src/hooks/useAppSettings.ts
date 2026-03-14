@@ -44,7 +44,7 @@ const DEFAULTS: AppSettings = {
   review_request_delay_days: 1,
   loyalty_points_per_dollar: 1,
   business_name: 'Global Solutions Travel',
-  business_email: 'admin@globalsolutionstravel.com',
+  business_email: 'admin@globalsolutiontravel.com',
   business_phone: '+1 (305) 555-0100',
   business_address: 'Miami, FL, USA',
   currency: 'USD',

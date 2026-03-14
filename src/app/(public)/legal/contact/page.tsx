@@ -31,7 +31,7 @@ export default function ContactPage() {
               <Mail className="h-8 w-8 text-brand-500 flex-shrink-0 mt-1" />
               <div>
                 <h3 className="font-bold">Email</h3>
-                <p className="text-sm text-neutral-600 mt-1">info@globalsolutionstravel.com</p>
+                <p className="text-sm text-neutral-600 mt-1">info@globalsolutiontravel.com</p>
                 <p className="text-xs text-neutral-400 mt-1">Respuesta en menos de 24 horas</p>
               </div>
             </Card>

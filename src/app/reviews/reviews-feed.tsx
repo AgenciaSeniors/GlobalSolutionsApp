@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { Star, MessageSquare, Shield } from "lucide-react";
 
 type ReviewRow = {
   id: string;
@@ -147,19 +148,46 @@ export default function ReviewsFeed() {
         })}
       </section>
 
-      <div className="mt-8 flex items-center justify-center">
-        {nextCursor ? (
-          <button
-            onClick={() => load(nextCursor)}
-            disabled={!canLoadMore}
-            className="rounded-xl border px-4 py-2 shadow-sm disabled:opacity-60"
-          >
-            {loading ? "Cargando…" : "Cargar más"}
-          </button>
-        ) : (
-          <p className="text-sm opacity-70">No hay más reseñas.</p>
-        )}
-      </div>
+      {items.length === 0 && !loading && !error ? (
+        <div className="flex flex-col items-center py-16 text-center">
+          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-brand-50">
+            <MessageSquare className="h-10 w-10 text-brand-400" />
+          </div>
+          <h3 className="text-xl font-bold text-neutral-800">Sé el primero en opinar</h3>
+          <p className="mt-2 max-w-md text-neutral-500">
+            Aún no hay reseñas publicadas. Después de tu viaje podrás compartir tu experiencia
+            y ayudar a otros viajeros.
+          </p>
+          <div className="mt-8 grid grid-cols-3 gap-6 text-center">
+            <div className="flex flex-col items-center gap-2">
+              <Star className="h-6 w-6 text-yellow-400" />
+              <span className="text-xs text-neutral-500">Opiniones verificadas</span>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <Shield className="h-6 w-6 text-emerald-500" />
+              <span className="text-xs text-neutral-500">Solo clientes reales</span>
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <MessageSquare className="h-6 w-6 text-brand-500" />
+              <span className="text-xs text-neutral-500">Transparencia total</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-8 flex items-center justify-center">
+          {nextCursor ? (
+            <button
+              onClick={() => load(nextCursor)}
+              disabled={!canLoadMore}
+              className="rounded-xl border px-4 py-2 shadow-sm disabled:opacity-60"
+            >
+              {loading ? "Cargando…" : "Cargar más"}
+            </button>
+          ) : items.length > 0 ? (
+            <p className="text-sm opacity-70">No hay más reseñas.</p>
+          ) : null}
+        </div>
+      )}
 
       {error && items.length > 0 ? (
         <p className="mt-4 text-center text-xs opacity-70">{error}</p>

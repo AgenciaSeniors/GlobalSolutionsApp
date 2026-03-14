@@ -6,7 +6,7 @@
 export const APP_CONFIG = {
   name: 'Global Solutions Travel',
   tagline: 'Tu próxima aventura comienza aquí',
-  supportEmail: 'soporte@globalsolutionstravel.com',
+  supportEmail: 'soporte@globalsolutiontravel.com',
   maxPassengersPerBooking: 9,
   defaultCurrency: 'USD',
   defaultLocale: 'es',

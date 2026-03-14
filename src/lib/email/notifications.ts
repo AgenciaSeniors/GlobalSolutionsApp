@@ -153,7 +153,7 @@ export async function notifyAgentApproved(email: string, data: { name: string })
           <p style="font-size: 16px; line-height: 1.5;">A partir de este momento, tienes acceso a todas las herramientas exclusivas: panel de control de ventas, comisiones, muro de noticias y gestión de clientes.</p>
           
           <div style="text-align: center; margin: 40px 0;">
-            <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://globalsolutionstravel.com'}/agent/dashboard" 
+            <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://globalsolutiontravel.com'}/agent/dashboard" 
                style="background-color: #10b981; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
               Entrar a Mi Perfil de Gestor
             </a>

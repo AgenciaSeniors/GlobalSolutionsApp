@@ -15,7 +15,7 @@ import JsonLd from "@/components/seo/JsonLd";
 import { buildOrganizationSchema, buildWebSiteSchema } from "@/lib/seo/jsonld";
 import { SEO_DEFAULTS } from "@/lib/seo/metadata";
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://globalsolutionstravel.com';
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://globalsolutiontravel.com';
 
 export const viewport: Viewport = {
   width: 'device-width',
