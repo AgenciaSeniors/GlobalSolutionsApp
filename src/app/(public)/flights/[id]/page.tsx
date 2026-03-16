@@ -10,7 +10,8 @@ import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import JsonLd from '@/components/seo/JsonLd';
 import Breadcrumbs from '@/components/seo/Breadcrumbs';
-import { buildFlightRouteSchema } from '@/lib/seo/jsonld';
+import { buildFlightRouteSchema, buildProductReviewProps } from '@/lib/seo/jsonld';
+import { getReviewStats } from '@/lib/seo/review-stats';
 import { createClient } from '@/lib/supabase/server';
 import type { FlightWithDetails } from '@/types/models';
 import FlightDetailClient from './FlightDetailClient';
@@ -73,15 +74,19 @@ export default async function FlightDetailPage({ params }: Props) {
   const origin = flight.origin_airport;
   const destination = flight.destination_airport;
 
-  // Build JSON-LD structured data
-  const flightSchema = buildFlightRouteSchema({
-    originCity: origin.city,
-    originCode: origin.iata_code,
-    destinationCity: destination.city,
-    destinationCode: destination.iata_code,
-    lowPrice: flight.final_price,
-    airlines: [flight.airline.name],
-  });
+  // Build JSON-LD structured data with review ratings
+  const reviewStats = await getReviewStats();
+  const flightSchema = {
+    ...buildFlightRouteSchema({
+      originCity: origin.city,
+      originCode: origin.iata_code,
+      destinationCity: destination.city,
+      destinationCode: destination.iata_code,
+      lowPrice: flight.final_price,
+      airlines: [flight.airline.name],
+    }),
+    ...buildProductReviewProps(reviewStats),
+  };
 
   // Breadcrumb items
   const breadcrumbs = [

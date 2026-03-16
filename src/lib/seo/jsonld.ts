@@ -4,6 +4,7 @@
  * @module lib/seo/jsonld
  */
 import { getBaseUrl, SITE_NAME } from './metadata';
+import type { ReviewStats } from './review-stats';
 
 /* ── Types ── */
 
@@ -49,6 +50,38 @@ export interface ArticleSchemaData {
 export interface HowToStep {
   name: string;
   text: string;
+}
+
+/* ── Review helpers ── */
+
+/** Build aggregateRating + review properties for a Product schema */
+export function buildProductReviewProps(stats: ReviewStats | null) {
+  if (!stats || stats.reviewCount === 0) return {};
+
+  const props: Record<string, unknown> = {
+    aggregateRating: {
+      '@type': 'AggregateRating',
+      ratingValue: stats.ratingValue,
+      bestRating: 5,
+      worstRating: 1,
+      reviewCount: stats.reviewCount,
+    },
+  };
+
+  if (stats.bestReview) {
+    props.review = {
+      '@type': 'Review',
+      author: { '@type': 'Person', name: stats.bestReview.author },
+      reviewRating: {
+        '@type': 'Rating',
+        ratingValue: stats.bestReview.rating,
+        bestRating: 5,
+      },
+      reviewBody: stats.bestReview.body,
+    };
+  }
+
+  return props;
 }
 
 /* ── Generators ── */

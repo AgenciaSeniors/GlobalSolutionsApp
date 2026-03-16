@@ -9,10 +9,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
+import JsonLd from '@/components/seo/JsonLd';
+import Breadcrumbs from '@/components/seo/Breadcrumbs';
 import Badge from '@/components/ui/Badge';
 import { getCarById } from '@/lib/cars/service';
 import { CATEGORY_LABELS, FUEL_LABELS } from '@/lib/cars/types';
 import { formatCurrency } from '@/lib/utils/formatters';
+import { buildAutoRentalSchema, buildProductReviewProps } from '@/lib/seo/jsonld';
+import { getReviewStats } from '@/lib/seo/review-stats';
 import ReserveWhatsApp from '@/components/features/cars/ReserveWhatsApp';
 import {
   Car, Users, Fuel, Cog, Thermometer, Briefcase,
@@ -56,19 +60,35 @@ export default async function CarDetailPage({ params }: Props) {
     ? `${process.env.NEXT_PUBLIC_APP_URL}/cars/${id}`
     : undefined;
 
+  // JSON-LD structured data
+  const reviewStats = await getReviewStats();
+  const carSchema = {
+    ...buildAutoRentalSchema({
+      name: `${car.brand} ${car.model} — Renta en Cuba`,
+      description: `Renta ${car.brand} ${car.model} en Cuba desde $${car.daily_rate}/día. ${car.passenger_capacity} pasajeros.`,
+      lowPrice: car.daily_rate,
+      provider: car.supplier || 'Transtur',
+      areaServed: 'Cuba',
+      image: car.image_url || undefined,
+    }),
+    ...buildProductReviewProps(reviewStats),
+  };
+
+  const breadcrumbItems = [
+    { name: 'Inicio', href: '/' },
+    { name: 'Autos', href: '/cars' },
+    { name: `${car.brand} ${car.model}`, href: `/cars/${id}` },
+  ];
+
   return (
     <>
+      <JsonLd data={carSchema} />
       <Navbar />
       <main className="pt-[72px]">
         <section className="bg-white py-12">
           <div className="mx-auto max-w-6xl px-6">
             {/* Breadcrumb */}
-            <Link
-              href="/cars"
-              className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:underline"
-            >
-              <ArrowLeft className="h-4 w-4" /> Volver a Autos
-            </Link>
+            <Breadcrumbs items={breadcrumbItems} className="mb-6" />
 
             <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
               {/* Image */}

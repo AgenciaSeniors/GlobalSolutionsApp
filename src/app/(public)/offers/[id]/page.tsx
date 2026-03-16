@@ -12,6 +12,8 @@ import JsonLd from '@/components/seo/JsonLd';
 import Breadcrumbs from '@/components/seo/Breadcrumbs';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { buildCanonical, buildOgMeta, SITE_NAME } from '@/lib/seo/metadata';
+import { buildProductReviewProps } from '@/lib/seo/jsonld';
+import { getReviewStats } from '@/lib/seo/review-stats';
 import type { SpecialOffer } from '@/types/models';
 import OfferDetailClient from './OfferDetailClient';
 
@@ -90,7 +92,8 @@ export default async function OfferDetailPage({ params }: Props) {
     ((offer.original_price - price) / offer.original_price) * 100
   );
 
-  /* JSON-LD structured data */
+  /* JSON-LD structured data with review ratings */
+  const reviewStats = await getReviewStats();
   const offerSchema = {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -109,6 +112,7 @@ export default async function OfferDetailPage({ params }: Props) {
       url: buildCanonical(`/offers/${id}`),
       seller: { '@type': 'Organization', name: SITE_NAME },
     },
+    ...buildProductReviewProps(reviewStats),
   };
 
   /* Breadcrumbs */
