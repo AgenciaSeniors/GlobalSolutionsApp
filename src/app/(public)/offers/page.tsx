@@ -9,7 +9,16 @@ import OffersCalendarExplorer from '@/components/features/offers/OffersCalendarE
 import { createClient } from '@/lib/supabase/server';
 import type { SpecialOffer } from '@/types/models';
 
-export const metadata: Metadata = { title: 'Ofertas Exclusivas' };
+export const metadata: Metadata = {
+  title: 'Ofertas Exclusivas — Vuelos a Cuba con Descuentos',
+  description: 'Ofertas exclusivas con descuentos en vuelos a Cuba. Cupos limitados. Paga con Zelle, PIX o SPEI.',
+  alternates: { canonical: '/offers' },
+  openGraph: {
+    title: 'Ofertas Exclusivas — Vuelos a Cuba con Descuentos',
+    description: 'Ofertas exclusivas con descuentos en vuelos a Cuba. Cupos limitados. Paga con Zelle, PIX o SPEI.',
+    url: '/offers',
+  },
+};
 
 export default async function OffersPage() {
   const supabase = await createClient();
