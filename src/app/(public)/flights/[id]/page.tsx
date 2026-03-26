@@ -19,7 +19,7 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-/** Server-side fetch for flight data with joined relations. */
+/** Server-side fetch for flight data with joined relations. Only returns active flights. */
 async function getFlightById(id: string): Promise<FlightWithDetails | null> {
   const supabase = await createClient();
 
@@ -29,6 +29,7 @@ async function getFlightById(id: string): Promise<FlightWithDetails | null> {
       '*, airline:airlines(*), origin_airport:airports!origin_airport_id(*), destination_airport:airports!destination_airport_id(*)'
     )
     .eq('id', id)
+    .eq('is_active', true)
     .single();
 
   if (error || !data) return null;
@@ -40,7 +41,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const flight = await getFlightById(id);
 
   if (!flight) {
-    return { title: 'Vuelo no encontrado' };
+    return { title: 'Vuelo no encontrado', robots: { index: false, follow: false } };
   }
 
   const origin = flight.origin_airport;

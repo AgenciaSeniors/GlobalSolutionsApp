@@ -38,8 +38,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const offer = await getOffer(id);
 
-  if (!offer) {
-    return { title: 'Oferta no encontrada' };
+  if (!offer || !offer.is_active) {
+    return { title: 'Oferta no encontrada', robots: { index: false, follow: false } };
   }
 
   const destination = offer.destination;
@@ -79,7 +79,7 @@ export default async function OfferDetailPage({ params }: Props) {
   const { id } = await params;
   const offer = await getOffer(id);
 
-  if (!offer) {
+  if (!offer || !offer.is_active) {
     notFound();
   }
 

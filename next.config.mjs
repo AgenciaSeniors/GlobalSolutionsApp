@@ -2,6 +2,7 @@
 const nextConfig = {
     reactStrictMode: true,
     poweredByHeader: false,
+    trailingSlash: false,
 
     eslint: {
         // Los errores de lint no deben bloquear el build de producción.

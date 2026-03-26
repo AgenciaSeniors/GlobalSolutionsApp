@@ -26,7 +26,7 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const car = await getCarById(id);
-  if (!car) return { title: 'Auto no encontrado' };
+  if (!car || !car.is_active) return { title: 'Auto no encontrado', robots: { index: false, follow: false } };
   const title = `${car.brand} ${car.model} — Renta de Autos en Cuba`;
   const description = `Renta ${car.brand} ${car.model} en Cuba desde $${car.daily_rate}/día. ${car.passenger_capacity} pasajeros, ${car.transmission === 'automatic' ? 'automático' : 'manual'}. Reserva con Transtur vía Global Solutions Travel.`;
   return {
