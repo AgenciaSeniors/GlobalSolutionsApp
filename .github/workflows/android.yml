@@ -1,0 +1,58 @@
+name: Compilar APK de Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Descargar el código
+        uses: actions/checkout@v4
+
+      - name: 2. Configurar Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 3. Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 4. Instalar dependencias de npm
+        run: npm install --legacy-peer-deps
+
+      - name: 4.5. Preparar variables de entorno
+        run: |
+          cat << 'EOF' > .env.production
+          ${{ secrets.ENV_FILE }}
+          EOF
+
+      - name: 5. Compilar el proyecto web (Next.js)
+        run: npm run build
+
+      - name: 6. Generar todo el entorno Android automáticamente
+        run: |
+          rm -rf android
+          mkdir -p out
+          echo "<html><body>App</body></html>" > out/index.html
+          npx cap add android
+          npx @capacitor/assets generate --android
+          npx cap sync android
+
+      - name: 7. Compilar APK de debug
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: 8. Subir APK para que la descargues
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlobalSolutions-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
