@@ -5,13 +5,20 @@ on:
   push:
     branches: [ main ]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: 1. Descargar el código
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: 2. Configurar Java JDK 17
         uses: actions/setup-java@v4
