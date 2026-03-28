@@ -20,11 +20,11 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: 2. Configurar Java JDK 17
+      - name: 2. Configurar Java JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: 3. Configurar Node.js
         uses: actions/setup-node@v4
