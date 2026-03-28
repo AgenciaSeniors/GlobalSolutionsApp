@@ -1,4 +1,4 @@
-name: Compilar APK de Android
+name: Compilar APK y AAB de Android
 
 on:
   workflow_dispatch:
@@ -51,8 +51,27 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: 8. Subir APK para que la descargues
+      - name: 8. Preparar keystore para firma
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/globalsolutions.jks
+
+      - name: 9. Compilar AAB firmado (para Play Store)
+        run: |
+          cd android
+          ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file=$(pwd)/app/globalsolutions.jks \
+            -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+
+      - name: 10. Subir APK de debug
         uses: actions/upload-artifact@v4
         with:
-          name: GlobalSolutions-Android-APK
+          name: GlobalSolutions-APK-Debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: 11. Subir AAB firmado (Play Store)
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlobalSolutions-AAB-PlayStore
+          path: android/app/build/outputs/bundle/release/app-release.aab
