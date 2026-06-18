@@ -75,30 +75,21 @@ export const loyaltyService = {
     reason: string,
     referenceId?: string,
   ): Promise<number> {
-    const supabase = createClient();
-
-    // Verify sufficient balance
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('loyalty_points')
-      .eq('id', userId)
-      .single();
-
-    if (!profile || profile.loyalty_points < points) {
-      throw new Error('Puntos insuficientes para esta operación.');
-    }
-
-    // Call the RPC to deduct points (negative value)
-    const { error } = await supabase.rpc('add_loyalty_points', {
-      p_user_id: userId,
-      p_points: -points,
-      p_reason: reason,
-      p_ref_type: 'redemption',
-      p_ref_id: referenceId ?? null,
+    // Redemption runs server-side: the `add_loyalty_points` RPC is no longer
+    // callable from the browser (it would allow self-awarding points). The
+    // server identifies the user from the session; `userId` is ignored there.
+    void userId;
+    const res = await fetch('/api/loyalty/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ points, reason, referenceId }),
     });
 
-    if (error) throw error;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error ?? 'No se pudo procesar la redención.');
+    }
 
-    return profile.loyalty_points - points;
+    return data.balance as number;
   },
 };

@@ -86,7 +86,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .from('profiles')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
     if (profileError) {
       console.error('[admin/settings] Profile fetch error:', profileError.message);

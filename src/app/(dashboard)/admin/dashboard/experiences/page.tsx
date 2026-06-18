@@ -129,7 +129,7 @@ export default function AdminExperiencesPage() {
     <div className="flex min-h-screen bg-neutral-50">
       <Sidebar links={ADMIN_SIDEBAR_LINKS} />
       <div className="flex flex-1 flex-col">
-        <Header />
+        <Header title="Experiencia de Clientes" subtitle="Fotos y comentarios del carrusel de inicio" />
         <main className="flex-1 p-6">
 
           {/* Header */}

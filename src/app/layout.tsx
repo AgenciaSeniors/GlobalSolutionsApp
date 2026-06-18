@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     template: "%s | Global Solutions Travel",
   },
   description: SEO_DEFAULTS.description,
-  keywords: SEO_DEFAULTS.keywords,
+  keywords: [...SEO_DEFAULTS.keywords],
   alternates: {
     canonical: '/',
   },

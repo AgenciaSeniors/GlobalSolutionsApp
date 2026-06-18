@@ -45,11 +45,15 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     if (!user) {
       return NextResponse.json({ error: 'No autenticado.' }, { status: 401 });
     }
-    const { data: profile } = await supabaseAdmin
+    const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
+
+    if (profileError) {
+      return NextResponse.json({ error: 'Error verificando permisos.' }, { status: 500 });
+    }
 
     if (!profile || profile.role !== 'admin') {
       return NextResponse.json({ error: 'Acceso denegado. Se requiere rol admin.' }, { status: 403 });

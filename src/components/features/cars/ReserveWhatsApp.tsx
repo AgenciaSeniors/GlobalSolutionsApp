@@ -9,6 +9,7 @@ type ReserveWhatsAppProps = {
     daily_rate: number;
     currency: string;
     pickup_location?: string | null;
+    dropoff_location?: string | null;
   };
   carUrl?: string;
 };
@@ -68,6 +69,9 @@ export default function ReserveWhatsApp({
       `• Auto: ${car.brand} ${car.model}`,
       car.pickup_location
         ? `• Lugar de recogida: ${car.pickup_location}`
+        : null,
+      car.dropoff_location
+        ? `• Lugar de devolución: ${car.dropoff_location}`
         : null,
       startDate ? `• Desde: ${startDate}` : null,
       endDate ? `• Hasta: ${endDate}` : null,
