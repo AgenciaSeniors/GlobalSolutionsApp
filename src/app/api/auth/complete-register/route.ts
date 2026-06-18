@@ -29,6 +29,17 @@ export async function POST(req: Request) {
       );
     }
 
+    // Rate-limit registrations per IP (max 10 / hour) on top of the OTP gate.
+    const ip = (req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown').trim();
+    const { data: regAllowed } = await supabaseAdmin.rpc('auth_throttle_peek', { p_key: `register:${ip}`, p_limit: 10 });
+    if (regAllowed === false) {
+      return NextResponse.json(
+        { error: 'Demasiados intentos. Espera unos minutos.' },
+        { status: 429 },
+      );
+    }
+    await supabaseAdmin.rpc('auth_throttle_hit', { p_key: `register:${ip}`, p_window_seconds: 3600 });
+
     // ✅ Buscar el OTP más reciente verificado y no consumido
     const { data: otpRow, error: fetchErr } = await supabaseAdmin
       .from('auth_otps')

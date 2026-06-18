@@ -31,6 +31,16 @@ export async function POST(req: Request) {
       );
     }
 
+    // Per-email brute-force lockout (max 5 failed attempts / 15 min).
+    const throttleKey = `cred:${email}`;
+    const { data: allowed } = await supabaseAdmin.rpc('auth_throttle_peek', { p_key: throttleKey, p_limit: 5 });
+    if (allowed === false) {
+      return NextResponse.json(
+        { error: 'Demasiados intentos fallidos. Espera unos minutos e intenta de nuevo.' },
+        { status: 429 },
+      );
+    }
+
     // Verificar que el usuario existe y tiene la contraseña correcta
     // Usamos signInWithPassword con el admin client — esto NO afecta cookies del browser
     const { data, error } = await supabaseAdmin.auth.signInWithPassword({
@@ -39,7 +49,8 @@ export async function POST(req: Request) {
     });
 
     if (error) {
-      // No revelar si el email existe o no (seguridad)
+      // Contar el fallo para el lockout; no revelar si el email existe (seguridad)
+      await supabaseAdmin.rpc('auth_throttle_hit', { p_key: throttleKey, p_window_seconds: 900 });
       return NextResponse.json(
         { error: 'Credenciales inválidas.' },
         { status: 401 },

@@ -10,7 +10,7 @@ const supabaseAdmin = createClient(
 );
 
 function sha256(input: string) {
-  return crypto.createHash('sha256').update(input).digest('hex');
+  return crypto.createHash('sha256').update(input + (process.env.OTP_HASH_SECRET ?? '')).digest('hex');
 }
 
 function random6Digits() {

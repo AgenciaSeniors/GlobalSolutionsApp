@@ -11,6 +11,15 @@ export async function POST(request: Request) {
 
     const supabaseAdmin = createAdminClient();
 
+    // Rate-limit reset requests per email (max 5 / hour) and never reveal
+    // whether the email exists (anti-enumeration / anti-spam).
+    const key = `forgot:${String(email).trim().toLowerCase()}`;
+    const { data: allowed } = await supabaseAdmin.rpc('auth_throttle_peek', { p_key: key, p_limit: 5 });
+    if (allowed === false) {
+      return NextResponse.json({ success: true });
+    }
+    await supabaseAdmin.rpc('auth_throttle_hit', { p_key: key, p_window_seconds: 3600 });
+
     // El client admin "generateLink" genera el magic link de manera segura SIN enviar email.
     const { data, error } = await supabaseAdmin.auth.admin.generateLink({
       type: 'recovery',
@@ -21,14 +30,18 @@ export async function POST(request: Request) {
       }
     });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    // El email podría no existir — respondemos éxito igual para no filtrar (enumeración).
+    const resetLink = data?.properties?.action_link;
+    if (error || !resetLink) {
+      return NextResponse.json({ success: true });
     }
 
-    const resetLink = data.properties.action_link;
-
     // Enviar nuestro correo personalizado usando Resend
-    await notifyPasswordReset(email, { resetLink });
+    try {
+      await notifyPasswordReset(email, { resetLink });
+    } catch (mailErr) {
+      console.error('[forgot-password] email send failed:', mailErr);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
