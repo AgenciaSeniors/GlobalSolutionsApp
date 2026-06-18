@@ -75,7 +75,7 @@ export default function AdminReviewsPage() {
         .from('reviews')
         .select(`
           id, rating, title, comment, photo_urls, status, created_at,
-          profile:profiles!reviews_user_id_fkey(full_name, email),
+          profile:profiles!reviews_user_id_fkey(full_name),
           booking:bookings!reviews_booking_id_fkey(booking_code, offer_id)
         `)
         .order('created_at', { ascending: false })

@@ -42,11 +42,7 @@ export default function AgentDashboardPage() {
     try {
       // Optimizamos ejecutando ambas consultas en paralelo
       const [profileRes, newsRes] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('agent_fund_cents, updated_at')
-          .eq('id', user.id)
-          .single(),
+        fetch('/api/me/profile').then(async (r) => ({ data: r.ok ? (await r.json()).profile : null })),
         supabase
           .from('agent_news')
           .select('id, title, content, category, is_pinned, created_at')

@@ -67,7 +67,7 @@ export const commissionService = {
       .from('agent_commissions')
       .select(`
         *,
-        agent:profiles!agent_id(full_name, agent_code),
+        agent:profiles!agent_id(full_name),
         booking:bookings!booking_id(
           booking_code,
           total_amount,

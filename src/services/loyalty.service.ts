@@ -36,15 +36,8 @@ export const loyaltyService = {
   async getBalance(userId: string): Promise<LoyaltyBalance> {
     const supabase = createClient();
 
-    // Get profile points (single source of truth)
-    const { data: profile, error: profileErr } = await supabase
-      .from('profiles')
-      .select('loyalty_points')
-      .eq('id', userId)
-      .single();
-
-    if (profileErr) throw profileErr;
-
+    // Balance is derived from transactions; profiles.loyalty_points is no longer
+    // readable from the browser.
     // Get transaction stats
     const { data: transactions, error: txErr } = await supabase
       .from('loyalty_transactions')
@@ -58,7 +51,7 @@ export const loyaltyService = {
     const totalRedeemed = Math.abs(items.filter(t => t.points < 0).reduce((s, t) => s + t.points, 0));
 
     return {
-      points: profile?.loyalty_points ?? 0,
+      points: totalEarned - totalRedeemed,
       totalEarned,
       totalRedeemed,
       transactionCount: items.length,

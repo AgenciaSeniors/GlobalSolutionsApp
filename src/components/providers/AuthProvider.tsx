@@ -39,20 +39,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 🔧 FIX: fetchProfile memoizado, con manejo de errores robusto
+  // 🔧 FIX: fetchProfile memoizado, con manejo de errores robusto.
+  // Lee vía /api/me/profile (service-role) porque las columnas sensibles del
+  // perfil ya no son legibles por el navegador.
   const fetchProfile = useCallback(
-    async (uid: string) => {
+    async (_uid: string) => {
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', uid)
-          .maybeSingle();
-
-        if (error) {
-          console.warn('[AuthProvider] Profile fetch error (RLS?):', error.message);
+        const res = await fetch('/api/me/profile');
+        if (!res.ok) {
+          console.warn('[AuthProvider] Profile fetch error:', res.status);
           setProfile(null);
         } else {
+          const { profile: data } = await res.json();
           setProfile((data as Profile) ?? null);
         }
       } catch (err) {
@@ -62,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     },
-    [supabase]
+    []
   );
 
   useEffect(() => {

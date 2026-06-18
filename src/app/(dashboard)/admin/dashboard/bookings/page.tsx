@@ -192,7 +192,7 @@ export default function AdminBookingsPage() {
           id, booking_code, booking_status, payment_status, payment_method, payment_gateway,
           total_amount, subtotal, payment_gateway_fee, airline_pnr, zelle_proof_url,
           created_at, paid_at, return_date, emitted_at, offer_id, selected_date,
-          profile:profiles!bookings_user_id_fkey(full_name, email, phone, loyalty_points),
+          profile:profiles!bookings_user_id_fkey(full_name),
           flight:flights!bookings_flight_id_fkey(
             flight_number, departure_datetime, base_price, final_price, markup_percentage,
             airline:airlines!flights_airline_id_fkey(name, iata_code),

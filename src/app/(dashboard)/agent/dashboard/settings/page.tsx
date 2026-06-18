@@ -44,11 +44,8 @@ export default function AgentSettingsPage() {
   useEffect(() => {
     async function loadProfile() {
       if (!user) return;
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+      const res = await fetch('/api/me/profile');
+      const { profile: data } = res.ok ? await res.json() : { profile: null };
 
       if (data) {
         const p = data as Profile;

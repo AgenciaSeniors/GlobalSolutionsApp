@@ -32,8 +32,8 @@ export const ticketService = {
       .from('agent_tickets')
       .select(`
         *,
-        creator:profiles!created_by(full_name, email, role),
-        assignee:profiles!assigned_to(full_name, email, role)
+        creator:profiles!created_by(full_name, role),
+        assignee:profiles!assigned_to(full_name, role)
       `)
       .or(`created_by.eq.${userId},assigned_to.eq.${userId}`)
       .order('created_at', { ascending: false });
@@ -51,8 +51,8 @@ export const ticketService = {
       .from('agent_tickets')
       .select(`
         *,
-        creator:profiles!created_by(full_name, email, role, agent_code),
-        assignee:profiles!assigned_to(full_name, email, role)
+        creator:profiles!created_by(full_name, role),
+        assignee:profiles!assigned_to(full_name, role)
       `)
       .order('created_at', { ascending: false });
 
