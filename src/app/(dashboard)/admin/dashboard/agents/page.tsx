@@ -64,17 +64,16 @@ export default function AdminAgentsPage() {
 
   async function fetchAgentsData() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('role', 'agent')
-      .order('created_at', { ascending: false });
+    // Read via the admin API (service role): agent_fund_cents and email are no
+    // longer readable from the browser to prevent cross-user data exposure.
+    const res = await fetch('/api/admin/agents');
+    const json = await res.json().catch(() => ({}));
 
-    if (error) {
-      console.error('fetchAgentsData error:', error);
+    if (!res.ok) {
+      console.error('fetchAgentsData error:', json?.error);
       setAgents([]);
     } else {
-      const rows = (data ?? []) as Profile[];
+      const rows = (json.agents ?? []) as Profile[];
       setAgents(rows);
 
       const initialCodes: Record<string, string> = {};
