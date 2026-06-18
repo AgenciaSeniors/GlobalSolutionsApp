@@ -6,82 +6,25 @@ import { createClient } from '@/lib/supabase/client';
 import type { CreateBookingPayload } from '@/types/api.types';
 import type { Booking, BookingWithDetails } from '@/types/models';
 
-function generateBookingCode(): string {
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `GST-${rand}`;
-}
-
+/**
+ * Create a booking. Runs server-side (POST /api/bookings/create): the price is
+ * computed authoritatively on the server and passengers are encrypted there
+ * (the encryption key is server-only), so the browser cannot tamper with the
+ * total or access the secret.
+ */
 async function create(payload: CreateBookingPayload): Promise<Booking> {
-  const supabase = createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Debes iniciar sesión para reservar.');
+  const res = await fetch('/api/bookings/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 
-  // 1. Validar Vuelo y Disponibilidad
-  const { data: flight, error: flightErr } = await supabase
-    .from('flights')
-    .select('final_price, available_seats')
-    .eq('id', payload.flight_id)
-    .single();
-
-  if (flightErr || !flight) throw new Error('Vuelo no encontrado.');
-  if (flight.available_seats < payload.passengers.length) {
-    throw new Error('No hay suficientes asientos disponibles.');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error ?? 'Error creando la reserva.');
   }
 
-  const subtotal = flight.final_price * payload.passengers.length;
-  const totalAmount = subtotal; 
-
-  // 2. Crear la Reserva (Booking Header)
-  const { data: booking, error: bookingErr } = await supabase
-  .from('bookings')
-  .insert({
-    booking_code: generateBookingCode(),
-    user_id: user.id,
-    flight_id: payload.flight_id,
-    subtotal,
-    payment_gateway_fee: 0,
-    total_amount: totalAmount,
-    payment_method: 'zelle',
-    payment_status: 'pending',
-    booking_status: 'pending_emission',
-  })
-  .select()
-  .single();
-
-  if (bookingErr || !booking) throw new Error(bookingErr?.message ?? 'Error creando la reserva.');
-
-  // 3. Insertar Pasajeros con ENCRIPTACIÓN (Módulo 3.2 - CORREGIDO)
-  // 🔐 SEGURIDAD: Usamos la llave maestra dedicada, NO la del service role.
-  const secretKey = process.env.PASSPORT_ENCRYPTION_KEY;
-
-  if (!secretKey) {
-    console.error('❌ CRITICAL ERROR: PASSPORT_ENCRYPTION_KEY faltante en .env.local');
-    // Rollback: Borramos la reserva huérfana para no dejar basura en la DB
-    await supabase.from('bookings').delete().eq('id', booking.id);
-    throw new Error('Error interno de seguridad: Llave de encriptación no configurada.');
-  }
-
-  // Iteramos cada pasajero para encriptarlo individualmente usando la función de DB
-  for (const p of payload.passengers) {
-    const { error: rpcError } = await supabase.rpc('insert_encrypted_passenger', {
-      p_booking_id: booking.id,
-      p_first_name: p.first_name,
-      p_last_name: p.last_name,
-      p_date_of_birth: p.date_of_birth,
-      p_nationality: p.nationality,
-      p_passport_number: p.passport_number, // El dato sensible
-      p_passport_expiry_date: p.passport_expiry_date,
-      p_secret_key: secretKey // ✅ Enviamos la nueva llave segura
-    });
-
-    if (rpcError) {
-      console.error('⚠️ Error guardando pasajero encriptado:', rpcError.message);
-      throw new Error('Error guardando datos protegidos de los pasajeros.');
-    }
-  }
-
-  return booking as Booking;
+  return data.booking as Booking;
 }
 
 async function listForCurrentUser(): Promise<Booking[]> {
