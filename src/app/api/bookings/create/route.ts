@@ -113,7 +113,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .single();
 
     if (bookingErr || !booking) {
-      return NextResponse.json({ error: bookingErr?.message ?? 'Error creando la reserva.' }, { status: 500 });
+      return NextResponse.json({ error: 'Error creando la reserva.' }, { status: 500 });
     }
 
     // 6. Encrypt + insert passengers server-side.
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ booking });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Error interno';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[bookings/create]', e);
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (fetchErr) {
-      return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+      return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
     }
 
     if (!otpRow?.verified_at) {
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, userId });
   } catch (e: unknown) {
-  const message = e instanceof Error ? e.message : 'Error';
-  return NextResponse.json({ error: message }, { status: 500 });
+  console.error('[complete-register]', e);
+  return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
 }
 }

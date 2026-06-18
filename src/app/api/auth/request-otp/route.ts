@@ -135,6 +135,6 @@ export async function POST(req: Request) {
   } catch (e: unknown) {
     console.error('[request-otp] Error critico:', e);
     const message = e instanceof Error ? e.message : 'Error interno';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

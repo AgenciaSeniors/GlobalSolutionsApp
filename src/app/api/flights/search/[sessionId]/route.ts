@@ -377,10 +377,8 @@ const payload = buildPayload(
 return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (err: unknown) {
     console.error("[FLIGHT_SEARCH_SESSION_ERROR]", err);
-    const msg =
-      err instanceof Error ? err.message : String(err ?? "Internal server error");
     return NextResponse.json(
-      { error: msg },
+      { error: 'Error interno del servidor.' },
       { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }

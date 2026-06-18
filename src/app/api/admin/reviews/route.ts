@@ -84,13 +84,13 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 
     if (error) {
       console.error('[admin/reviews] Update error:', error.message);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error interno.';
     console.error('[admin/reviews] Unexpected error:', msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

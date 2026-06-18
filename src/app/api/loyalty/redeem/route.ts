@@ -80,7 +80,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ ok: true, balance: current - points });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Error interno';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[loyalty/redeem]', e);
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

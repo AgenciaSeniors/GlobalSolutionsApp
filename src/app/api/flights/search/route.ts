@@ -225,7 +225,7 @@ const staleResults = applyRoleMarkup(staleResultsRaw, markupPct);
 
   if (insertErr || !session) {
     return NextResponse.json(
-      { error: insertErr?.message ?? "No se pudo crear sesión." },
+      { error: "No se pudo crear sesión." },
       { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }

@@ -71,7 +71,7 @@ export async function POST(req: Request) {
       userId: data.user.id,
     });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Error interno';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[validate-credentials]', e);
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

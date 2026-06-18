@@ -49,11 +49,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .order('created_at', { ascending: false });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
     }
     return NextResponse.json({ agents: data ?? [] });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Error interno';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[admin/agents]', e);
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }
