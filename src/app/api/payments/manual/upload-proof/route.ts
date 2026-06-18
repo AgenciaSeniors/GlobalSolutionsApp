@@ -77,8 +77,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Esta reserva no usa un metodo de pago manual' }, { status: 400 });
     }
 
-    // 4. Upload file to Supabase Storage
-    const ext = file.name.split('.').pop() || 'jpg';
+    // 4. Upload file to Supabase Storage (derive the extension from the
+    // already-validated content-type, never from the client-supplied filename)
+    const EXT_BY_TYPE: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'application/pdf': 'pdf',
+    };
+    const ext = EXT_BY_TYPE[file.type] ?? 'bin';
     const fileName = `${bookingId}/${Date.now()}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());
 
