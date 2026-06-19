@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Resend } from "resend";
 import { paymentProcessingEmail } from "@/lib/email/templates";
+import { checkBookingAmountFloor } from "@/lib/pricing/bookingPriceGuard";
 
 const VALID_METHODS = ["zelle", "pix", "spei", "square"] as const;
 
@@ -87,6 +88,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     if (booking.payment_status !== "pending_admin_approval") {
       return NextResponse.json({ error: `Cannot confirm payment with status: ${booking.payment_status}` }, { status: 400 });
+    }
+
+    // ── Price integrity guard: reject implausibly low totals (client-set amount). ──
+    const guard = await checkBookingAmountFloor(supabaseAdmin, booking_id);
+    if (guard.determined && !guard.ok) {
+      console.error(`[Manual Confirm] Amount floor violation for ${booking.booking_code}: total=${guard.total} floor=${guard.floor} pax=${guard.passengers}`);
+      return NextResponse.json(
+        { error: `El monto de la reserva ($${guard.total}) es inferior al mínimo válido ($${guard.floor}). Requiere revisión manual.`, code: "AMOUNT_BELOW_FLOOR" },
+        { status: 409 }
+      );
     }
 
     // Idempotency gate

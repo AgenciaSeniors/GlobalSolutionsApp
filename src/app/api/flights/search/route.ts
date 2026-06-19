@@ -21,8 +21,10 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 /* ---- CONSTANTS ----------------------------------- */
 /* -------------------------------------------------- */
 
-const CACHE_TTL_MINUTES = 3;
-const CACHE_CONTROL_RESULTS = "public, s-maxage=300, stale-while-revalidate=600";
+// How long a search session stays valid for polling. Must be >= the time the
+// worker needs to finish + the client polling window, and aligned with the
+// cache lifetime in [sessionId]/route.ts so polls don't get a premature 410.
+const SESSION_TTL_MINUTES = 15;
 
 // Rate limiting — permisivo para humanos, bloquea bots
 // Un humano difícilmente hace más de 200 búsquedas en 10 minutos
@@ -82,15 +84,6 @@ function stableStringify(value: unknown): string {
 type FlightRecord = Record<string, unknown>;
 type ResultsByLeg = Array<{ legIndex: number; flights: FlightRecord[] }>;
 
-function pickNumber(v: unknown): number | null {
-  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
-  return Number.isFinite(n) ? n : null;
-}
-
-function round2(n: number) {
-  return Math.round(n * 100) / 100;
-}
-
 /* -------------------------------------------------- */
 /* ---- HANDLER ------------------------------------- */
 /* -------------------------------------------------- */
@@ -127,15 +120,26 @@ export async function POST(req: NextRequest) {
   const nowIso = now.toISOString();
 
   // ── Rate limiting ───────────────────────────────────
+  // Bind the limit to the authenticated user when available so a shared/NAT IP
+  // can't starve everyone, and an anonymous client can't bypass by spoofing XFF.
   const clientIp =
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
     "unknown";
 
+  let rateKey = `ip:${clientIp}`;
+  try {
+    const authClient = await createServerClient();
+    const { data: { user } } = await authClient.auth.getUser();
+    if (user?.id) rateKey = `user:${user.id}`;
+  } catch {
+    // fall back to IP-based limiting
+  }
+
   const { data: rateRow } = await supabase
     .from("search_rate_limits")
     .select("ip_address,last_search_at,search_count")
-    .eq("ip_address", clientIp)
+    .eq("ip_address", rateKey)
     .maybeSingle();
 
   const lastSearchAt = safeParseDateIso(rateRow?.last_search_at);
@@ -158,7 +162,7 @@ export async function POST(req: NextRequest) {
   // Upsert rate limit counter (reset if outside window)
   await supabase.from("search_rate_limits").upsert(
     {
-      ip_address: clientIp,
+      ip_address: rateKey,
       last_search_at: nowIso,
       search_count: withinWindow ? (rateRow?.search_count ?? 0) + 1 : 1,
     },
@@ -198,7 +202,7 @@ return NextResponse.json(
 
   // ── Create session ─────────────────────────────────
   const sessionExpiresAt = new Date(
-    now.getTime() + CACHE_TTL_MINUTES * 60 * 1000
+    now.getTime() + SESSION_TTL_MINUTES * 60 * 1000
   ).toISOString();
 
   const staleResultsRaw = cacheNotExpired ? normalizeResults(cacheRow?.response) : [];

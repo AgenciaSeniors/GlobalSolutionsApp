@@ -745,7 +745,7 @@ export default function AdminBookingsPage() {
                               )}
                               {b.zelle_proof_url && (
                                 <a
-                                  href={b.zelle_proof_url}
+                                  href={`/api/files/proof/${b.id}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-blue-50 border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"

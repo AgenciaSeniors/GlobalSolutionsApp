@@ -167,9 +167,9 @@ export default function UserBookingsPage() {
                             <CheckCircle className="h-8 w-8 mx-auto" />
                           </div>
                           <p className="text-sm font-bold text-slate-700 mb-4">¡Tu boleto está listo!</p>
-                          <a 
-                            href={booking.voucher_pdf_url} 
-                            target="_blank" 
+                          <a
+                            href={`/api/files/voucher/${booking.id}`}
+                            target="_blank"
                             rel="noopener noreferrer"
                             className="w-full bg-[#FF4757] hover:bg-[#e03d4b] text-white py-3 px-4 rounded-xl text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2"
                           >

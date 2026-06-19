@@ -245,7 +245,7 @@ export default function AgentBookingsPage() {
                   <div className="mt-4 pt-3 border-t border-gray-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
                     {booking.voucher_pdf_url ? (
                       <a
-                        href={booking.voucher_pdf_url}
+                        href={`/api/files/voucher/${booking.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-50 px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-100"
@@ -336,7 +336,7 @@ export default function AgentBookingsPage() {
             </div>
             {selectedBooking.voucher_pdf_url && (
               <a
-                href={selectedBooking.voucher_pdf_url}
+                href={`/api/files/voucher/${selectedBooking.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full inline-flex items-center justify-center gap-2 bg-brand-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition"

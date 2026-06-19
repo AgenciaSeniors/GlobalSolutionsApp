@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { getRoleAndMarkupPct } from '@/lib/flights/roleMarkup';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 type AnyRecord = Record<string, unknown>;
@@ -166,13 +167,13 @@ export async function POST(req: NextRequest) {
   }
 
   // ----------------------------------------------------------------------------
-  // PASO 5 (corregido):
-  // - Usa base_price del payload si viene (mejor, evita errores de redondeo).
-  // - Si no viene, calcula base_price desde externalPrice y markupPct.
-  // - IMPORTANTE: markupPct ya viene según el rol (cliente/gestor) desde el buscador.
+  // PASO 5 (endurecido):
+  // - El markup SIEMPRE se deriva del rol en el servidor — NUNCA del cliente.
+  //   Esto impide que un cliente envíe markup_percentage=0 para pagar a costo.
+  // - base_price = costo externo (proveedor). final_price es GENERATED ALWAYS en DB.
   // ----------------------------------------------------------------------------
 
-  const markupPct = pickNumber(flight.markup_percentage) ?? 10;
+  const { markupPct } = await getRoleAndMarkupPct(supabase);
 
   const baseFromPayload = pickNumber(flight.base_price);
   const externalPrice = pickNumber(flight.final_price) ?? pickNumber(flight.price) ?? 0;
@@ -211,7 +212,7 @@ export async function POST(req: NextRequest) {
       airlineErr?.details,
       airlineErr?.code
     );
-    return NextResponse.json({ error: `Error aerolínea: ${airlineErr?.message}` }, { status: 500 });
+    return NextResponse.json({ error: 'No se pudo guardar la aerolínea.' }, { status: 500 });
   }
 
   // ---- Upsert origin airport ----
@@ -232,7 +233,7 @@ export async function POST(req: NextRequest) {
 
   if (originErr || !originRow) {
     console.error('[flights/persist] ❌ Origin airport upsert failed:', originErr?.message, originErr?.details);
-    return NextResponse.json({ error: `Error aeropuerto origen: ${originErr?.message}` }, { status: 500 });
+    return NextResponse.json({ error: 'No se pudo guardar el aeropuerto de origen.' }, { status: 500 });
   }
 
   // ---- Upsert destination airport ----
@@ -253,7 +254,7 @@ export async function POST(req: NextRequest) {
 
   if (destErr || !destRow) {
     console.error('[flights/persist] ❌ Dest airport upsert failed:', destErr?.message, destErr?.details);
-    return NextResponse.json({ error: `Error aeropuerto destino: ${destErr?.message}` }, { status: 500 });
+    return NextResponse.json({ error: 'No se pudo guardar el aeropuerto de destino.' }, { status: 500 });
   }
 
   // ---- Check for existing flight ----
@@ -301,7 +302,7 @@ export async function POST(req: NextRequest) {
 
   if (flightErr || !flightRow) {
     console.error('[flights/persist] ❌ Flight insert failed:', flightErr?.message, flightErr?.details, flightErr?.hint);
-    return NextResponse.json({ error: `Error vuelo: ${flightErr?.message}` }, { status: 500 });
+    return NextResponse.json({ error: 'No se pudo guardar el vuelo.' }, { status: 500 });
   }
 
   console.log(

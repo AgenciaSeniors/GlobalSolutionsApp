@@ -1040,8 +1040,12 @@ async function mapItineraryToFlight(
       : rawLogoUrl ?? logoMap.get(airlineName) ?? null;
 
   const airlineCodeFromLogo = airlineLogoUrl ? airlineLogoUrl.split("/").pop()?.split(".")[0] : null;
+  // Only accept a plausible IATA-like code (2-3 alphanumerics) extracted from the
+  // logo URL; anything else (paths, long slugs) is rejected.
   const airlineCode =
-    airlineCodeFromLogo && airlineCodeFromLogo.length <= 3 ? airlineCodeFromLogo : "";
+    airlineCodeFromLogo && /^[A-Za-z0-9]{2,3}$/.test(airlineCodeFromLogo)
+      ? airlineCodeFromLogo
+      : "";
 
   // Segments mapping + time normalization
   const mappedSegments: SkySegmentData[] = [];
@@ -1097,7 +1101,11 @@ async function mapItineraryToFlight(
     flightNumber = mappedSegments[0].flight_number;
   }
   if (!flightNumber && airlineCode) {
-    flightNumber = `${airlineCode}${100 + Math.floor(Math.random() * 900)}`;
+    // Deterministic pseudo flight number derived from the stable offer id.
+    // (A random number broke dedupe/caching: identical searches differed.)
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    flightNumber = `${airlineCode}${100 + (h % 900)}`;
   }
 
   return {
