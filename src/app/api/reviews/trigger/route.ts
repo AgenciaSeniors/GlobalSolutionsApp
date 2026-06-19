@@ -88,7 +88,7 @@ export async function POST() {
 
     if (error) {
       console.error('Review trigger query error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
     }
 
     const typedBookings: BookingRow[] = (bookings ?? []) as unknown as BookingRow[];
@@ -165,6 +165,6 @@ export async function POST() {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal error';
     console.error('Review trigger error:', err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

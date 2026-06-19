@@ -76,8 +76,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Esta reserva no usa Zelle' }, { status: 400 });
     }
 
-    // 4. Upload file to Supabase Storage
-    const ext = file.name.split('.').pop() || 'jpg';
+    // 4. Upload file to Supabase Storage (derive the extension from the
+    // already-validated content-type, never from the client-supplied filename)
+    const EXT_BY_TYPE: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'application/pdf': 'pdf',
+    };
+    const ext = EXT_BY_TYPE[file.type] ?? 'bin';
     const fileName = `${bookingId}/${Date.now()}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -119,6 +126,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error interno';
     console.error('[Zelle Upload] Error:', msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

@@ -128,7 +128,7 @@ function EmissionsDashboard() {
           .select(
             `
             id, booking_code, created_at, payment_status, booking_status,
-            profile:profiles!bookings_user_id_fkey(full_name, email),
+            profile:profiles!bookings_user_id_fkey(full_name),
             flight:flights!bookings_flight_id_fkey(flight_number, airline:airlines!flights_airline_id_fkey(name))
           `
           )
@@ -138,7 +138,7 @@ function EmissionsDashboard() {
         if (error) console.error('Error buscando pendientes:', error.message);
 
         // Tu filtro actual: solo mostrar pagadas
-        const validBookings = ((data as PendingBookingRow[]) || []).filter(
+        const validBookings = ((data as unknown as PendingBookingRow[]) || []).filter(
           (b) => String(b.payment_status).trim() === 'paid'
         );
         setPending(validBookings);
@@ -479,8 +479,11 @@ function EmissionForm({ bookingId, voucherId }: { bookingId?: string; voucherId?
           const bookingData = booking as BookingWithRelations;
 
           if (bookingData.user_id) {
-            const { data: profile } = await supabase.from('profiles').select('email').eq('id', bookingData.user_id).single();
-            if (profile) setClientEmail(profile.email);
+            const contactRes = await fetch(`/api/admin/booking-contact?booking_id=${bookingId}`);
+            if (contactRes.ok) {
+              const { contact } = await contactRes.json();
+              if (contact?.email) setClientEmail(contact.email);
+            }
           }
 
           setInvoiceId(bookingData.booking_code || '');

@@ -51,11 +51,8 @@ export default function BecomeAgentPage() {
     setUserId(user.id);
 
     // Revisar su perfil para ver si ya es agente
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, full_name, email')
-      .eq('id', user.id)
-      .single();
+    const meRes = await fetch('/api/me/profile');
+    const profile = meRes.ok ? (await meRes.json()).profile : null;
 
     if (profile) {
       setFormData({

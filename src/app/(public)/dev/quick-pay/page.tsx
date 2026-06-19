@@ -56,6 +56,11 @@ export default function QuickPayDevPage() {
     }
   }
 
+  // Dev-only helper: not available in production builds.
+  if (process.env.NODE_ENV === 'production') {
+    return <div style={{ padding: 24 }}>No disponible.</div>;
+  }
+
   return (
     <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
       <h1 style={{ fontSize: 22, fontWeight: 700 }}>DEV: Quick Pay</h1>

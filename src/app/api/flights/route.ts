@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query;
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
     }
 
     let flights = (data as unknown as FlightRow[]) ?? [];
@@ -92,8 +92,7 @@ export async function GET(request: NextRequest) {
 
     return res;
   } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : "Internal Server Error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[flights]', err);
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

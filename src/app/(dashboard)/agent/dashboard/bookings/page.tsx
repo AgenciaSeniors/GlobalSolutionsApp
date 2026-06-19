@@ -65,7 +65,7 @@ export default function AgentBookingsPage() {
       .select(
         `
         id, booking_code, created_at, booking_status, payment_status, total_amount, voucher_pdf_url,
-        profile:profiles!user_id(full_name, email),
+        profile:profiles!user_id(full_name),
         flight:flights!flight_id(
           airline:airlines!airline_id(name),
           origin_airport:airports!origin_airport_id(iata_code),

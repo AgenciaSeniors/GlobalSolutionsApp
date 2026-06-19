@@ -29,6 +29,17 @@ export async function POST(req: Request) {
       );
     }
 
+    // Rate-limit registrations per IP (max 10 / hour) on top of the OTP gate.
+    const ip = (req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown').trim();
+    const { data: regAllowed } = await supabaseAdmin.rpc('auth_throttle_peek', { p_key: `register:${ip}`, p_limit: 10 });
+    if (regAllowed === false) {
+      return NextResponse.json(
+        { error: 'Demasiados intentos. Espera unos minutos.' },
+        { status: 429 },
+      );
+    }
+    await supabaseAdmin.rpc('auth_throttle_hit', { p_key: `register:${ip}`, p_window_seconds: 3600 });
+
     // ✅ Buscar el OTP más reciente verificado y no consumido
     const { data: otpRow, error: fetchErr } = await supabaseAdmin
       .from('auth_otps')
@@ -40,7 +51,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (fetchErr) {
-      return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+      return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
     }
 
     if (!otpRow?.verified_at) {
@@ -120,7 +131,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, userId });
   } catch (e: unknown) {
-  const message = e instanceof Error ? e.message : 'Error';
-  return NextResponse.json({ error: message }, { status: 500 });
+  console.error('[complete-register]', e);
+  return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
 }
 }

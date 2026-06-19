@@ -86,7 +86,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .from('profiles')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
     if (profileError) {
       console.error('[admin/settings] Profile fetch error:', profileError.message);
@@ -191,6 +191,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error interno.';
     console.error('[admin/settings] Unhandled error:', msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

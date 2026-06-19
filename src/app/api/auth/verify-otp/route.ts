@@ -10,7 +10,7 @@ const supabaseAdmin = createClient(
 );
 
 function sha256(input: string) {
-  return crypto.createHash('sha256').update(input).digest('hex');
+  return crypto.createHash('sha256').update(input + (process.env.OTP_HASH_SECRET ?? '')).digest('hex');
 }
 
 type VerifyOtpBody = {
@@ -67,11 +67,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Código expirado.' }, { status: 400 });
     }
 
-    // 3) Validar Hash
-    if (sha256(normalizedCode) !== otpRow.code_hash) {
+    // 3) Lockout: bound online brute-force of the 6-digit code. After
+    // MAX_OTP_ATTEMPTS wrong guesses the code is invalidated and the user must
+    // request a new one (which is itself rate-limited in request-otp).
+    const MAX_OTP_ATTEMPTS = 5;
+    const attempts = typeof otpRow.attempts === 'number' ? otpRow.attempts : 0;
+    if (attempts >= MAX_OTP_ATTEMPTS) {
+      await supabaseAdmin
+        .from('auth_otps')
+        .update({ used_at: now.toISOString() })
+        .eq('id', otpRow.id);
       return NextResponse.json(
-        { error: 'Código incorrecto.' },
-        { status: 400 },
+        { error: 'Demasiados intentos. Solicita un nuevo código.' },
+        { status: 429 },
+      );
+    }
+
+    // 4) Validar Hash
+    if (sha256(normalizedCode) !== otpRow.code_hash) {
+      const newAttempts = attempts + 1;
+      const locked = newAttempts >= MAX_OTP_ATTEMPTS;
+      await supabaseAdmin
+        .from('auth_otps')
+        .update({
+          attempts: newAttempts,
+          ...(locked ? { used_at: now.toISOString() } : {}),
+        })
+        .eq('id', otpRow.id);
+      return NextResponse.json(
+        { error: locked ? 'Demasiados intentos. Solicita un nuevo código.' : 'Código incorrecto.' },
+        { status: locked ? 429 : 400 },
       );
     }
 
@@ -154,6 +179,6 @@ export async function POST(req: Request) {
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Error interno';
     console.error('[verify-otp] Error:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

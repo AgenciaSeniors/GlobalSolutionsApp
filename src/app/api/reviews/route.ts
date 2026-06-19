@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
 
     if (error) {
       console.error("[/api/reviews] supabase error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
     }
 
     const rows = (data ?? []) as unknown as ReviewRow[];
@@ -119,6 +119,6 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("[/api/reviews] unexpected:", err);
     const message = err instanceof Error ? err.message : "Internal error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

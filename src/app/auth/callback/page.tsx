@@ -21,6 +21,18 @@ function parseHashParams() {
   };
 }
 
+/**
+ * Only allow same-origin relative redirects, to prevent an open redirect via
+ * ?next= (e.g. //evil.com, https://evil.com, /\evil.com).
+ */
+function sanitizeNext(raw: string | null): string {
+  const fallback = '/user/dashboard';
+  if (!raw || !raw.startsWith('/')) return fallback;
+  if (raw.startsWith('//') || raw.startsWith('/\\')) return fallback;
+  if (raw.includes('://') || raw.includes('\\')) return fallback;
+  return raw;
+}
+
 function AuthCallbackInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -31,7 +43,7 @@ function AuthCallbackInner() {
 
     (async () => {
       const supabase = createClient();
-      const next = searchParams.get('next') ?? '/user/dashboard';
+      const next = sanitizeNext(searchParams.get('next'));
 
       try {
         // ─────────────────────────────────────────────────────

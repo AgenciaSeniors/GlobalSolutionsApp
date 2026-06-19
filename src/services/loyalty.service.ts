@@ -36,15 +36,8 @@ export const loyaltyService = {
   async getBalance(userId: string): Promise<LoyaltyBalance> {
     const supabase = createClient();
 
-    // Get profile points (single source of truth)
-    const { data: profile, error: profileErr } = await supabase
-      .from('profiles')
-      .select('loyalty_points')
-      .eq('id', userId)
-      .single();
-
-    if (profileErr) throw profileErr;
-
+    // Balance is derived from transactions; profiles.loyalty_points is no longer
+    // readable from the browser.
     // Get transaction stats
     const { data: transactions, error: txErr } = await supabase
       .from('loyalty_transactions')
@@ -58,7 +51,7 @@ export const loyaltyService = {
     const totalRedeemed = Math.abs(items.filter(t => t.points < 0).reduce((s, t) => s + t.points, 0));
 
     return {
-      points: profile?.loyalty_points ?? 0,
+      points: totalEarned - totalRedeemed,
       totalEarned,
       totalRedeemed,
       transactionCount: items.length,
@@ -75,30 +68,21 @@ export const loyaltyService = {
     reason: string,
     referenceId?: string,
   ): Promise<number> {
-    const supabase = createClient();
-
-    // Verify sufficient balance
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('loyalty_points')
-      .eq('id', userId)
-      .single();
-
-    if (!profile || profile.loyalty_points < points) {
-      throw new Error('Puntos insuficientes para esta operación.');
-    }
-
-    // Call the RPC to deduct points (negative value)
-    const { error } = await supabase.rpc('add_loyalty_points', {
-      p_user_id: userId,
-      p_points: -points,
-      p_reason: reason,
-      p_ref_type: 'redemption',
-      p_ref_id: referenceId ?? null,
+    // Redemption runs server-side: the `add_loyalty_points` RPC is no longer
+    // callable from the browser (it would allow self-awarding points). The
+    // server identifies the user from the session; `userId` is ignored there.
+    void userId;
+    const res = await fetch('/api/loyalty/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ points, reason, referenceId }),
     });
 
-    if (error) throw error;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error ?? 'No se pudo procesar la redención.');
+    }
 
-    return profile.loyalty_points - points;
+    return data.balance as number;
   },
 };

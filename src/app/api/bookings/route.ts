@@ -63,13 +63,13 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
     }
 
     return NextResponse.json({ data });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Internal Server Error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[bookings]', err);
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }
 
@@ -127,12 +127,12 @@ export async function PATCH(req: Request) {
       .single();
 
     if (updErr) {
-      return NextResponse.json({ error: updErr.message }, { status: 500 });
+      return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
     }
 
     return NextResponse.json({ data: updated });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Internal Server Error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[bookings]', err);
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

@@ -64,17 +64,16 @@ export default function AdminAgentsPage() {
 
   async function fetchAgentsData() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('role', 'agent')
-      .order('created_at', { ascending: false });
+    // Read via the admin API (service role): agent_fund_cents and email are no
+    // longer readable from the browser to prevent cross-user data exposure.
+    const res = await fetch('/api/admin/agents');
+    const json = await res.json().catch(() => ({}));
 
-    if (error) {
-      console.error('fetchAgentsData error:', error);
+    if (!res.ok) {
+      console.error('fetchAgentsData error:', json?.error);
       setAgents([]);
     } else {
-      const rows = (data ?? []) as Profile[];
+      const rows = (json.agents ?? []) as Profile[];
       setAgents(rows);
 
       const initialCodes: Record<string, string> = {};
@@ -137,18 +136,10 @@ export default function AdminAgentsPage() {
         return;
       }
 
-      const { data: existing, error: existErr } = await supabase
-        .from('profiles')
-        .select('id, agent_code')
-        .eq('agent_code', code)
-        .neq('id', agentId)
-        .limit(1);
-
-      if (existErr) {
-        setToast({ ok: null, error: existErr.message });
-        return;
-      }
-      if ((existing ?? []).length > 0) {
+      const dup = agents.some(
+        (a) => a.id !== agentId && (a.agent_code ?? '').trim().toUpperCase() === code.trim().toUpperCase()
+      );
+      if (dup) {
         setToast({ ok: null, error: `Ese código ya existe: ${code}` });
         return;
       }
@@ -310,42 +301,18 @@ export default function AdminAgentsPage() {
 
     setPromoteLoading(true);
     try {
-      const { data: found, error: findErr } = await supabase.from('profiles').select('*').eq('email', email).single();
-      if (findErr || !found) {
-        setToast({ ok: null, error: 'No se encontró un perfil con ese email.' });
+      const res = await fetch('/api/admin/promote-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code, active: promoteActive }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast({ ok: null, error: json?.error ?? 'Error al aprobar agente.' });
         return;
       }
 
-      const profile = found as Profile;
-
-      const { data: existing, error: existErr } = await supabase
-        .from('profiles')
-        .select('id, agent_code')
-        .eq('agent_code', code)
-        .neq('id', profile.id)
-        .limit(1);
-
-      if (existErr) {
-        setToast({ ok: null, error: existErr.message });
-        return;
-      }
-      if ((existing ?? []).length > 0) {
-        setToast({ ok: null, error: `Ese código ya existe: ${code}` });
-        return;
-      }
-
-      const nextRole: UserRole = 'agent';
-      const { error: upErr } = await supabase
-        .from('profiles')
-        .update({ role: nextRole, agent_code: code, is_active: promoteActive })
-        .eq('id', profile.id);
-
-      if (upErr) {
-        setToast({ ok: null, error: upErr.message });
-        return;
-      }
-
-      setToast({ ok: `Agente aprobado exitosamente: ${profile.full_name}`, error: null });
+      setToast({ ok: `Agente aprobado exitosamente: ${json.full_name ?? ''}`, error: null });
       setPromoteEmail('');
       setPromoteCode('');
       setPromoteActive(true);

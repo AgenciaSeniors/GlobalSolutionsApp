@@ -215,6 +215,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[Zelle Request] Unexpected error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

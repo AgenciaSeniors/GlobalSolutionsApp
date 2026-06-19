@@ -16,8 +16,9 @@ describe('flightDedupeKey', () => {
 
     const key = flightDedupeKey(mockFlight);
 
-    // UTC 14:30 → Cuba time (UTC-4 en mayo, DST) = 10:30
-    expect(key).toBe('AA|1234|HAV|MAD|2026-05-01T10:30');
+    // La fecha se normaliza a UTC (toISOString) para que la llave sea estable
+    // e independiente de la zona horaria del servidor que procese el vuelo.
+    expect(key).toBe('AA|1234|HAV|MAD|2026-05-01T14:30');
   });
 
   it('Debe usar fallbacks (NAIR, NFN) si faltan datos', () => {

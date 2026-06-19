@@ -66,11 +66,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const { data: booking, error: bookingErr } = await supabaseAdmin
       .from("bookings")
-      .select("id, booking_code, payment_status, payment_method, total_amount, user_id")
+      .select("id, booking_code, payment_status, payment_method, total_amount, user_id, assigned_agent_id")
       .eq("id", booking_id)
       .single();
 
     if (bookingErr || !booking) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+
+    // Agents may only act on bookings assigned to them (admins on any).
+    if (role === "agent" && booking.assigned_agent_id !== user.id) {
+      return NextResponse.json({ error: "No autorizado: no estás asignado a esta reserva." }, { status: 403 });
+    }
 
     if (booking.payment_method !== payment_method) {
       return NextResponse.json({ error: `This booking uses ${booking.payment_method}, not ${methodLabel}` }, { status: 400 });
@@ -170,7 +175,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ success: true, booking_id, booking_code: booking.booking_code, confirmed_by: user.id }, { status: 200 });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error('[manual/confirm]', err);
+    return NextResponse.json({ error: 'Error interno del servidor.' }, { status: 500 });
   }
 }

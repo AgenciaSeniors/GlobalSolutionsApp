@@ -67,12 +67,8 @@ export default function UserDashboardPage() {
             .select('id, booking_status, payment_status, total_amount')
             .eq('user_id', user.id),
 
-          // FIX: profiles PK is 'id' (which equals auth.uid()), NOT 'user_id'
-          supabase
-            .from('profiles')
-            .select('loyalty_points')
-            .eq('id', user.id)
-            .maybeSingle(),
+          // Sensitive own-profile fields are read via the service-role route.
+          fetch('/api/me/profile').then(async (r) => ({ data: r.ok ? (await r.json()).profile : null })),
 
           supabase.from('reviews').select('id').eq('profile_id', user.id),
 
