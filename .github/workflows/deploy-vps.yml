@@ -17,6 +17,7 @@ jobs:
           script: |
             cd /var/www/gst
             git pull origin main
+            npm ci
             npm run build
             pm2 restart gst
             pm2 status
