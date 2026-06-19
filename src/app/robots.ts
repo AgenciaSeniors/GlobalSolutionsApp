@@ -3,8 +3,9 @@
  * @module app/robots
  */
 import type { MetadataRoute } from 'next';
+import { SITE_DOMAIN } from '@/lib/seo/metadata';
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://globalsolutiontravel.com';
+const BASE_URL = `https://${SITE_DOMAIN}`;
 
 export default function robots(): MetadataRoute.Robots {
   return {
