@@ -47,3 +47,6 @@ aux
 # Capacitor native projects
 /android/
 /ios/
+
+# Local deploy script with credentials — never commit
+deploy_vps.py
