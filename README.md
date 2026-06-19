@@ -679,8 +679,7 @@ SELECT * FROM bookings WHERE booking_code = 'GST-XXXX' AND profile_id = auth.uid
 |--------|------|-------------|
 | POST | `/api/flights/search` | Iniciar sesión de búsqueda (2-phase, con caché) |
 | GET | `/api/flights/search/[sessionId]` | Obtener estado/resultado de sesión |
-| GET | `/api/flights/airports` | Listado completo de aeropuertos |
-| GET | `/api/flights/autocomplete?q=` | Autocompletado por IATA o ciudad |
+| GET | `/api/flights/autocomplete?query=` | Autocompletado por IATA, ciudad o país (DB local + RapidAPI con caché y rate-limit) |
 | POST | `/api/flights/persist` | Admin: agregar vuelo al inventario |
 | GET/POST | `/api/flights` | CRUD de vuelos |
 
