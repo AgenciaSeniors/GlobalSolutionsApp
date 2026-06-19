@@ -20,6 +20,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { TtlCache, SlidingWindowLimiter } from '@/lib/flights/inMemoryCache';
 
 /* ─────────────────────────────────────────────
  * Constants
@@ -36,6 +37,37 @@ const API_TIMEOUT_MS = 5_000;
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY ?? '';
 const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST ?? 'flights-sky.p.rapidapi.com';
+
+/* ─────────────────────────────────────────────
+ * Quota protection for the external (paid) RapidAPI call
+ *
+ * RapidAPI bills every request, so we (1) coalesce identical queries via an
+ * in-memory cache and (2) cap how often a single client IP can trigger a real
+ * upstream call. Cache hits never count against the rate limit (they cost no
+ * quota). Worldwide coverage is preserved: a cache miss under the limit still
+ * hits the API. Reliable because the app runs as a single pm2 process.
+ * ───────────────────────────────────────────── */
+
+/** Max upstream calls a single IP may trigger per window. */
+const EXTERNAL_MAX = 60;
+/** Rate-limit window for upstream calls (10 min). */
+const EXTERNAL_WINDOW_MS = 10 * 60_000;
+/** Cache TTL for non-empty results (airports rarely change). */
+const CACHE_TTL_HIT_MS = 30 * 60_000;
+/** Cache TTL for empty results — short, since an empty may be a transient API failure. */
+const CACHE_TTL_EMPTY_MS = 60_000;
+
+const externalCache = new TtlCache<AutocompleteResult[]>(2000, CACHE_TTL_HIT_MS);
+const externalLimiter = new SlidingWindowLimiter(EXTERNAL_MAX, EXTERNAL_WINDOW_MS);
+
+/** Best-effort client IP (first hop of x-forwarded-for), mirroring middleware.ts. */
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip')?.trim() ||
+    'unknown'
+  );
+}
 
 /* ─────────────────────────────────────────────
  * Country name ↔ ISO code maps (Spanish + English)
@@ -468,11 +500,41 @@ export async function GET(req: NextRequest) {
     // Step 1: Search local cache AND external API in parallel.
     // Local DB is a fast cache; external API is the primary source for worldwide coverage.
     // External API requires at least 3 chars — shorter queries use local cache only.
+    //
+    // To protect the paid RapidAPI quota, the external call goes through:
+    //   1. an in-memory cache keyed by the normalized query (coalesces identical
+    //      requests across all users — a cache hit costs no quota), and
+    //   2. a per-IP rate limit on real upstream calls (abuse protection).
+    // Coverage is unchanged: a cache miss within the limit still hits the API.
+    let externalPromise: Promise<AutocompleteResult[]> = Promise.resolve(
+      [] as AutocompleteResult[],
+    );
+
+    if (query.length >= 3 && RAPIDAPI_KEY) {
+      const cacheKey = stripAccents(query.toLowerCase().trim());
+      const cached = externalCache.get(cacheKey);
+
+      if (cached) {
+        // Cache hit — no upstream call, no rate-limit consumption.
+        externalPromise = Promise.resolve(cached);
+      } else if (externalLimiter.allow(getClientIp(req))) {
+        externalPromise = searchExternalAPI(query).then((r) => {
+          // Empty results get a short TTL: they may be a transient API failure,
+          // and we don't want to suppress real results for 30 minutes.
+          externalCache.set(
+            cacheKey,
+            r,
+            r.length > 0 ? CACHE_TTL_HIT_MS : CACHE_TTL_EMPTY_MS,
+          );
+          return r;
+        });
+      }
+      // else: over the rate limit — degrade gracefully to local-only (no error).
+    }
+
     const [localResults, apiResults] = await Promise.all([
       searchLocalAirports(query),
-      query.length >= 3 && RAPIDAPI_KEY
-        ? searchExternalAPI(query)
-        : Promise.resolve([] as AutocompleteResult[]),
+      externalPromise,
     ]);
 
     // Step 3: Merge and deduplicate (local results first)
