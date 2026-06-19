@@ -63,8 +63,19 @@ function formatDateYYYYMMDD(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
+    // Cron auth: require a shared secret so this email-sending job can't be
+    // triggered by anonymous callers.
+    const cronSecret = process.env.CRON_SECRET;
+    const provided =
+      req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
+      req.headers.get('x-cron-secret') ??
+      '';
+    if (!cronSecret || provided !== cronSecret) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = formatDateYYYYMMDD(yesterday);

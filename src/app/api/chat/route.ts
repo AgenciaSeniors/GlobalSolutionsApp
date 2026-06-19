@@ -370,7 +370,7 @@ function formatBookingResponse(booking: BookingRow) {
   } else if (emitted) {
     lines.push('');
     lines.push('Tu boleto/voucher está disponible ✅.');
-    if (booking.voucher_pdf_url) lines.push(`• Voucher: ${booking.voucher_pdf_url}`);
+    if (booking.voucher_pdf_url) lines.push('• Descarga tu voucher desde **Mis reservas** en tu panel.');
     lines.push('Si no lo ves en tu correo, confirma que el email esté correcto en tu perfil.');
   } else if (bookingStatus === 'cancelled') {
     lines.push('');

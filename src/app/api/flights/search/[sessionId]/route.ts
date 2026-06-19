@@ -37,6 +37,16 @@ export const revalidate = 0;
 const CACHE_TTL_MINUTES = 15;
 const FRESH_WINDOW_MS = 5 * 60 * 1000; // 5 min
 
+/**
+ * Short TTL for caching *empty* results. Prevents hammering the provider on
+ * repeated identical searches during an outage / open circuit breaker, while
+ * recovering quickly once flights are available again.
+ */
+const EMPTY_CACHE_TTL_MS = 60_000;
+
+/** How often the background worker refreshes its heartbeat while running. */
+const HEARTBEAT_INTERVAL_MS = 15_000;
+
 /** If a worker hasn't sent a heartbeat in this window, consider it dead. */
 const WORKER_STALE_MS = 60_000;
 
@@ -164,7 +174,8 @@ function buildPayload(
     displayCap: 20,
     providersUsed: session.providers_used ?? extractProvidersUsed(results),
   };
-  if (session.error) payload.error = session.error;
+  // Don't leak internal worker error text to the client.
+  if (session.error) payload.error = "No se pudo completar la búsqueda de vuelos.";
   return payload;
 }
 
@@ -196,6 +207,19 @@ async function executeSearchWorker(
     return;
   }
 
+  // Keep the worker's heartbeat fresh while the (potentially 30-40s) orchestrator
+  // call runs, so concurrent polls don't wrongly consider it dead and re-lock.
+  const heartbeat = setInterval(() => {
+    void supabase
+      .from("flight_search_sessions")
+      .update({ worker_heartbeat: new Date().toISOString() })
+      .eq("session_id", sessionId)
+      .then(
+        () => {},
+        () => {}
+      );
+  }, HEARTBEAT_INTERVAL_MS);
+
   try {
     console.log(`[WORKER:${sessionId.slice(0, 8)}] Starting orchestrator search...`);
     const providerRes = await flightsOrchestrator.search(reqBody);
@@ -213,14 +237,17 @@ async function executeSearchWorker(
       `[WORKER:${sessionId.slice(0, 8)}] Search complete: ${totalFlights} flights from [${providersUsed.join(", ")}]`
     );
 
-    // ── Cache write (only if there are actual results) ──
-    // Don't cache empty results — they can be caused by temporary provider
-    // failures or circuit-breaker openings and would propagate the error.
-    if (session.cache_key && totalFlights > 0) {
-      const cacheExpires = new Date(
-        Date.now() + CACHE_TTL_MINUTES * 60 * 1000
-      ).toISOString();
-      const freshUntil = new Date(Date.now() + FRESH_WINDOW_MS).toISOString();
+    // ── Cache write ──
+    // Full results are cached for CACHE_TTL_MINUTES. Empty results are cached
+    // only briefly (EMPTY_CACHE_TTL_MS) so repeated identical searches during a
+    // provider outage / open breaker don't hammer the upstream API, while still
+    // recovering quickly once flights are available again.
+    if (session.cache_key) {
+      const hasResults = totalFlights > 0;
+      const ttlMs = hasResults ? CACHE_TTL_MINUTES * 60 * 1000 : EMPTY_CACHE_TTL_MS;
+      const freshMs = hasResults ? FRESH_WINDOW_MS : EMPTY_CACHE_TTL_MS;
+      const cacheExpires = new Date(Date.now() + ttlMs).toISOString();
+      const freshUntil = new Date(Date.now() + freshMs).toISOString();
 
       const { error: cacheErr } = await supabase
         .from("flight_search_cache")
@@ -273,6 +300,8 @@ async function executeSearchWorker(
         worker_heartbeat: failedAt,
       })
       .eq("session_id", sessionId);
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
@@ -378,7 +407,7 @@ return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (err: unknown) {
     console.error("[FLIGHT_SEARCH_SESSION_ERROR]", err);
     return NextResponse.json(
-      { error: 'Error interno del servidor.' },
+      { error: "Error interno procesando la búsqueda." },
       { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }

@@ -30,12 +30,24 @@ export async function POST(request: NextRequest) {
 
     // 3. Process emission email
     const body = await request.json();
-    const { email, clientName, invoiceId, pdfUrl, passengers, flights } = body;
+    const { email, clientName, invoiceId, passengers, flights } = body;
 
     const mappedPassengers = (passengers ?? []).map((p: { fullName?: string; ticketNumber?: string }) => ({
       name: p.fullName,
       ticketNumber: p.ticketNumber,
     }));
+
+    // The vouchers bucket is private — email a login-gated link, not a public URL.
+    let voucherLink: string | undefined;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (invoiceId && appUrl) {
+      const { data: bk } = await supabaseAdmin
+        .from('bookings')
+        .select('id')
+        .eq('booking_code', invoiceId)
+        .maybeSingle();
+      if (bk?.id) voucherLink = `${appUrl}/api/files/voucher/${bk.id}`;
+    }
 
     const result = await notifyEmissionComplete(email, {
       clientName: clientName,
@@ -49,7 +61,7 @@ export async function POST(request: NextRequest) {
       destinationCity: flights?.[0]?.destination || '',
       departureDate: flights?.[0]?.date || '',
       passengers: mappedPassengers,
-      voucherUrl: pdfUrl,
+      voucherUrl: voucherLink,
     });
 
     if (!result.success) {
